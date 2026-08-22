@@ -1,5 +1,5 @@
 name: edu_parent
-description: "Ứng dụng dành cho phụ huynh - EduParent"
+description: "Ứng dụng dành cho phụ huynh - PrivateClass Vision"
 publish_to: 'none'
 
 version: 1.0.0+1
@@ -19,3 +19,6 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+
+  assets:
+    - assets/images/

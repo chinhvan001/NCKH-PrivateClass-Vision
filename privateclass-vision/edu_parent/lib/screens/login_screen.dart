@@ -17,28 +17,10 @@ class LoginScreen extends StatelessWidget {
             children: [
               const Spacer(flex: 2),
               // Logo
-              Container(
-                width: 90,
-                height: 90,
-                decoration: BoxDecoration(
-                  color: AppColors.primary,
-                  borderRadius: BorderRadius.circular(20),
-                ),
-                child: const Icon(
-                  Icons.school,
-                  color: Colors.white,
-                  size: 50,
-                ),
-              ),
-              const SizedBox(height: 12),
-              const Text(
-                'EDU PARENT',
-                style: TextStyle(
-                  fontSize: 22,
-                  fontWeight: FontWeight.bold,
-                  color: AppColors.primary,
-                  letterSpacing: 2,
-                ),
+              Image.asset(
+                'assets/images/logo.png',
+                width: 180,
+                height: 180,
               ),
               const Spacer(flex: 1),
               // Illustration

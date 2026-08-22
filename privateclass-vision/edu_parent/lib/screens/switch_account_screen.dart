@@ -98,35 +98,6 @@ class _SwitchAccountScreenState extends State<SwitchAccountScreen> {
               ),
             );
           }),
-          const SizedBox(height: 4),
-          // Add child
-          GestureDetector(
-            onTap: () {},
-            child: Container(
-              padding: const EdgeInsets.all(14),
-              decoration: BoxDecoration(
-                color: AppColors.backgroundGrey,
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: AppColors.divider, style: BorderStyle.solid),
-              ),
-              child: Row(
-                children: [
-                  Container(
-                    width: 44,
-                    height: 44,
-                    decoration: BoxDecoration(
-                      color: AppColors.accentLight,
-                      shape: BoxShape.circle,
-                      border: Border.all(color: AppColors.primary, style: BorderStyle.solid),
-                    ),
-                    child: const Icon(Icons.add, color: AppColors.primary, size: 22),
-                  ),
-                  const SizedBox(width: 12),
-                  const Text('Thêm tài khoản con', style: AppTextStyles.heading3),
-                ],
-              ),
-            ),
-          ),
           const SizedBox(height: 20),
           // Close button
           SizedBox(

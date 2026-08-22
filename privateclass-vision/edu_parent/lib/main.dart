@@ -11,16 +11,16 @@ void main() {
       statusBarIconBrightness: Brightness.dark,
     ),
   );
-  runApp(const EduParentApp());
+  runApp(const PrivateClassVisionApp());
 }
 
-class EduParentApp extends StatelessWidget {
-  const EduParentApp({super.key});
+class PrivateClassVisionApp extends StatelessWidget {
+  const PrivateClassVisionApp({super.key});
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'EduParent',
+      title: 'PrivateClass Vision',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(

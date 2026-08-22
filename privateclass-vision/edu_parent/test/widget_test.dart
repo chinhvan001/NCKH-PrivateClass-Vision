@@ -4,7 +4,7 @@ import 'package:edu_parent/main.dart';
 
 void main() {
   testWidgets('App smoke test', (WidgetTester tester) async {
-    await tester.pumpWidget(const EduParentApp());
+    await tester.pumpWidget(const PrivateClassVisionApp());
     expect(find.byType(MaterialApp), findsOneWidget);
   });
 }
