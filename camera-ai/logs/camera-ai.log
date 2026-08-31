@@ -1,0 +1,9 @@
+2026-08-31 00:19:31 [INFO    ] camera_ai: Da cau hinh logging: level=INFO, file=D:\Code\PrivateVisionClass\NCKH-PrivateClass-Vision\camera-ai\logs\camera-ai.log (rotate 5242880 bytes x 5 ban sao)
+2026-08-31 00:19:31 [INFO    ] camera_ai.capture: Dang mo camera voi source=0
+2026-08-31 00:19:34 [INFO    ] camera_ai.capture: Camera da mo thanh cong. Do phan giai thuc te: 1280x720, FPS muc tieu: 15.0
+2026-08-31 00:19:34 [INFO    ] camera_ai.capture.worker: Da khoi dong capture worker (thread nen).
+2026-08-31 00:19:35 [INFO    ] camera_ai.detection: Da nap Face Detector tu 'models/blaze_face_short_range.tflite' (min_confidence=0.50).
+2026-08-31 00:19:45 [INFO    ] camera_ai.detection_test: Nguoi dung yeu cau thoat.
+2026-08-31 00:19:46 [INFO    ] camera_ai.capture: Da giai phong camera.
+2026-08-31 00:19:46 [INFO    ] camera_ai.capture.worker: Da dung capture worker. Tong so khung hinh bi drop do buffer day: 0
+2026-08-31 00:19:46 [INFO    ] camera_ai.detection_test: Da dong detector, capture worker, va cua so hien thi.
