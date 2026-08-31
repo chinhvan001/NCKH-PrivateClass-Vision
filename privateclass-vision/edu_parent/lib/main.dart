@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'screens/login_screen.dart';
+import 'screens/home_screen.dart';
 import 'utils/app_colors.dart';
 
 void main() {
@@ -59,7 +59,7 @@ class PrivateClassVisionApp extends StatelessWidget {
           ),
         ),
       ),
-      home: const LoginScreen(),
+      home: const HomeScreen(),
     );
   }
 }
