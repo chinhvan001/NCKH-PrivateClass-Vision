@@ -1,6 +1,10 @@
 import 'package:flutter/material.dart';
 
-import 'account_screen.dart'; // Import để dùng chung AppColors và TeacherModel
+import '../../../core/constants/app_colors.dart';
+import '../../../core/models/teacher_model.dart';
+import '../widgets/shortcut_card.dart';
+// THÊM DÒNG NÀY ĐỂ KẾT NỐI MÀN HÌNH DANH SÁCH PHIÊN
+import '../../session_list/screens/session_list_screen.dart';
 
 // --- MOCK DATA ---
 const Map<String, String>? currentSession = {
@@ -23,7 +27,7 @@ class DashboardScreen extends StatelessWidget {
   final VoidCallback onOpenClasses;
   final VoidCallback onOpenAccount;
 
-  // Dữ liệu giáo viên
+  // Dữ liệu giáo viên (Sử dụng Model từ thư mục core)
   final TeacherModel teacher = const TeacherModel(
     name: 'Trần Quang Minh',
     role: 'Giáo viên Toán',
@@ -63,37 +67,47 @@ class DashboardScreen extends StatelessWidget {
                   padding: const EdgeInsets.fromLTRB(16, 20, 16, 24),
                   child: Column(
                     children: [
-                      // 3 Thẻ chức năng còn lại
+                      // Thẻ chức năng còn lại (Sử dụng widget đã tách)
                       ShortcutCard(
                         icon: Icons.people_alt_outlined,
                         title: 'Danh sách lớp đang dạy',
                         desc: 'Các lớp bạn đang phụ trách',
                         onTap: onOpenClasses,
                       ),
+
+                      // (Đã xóa thẻ "Các phiên hôm nay" ở đây)
                       const SizedBox(height: 12),
-                      ShortcutCard(
-                        icon: Icons.videocam_outlined,
-                        title: 'Các phiên hôm nay',
-                        desc: 'Danh sách phiên học trong ngày',
-                        onTap: () {},
-                      ),
-                      const SizedBox(height: 12),
+
+                      // ĐÃ GẮN NAVIGATOR VÀO ĐÂY
                       ShortcutCard(
                         icon: Icons.schedule,
-                        title: 'Lịch sử phiên giám sát',
-                        desc: 'Xem lại các phiên đã diễn ra',
-                        onTap: () {},
+                        title: 'Danh sách phiên',
+                        desc: 'Xem lại tất cả các phiên giám sát',
+                        onTap: () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (context) => const SessionListScreen(),
+                            ),
+                          );
+                        },
                       ),
 
                       const SizedBox(height: 24),
 
-                      // Ngoại lệ 1: Phiên hiện tại
-                      _buildCurrentSessionCard(),
+                      // ==================================================
+                      // CHÚ Ý: ĐÂY LÀ CHỖ COMMENT 2 CHỨC NĂNG HIỂN THỊ NHANH
+                      // ==================================================
 
-                      const SizedBox(height: 12),
+                      // Ngoại lệ 1: Phiên hiện tại
+                      // _buildCurrentSessionCard(),
+
+                      // const SizedBox(height: 12),
 
                       // Ngoại lệ 2: Phiên kế tiếp
-                      _buildNextSessionCard(),
+                      // _buildNextSessionCard(),
+
+                      // ==================================================
                     ],
                   ),
                 ),
@@ -201,6 +215,8 @@ class DashboardScreen extends StatelessWidget {
       ),
     );
   }
+
+  // --- CÁC HÀM XÂY DỰNG WIDGET NGOẠI LỆ (VẪN ĐƯỢC GIỮ LẠI ĐỂ DÙNG SAU) ---
 
   Widget _buildCurrentSessionCard() {
     if (currentSession != null) {
@@ -421,82 +437,6 @@ class DashboardScreen extends StatelessWidget {
           fontSize: 14,
           fontWeight: FontWeight.w800,
           color: Colors.white,
-        ),
-      ),
-    );
-  }
-}
-
-// ==========================================
-// REUSABLE WIDGET: SHORTCUT CARD
-// ==========================================
-class ShortcutCard extends StatelessWidget {
-  final IconData icon;
-  final String title;
-  final String desc;
-  final VoidCallback onTap;
-
-  const ShortcutCard({
-    super.key,
-    required this.icon,
-    required this.title,
-    required this.desc,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Card(
-      elevation: 0,
-      margin: EdgeInsets.zero,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(16),
-        side: const BorderSide(color: AppColors.hair),
-      ),
-      color: Colors.white,
-      clipBehavior: Clip.antiAlias,
-      child: InkWell(
-        onTap: onTap,
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Row(
-            children: [
-              Container(
-                width: 48,
-                height: 48,
-                decoration: BoxDecoration(
-                  color: AppColors.lightBlue,
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Icon(icon, color: AppColors.brand, size: 24),
-              ),
-              const SizedBox(width: 14),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      title,
-                      style: const TextStyle(
-                        fontSize: 15,
-                        fontWeight: FontWeight.bold,
-                        color: AppColors.navy,
-                      ),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      desc,
-                      style: const TextStyle(
-                        fontSize: 13,
-                        color: AppColors.muted,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const Icon(Icons.chevron_right, color: Colors.black26),
-            ],
-          ),
         ),
       ),
     );

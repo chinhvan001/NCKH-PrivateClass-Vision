@@ -1,56 +1,12 @@
 import 'package:flutter/material.dart';
-import 'class_detail_screen.dart';
-import 'account_screen.dart'; // Import để dùng chung AppColors
 
-// --- MOCK DATA ---
-class ClassModel {
-  final String id, name, grade, room, schedule;
-  final int students;
+import '../../../core/constants/app_colors.dart';
+import '../../../core/models/class_model.dart';
+import '../widgets/class_card.dart';
+import '../../class_detail/screens/class_detail_screen.dart';
 
-  const ClassModel({
-    required this.id,
-    required this.name,
-    required this.grade,
-    required this.room,
-    required this.schedule,
-    required this.students,
-  });
-}
-
-const List<ClassModel> mockClasses = [
-  ClassModel(
-    id: '12A1',
-    name: 'Toán Đại số 12',
-    grade: 'Khối 12',
-    room: 'A203',
-    schedule: 'T2, T4 · 08:00',
-    students: 42,
-  ),
-  ClassModel(
-    id: '12A2',
-    name: 'Toán Hình học 12',
-    grade: 'Khối 12',
-    room: 'A204',
-    schedule: 'T3, T5 · 10:00',
-    students: 38,
-  ),
-  ClassModel(
-    id: '11B1',
-    name: 'Toán Đại số 11',
-    grade: 'Khối 11',
-    room: 'B102',
-    schedule: 'T2, T6 · 14:00',
-    students: 45,
-  ),
-  ClassModel(
-    id: '10C1',
-    name: 'Toán Cơ bản 10',
-    grade: 'Khối 10',
-    room: 'C301',
-    schedule: 'T4, T7 · 08:00',
-    students: 40,
-  ),
-];
+// Import file chi tiết lớp học của bạn vào đây
+// import '../../class_detail/screens/class_detail_screen.dart';
 
 const List<String> filters = ['Tất cả', 'Khối 12', 'Khối 11', 'Khối 10'];
 
@@ -70,7 +26,7 @@ class _ClassesScreenState extends State<ClassesScreen> {
   String _query = '';
   String _filter = 'Tất cả';
 
-  // Lọc danh sách (Tương đương useMemo trong React)
+  // Lọc danh sách
   List<ClassModel> get _filteredList {
     return mockClasses.where((c) {
       final q = _query.trim().toLowerCase();
@@ -89,13 +45,8 @@ class _ClassesScreenState extends State<ClassesScreen> {
       backgroundColor: AppColors.appBg,
       body: Column(
         children: [
-          // App bar + Search
           _buildHeader(),
-
-          // Filter chips
           _buildFilterChips(),
-
-          // Danh sách Class Cards
           Expanded(child: _buildClassList()),
         ],
       ),
@@ -107,7 +58,7 @@ class _ClassesScreenState extends State<ClassesScreen> {
   Widget _buildHeader() {
     return Container(
       color: Colors.white,
-      padding: const EdgeInsets.fromLTRB(16, 56, 16, 12), // pt-14, pb-3, px-4
+      padding: const EdgeInsets.fromLTRB(16, 56, 16, 12),
       child: Column(
         children: [
           // Row 1: Back + Title + Badge
@@ -116,7 +67,7 @@ class _ClassesScreenState extends State<ClassesScreen> {
               InkWell(
                 onTap: () {
                   Navigator.pop(context);
-                }, // Xử lý nút back nếu cần
+                },
                 borderRadius: BorderRadius.circular(20),
                 child: Container(
                   width: 36,
@@ -162,7 +113,7 @@ class _ClassesScreenState extends State<ClassesScreen> {
 
           const SizedBox(height: 16),
 
-          // Row 2: Search + Filter button
+          // Row 2: Search Box
           Row(
             children: [
               Expanded(
@@ -269,7 +220,24 @@ class _ClassesScreenState extends State<ClassesScreen> {
       itemBuilder: (context, index) {
         final c = list[index];
 
-        // Thêm tiêu đề ở đầu danh sách
+        // Component xử lý điều hướng cho từng Card
+        final cardWidget = ClassCard(
+          classInfo: c,
+          onTap: () {
+            if (widget.onOpenClass != null) {
+              widget.onOpenClass!(c.id);
+            }
+            // Gọi màn hình ClassDetailScreen tại đây
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (context) => ClassDetailScreen(classId: c.id),
+              ),
+            );
+          },
+        );
+
+        // Thêm tiêu đề ở phần tử đầu tiên
         if (index == 0) {
           return Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -285,147 +253,13 @@ class _ClassesScreenState extends State<ClassesScreen> {
                   ),
                 ),
               ),
-              _buildClassCard(c),
+              cardWidget,
             ],
           );
         }
 
-        return _buildClassCard(c);
+        return cardWidget;
       },
-    );
-  }
-
-  Widget _buildClassCard(ClassModel c) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 12),
-      child: Card(
-        elevation: 0,
-        margin: EdgeInsets.zero,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(16),
-          side: const BorderSide(color: AppColors.hair),
-        ),
-        color: Colors.white,
-        clipBehavior: Clip.antiAlias,
-        child: InkWell(
-          onTap: () {
-            Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (context) => ClassDetailScreen(classId: c.id),
-              ),
-            );
-          },
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              children: [
-                // Info Row
-                Row(
-                  children: [
-                    Container(
-                      width: 48,
-                      height: 48,
-                      alignment: Alignment.center,
-                      decoration: BoxDecoration(
-                        gradient: const LinearGradient(
-                          colors: [AppColors.brand, Color(0xFF1D4ED8)],
-                          begin: Alignment.topLeft,
-                          end: Alignment.bottomRight,
-                        ),
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: Text(
-                        c.id,
-                        style: const TextStyle(
-                          fontSize: 15,
-                          fontWeight: FontWeight.w800,
-                          color: Colors.white,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            c.name,
-                            style: const TextStyle(
-                              fontSize: 17,
-                              fontWeight: FontWeight.w800,
-                              color: AppColors.navy,
-                            ),
-                          ),
-                          const SizedBox(height: 2),
-                          Row(
-                            children: [
-                              const Icon(
-                                Icons.home_outlined,
-                                size: 15,
-                                color: AppColors.brand,
-                              ),
-                              const SizedBox(width: 4),
-                              Text(
-                                'Phòng ${c.room}',
-                                style: const TextStyle(
-                                  fontSize: 13,
-                                  fontWeight: FontWeight.w600,
-                                  color: AppColors.brand,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ],
-                      ),
-                    ),
-                    const Icon(Icons.chevron_right, color: Colors.black26),
-                  ],
-                ),
-
-                const SizedBox(height: 12),
-                const Divider(height: 1, color: AppColors.hair),
-                const SizedBox(height: 12),
-
-                // Meta info Row
-                Row(
-                  children: [
-                    const Icon(
-                      Icons.calendar_today_outlined,
-                      size: 16,
-                      color: AppColors.brand,
-                    ),
-                    const SizedBox(width: 6),
-                    Text(
-                      c.schedule,
-                      style: const TextStyle(
-                        fontSize: 13,
-                        color: AppColors.muted,
-                      ),
-                    ),
-
-                    const SizedBox(width: 16),
-
-                    const Icon(
-                      Icons.people_alt_outlined,
-                      size: 16,
-                      color: AppColors.brand,
-                    ),
-                    const SizedBox(width: 6),
-                    Text(
-                      '${c.students} học sinh',
-                      style: const TextStyle(
-                        fontSize: 13,
-                        color: AppColors.muted,
-                      ),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
     );
   }
 }
