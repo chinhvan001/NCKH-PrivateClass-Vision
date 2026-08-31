@@ -1,241 +1,546 @@
+import { useMemo, useState } from "react";
 import Icon from "../common/Icon";
 
-const accounts = [
-  {
-    email: "admin@privateclass.vn",
-    name: "Super Administrator",
-    school: "Hệ thống",
-    role: "Super Admin",
-    roleType: "purple",
-    status: "Đang hoạt động",
-    statusType: "active",
-    date: "20/05/2025",
-    time: "09:15 AM",
-  },
-  {
-    email: "admin.hanoischool@privateclass.vn",
-    name: "Admin Trường Hà Nội",
-    school: "Trường THPT Hà Nội",
-    role: "Admin",
-    roleType: "blue",
-    status: "Đang hoạt động",
-    statusType: "active",
-    date: "19/05/2025",
-    time: "02:30 PM",
-  },
-  {
-    email: "admin.saigonschool@privateclass.vn",
-    name: "Admin Trường Sài Gòn",
-    school: "Trường THPT Sài Gòn",
-    role: "Admin",
-    roleType: "blue",
-    status: "Đang hoạt động",
-    statusType: "active",
-    date: "18/05/2025",
-    time: "10:45 AM",
-  },
-  {
-    email: "admin.danangschool@privateclass.vn",
-    name: "Admin Trường Đà Nẵng",
-    school: "Trường THPT Đà Nẵng",
-    role: "Admin",
-    roleType: "blue",
-    status: "Đang hoạt động",
-    statusType: "active",
-    date: "17/05/2025",
-    time: "04:20 PM",
-  },
-  {
-    email: "admin.canthoschool@privateclass.vn",
-    name: "Admin Trường Cần Thơ",
-    school: "Trường THPT Cần Thơ",
-    role: "Admin",
-    roleType: "blue",
-    status: "Đã vô hiệu hóa",
-    statusType: "inactive",
-    date: "--",
-    time: "",
-  },
-];
+const AccountManagementPanel = ({
+  users = [],
+  loading = false,
+  onRefresh,
+}) => {
+  const [search, setSearch] = useState("");
+  const [subjectFilter, setSubjectFilter] = useState("all");
+  const [statusFilter, setStatusFilter] = useState("all");
 
-const accountStats = [
-  { label: "Super Admin", value: "1", icon: "user", tone: "purple" },
-  { label: "Admin trường", value: "12", icon: "user", tone: "blue" },
-  { label: "Tổng tài khoản", value: "13", icon: "user", tone: "green" },
-  { label: "Đang hoạt động", value: "12", icon: "checkCircle", tone: "orange" },
-  { label: "Đã vô hiệu hóa", value: "1", icon: "xCircle", tone: "red" },
-];
+  // ========================================
+  // Chuẩn hóa dữ liệu teacher
+  // ========================================
 
-const AccountManagementPanel = () => {
+  const teachers = useMemo(() => {
+    return users.map((user) => {
+      // subject từ API là array
+      // Ví dụ: ["Toán", "Vật Lý"]
+      let subjects = [];
+
+      if (Array.isArray(user.subject)) {
+        subjects = user.subject;
+      } else if (user.subject) {
+        subjects = [user.subject];
+      }
+
+      return {
+        id: user.id || user.uid,
+        email: user.email || "Chưa có email",
+        name: user.name || "Chưa cập nhật",
+        phoneNumber: user.phone_number || "--",
+        subject: subjects,
+
+        isActive:
+          user.is_active ??
+          user.isActive ??
+          true,
+      };
+    });
+  }, [users]);
+
+  // ========================================
+  // Danh sách tất cả môn học
+  // ========================================
+
+  const subjects = useMemo(() => {
+    const uniqueSubjects = new Set();
+
+    teachers.forEach((teacher) => {
+      teacher.subject.forEach((subject) => {
+        if (subject) {
+          uniqueSubjects.add(subject);
+        }
+      });
+    });
+
+    return [...uniqueSubjects];
+  }, [teachers]);
+
+  // ========================================
+  // Filter
+  // ========================================
+
+  const filteredTeachers = useMemo(() => {
+    const keyword = search.trim().toLowerCase();
+
+    return teachers.filter((teacher) => {
+      // Tìm theo tên, email hoặc số điện thoại
+      const matchSearch =
+        !keyword ||
+        teacher.name.toLowerCase().includes(keyword) ||
+        teacher.email.toLowerCase().includes(keyword) ||
+        teacher.phoneNumber.toLowerCase().includes(keyword);
+
+      // Giáo viên có thể có nhiều môn
+      const matchSubject =
+        subjectFilter === "all" ||
+        teacher.subject.includes(subjectFilter);
+
+      // Lọc trạng thái
+      const matchStatus =
+        statusFilter === "all" ||
+        (statusFilter === "active" && teacher.isActive) ||
+        (statusFilter === "inactive" && !teacher.isActive);
+
+      return (
+        matchSearch &&
+        matchSubject &&
+        matchStatus
+      );
+    });
+  }, [
+    teachers,
+    search,
+    subjectFilter,
+    statusFilter,
+  ]);
+
+  // ========================================
+  // Statistics
+  // ========================================
+
+  const totalTeachers = teachers.length;
+
+  const activeTeachers = teachers.filter(
+    (teacher) => teacher.isActive
+  ).length;
+
+  const inactiveTeachers =
+    totalTeachers - activeTeachers;
+
+  // ========================================
+  // Refresh
+  // ========================================
+
+  const handleRefresh = () => {
+    if (onRefresh) {
+      onRefresh();
+    }
+  };
+
   return (
     <>
+      {/* ========================================
+          STATISTICS
+      ======================================== */}
+
       <section className="account-stats-section">
-        <h2>Tài khoản hệ thống</h2>
+        <h2>Tài khoản giáo viên</h2>
+
         <div className="account-stats-grid">
-          {accountStats.map((stat) => (
-            <article
-              key={stat.label}
-              className={`account-stat-card ${stat.tone}`}
-            >
-              <div className="account-stat-icon">
-                <Icon name={stat.icon} size={21} />
-              </div>
-              <div>
-                <span>{stat.label}</span>
-                <strong>{stat.value}</strong>
-                <small>Tài khoản</small>
-              </div>
-            </article>
-          ))}
+
+          {/* Tổng giáo viên */}
+
+          <article className="account-stat-card blue">
+            <div className="account-stat-icon">
+              <Icon name="user" size={21} />
+            </div>
+
+            <div>
+              <span>Tổng giáo viên</span>
+              <strong>{totalTeachers}</strong>
+              <small>Tài khoản</small>
+            </div>
+          </article>
+
+          {/* Đang hoạt động */}
+
+          <article className="account-stat-card green">
+            <div className="account-stat-icon">
+              <Icon name="checkCircle" size={21} />
+            </div>
+
+            <div>
+              <span>Đang hoạt động</span>
+              <strong>{activeTeachers}</strong>
+              <small>Tài khoản</small>
+            </div>
+          </article>
+
+          {/* Đã vô hiệu hóa */}
+
+          <article className="account-stat-card red">
+            <div className="account-stat-icon">
+              <Icon name="xCircle" size={21} />
+            </div>
+
+            <div>
+              <span>Đã vô hiệu hóa</span>
+              <strong>{inactiveTeachers}</strong>
+              <small>Tài khoản</small>
+            </div>
+          </article>
+
+          {/* Bộ môn */}
+
+          <article className="account-stat-card purple">
+            <div className="account-stat-icon">
+              <Icon name="school" size={21} />
+            </div>
+
+            <div>
+              <span>Bộ môn</span>
+              <strong>{subjects.length}</strong>
+              <small>Môn học</small>
+            </div>
+          </article>
+
+          {/* Sắp có thêm */}
+
           <article className="account-stat-card add-stat-card">
             <div className="account-stat-icon">
               <Icon name="plus" size={22} />
             </div>
+
             <div>
               <strong>Sắp có thêm</strong>
               <small>Tính năng sắp cập nhật</small>
             </div>
           </article>
+
         </div>
       </section>
 
+      {/* ========================================
+          MANAGEMENT
+      ======================================== */}
+
       <section className="account-panel">
+
+        {/* HEADER */}
+
         <div className="account-panel-heading">
           <div>
-            <h2>Quản lý tài khoản</h2>
+            <h2>Quản lý tài khoản giáo viên</h2>
+
             <p>
-              Danh sách tài khoản Super Admin và Admin của các trường trong hệ
-              thống.
+              Danh sách tài khoản giáo viên trong hệ thống.
             </p>
           </div>
-          <button type="button" className="add-account-button">
+
+          <button
+            type="button"
+            className="add-account-button"
+          >
             <Icon name="plus" size={17} />
-            <span>Thêm tài khoản</span>
+            <span>Thêm giáo viên</span>
           </button>
         </div>
 
+        {/* ========================================
+            FILTERS
+        ======================================== */}
+
         <div className="account-filters">
-          <label className="account-search">
-            <input placeholder="Tìm kiếm theo tên, email..." />
-            <Icon name="search" size={19} />
-          </label>
+
+          {/* SEARCH */}
+
+          <div className="account-search">
+            <input
+              type="text"
+              value={search}
+              onChange={(e) =>
+                setSearch(e.target.value)
+              }
+              placeholder="Tìm kiếm theo tên..."
+            />
+
+            <span className="account-search-icon">
+              <Icon name="search" size={19} />
+            </span>
+          </div>
+
+          {/* SUBJECT */}
+
           <label className="account-select">
-            <span>Vai trò</span>
-            <button type="button">
-              Tất cả vai trò <Icon name="chevron" size={16} />
-            </button>
+            <span>Bộ môn</span>
+
+            <select
+              value={subjectFilter}
+              onChange={(e) =>
+                setSubjectFilter(e.target.value)
+              }
+            >
+              <option value="all">
+                Tất cả bộ môn
+              </option>
+
+              {subjects.map((subject) => (
+                <option
+                  key={subject}
+                  value={subject}
+                >
+                  {subject}
+                </option>
+              ))}
+            </select>
           </label>
-          <label className="account-select">
-            <span>Tên trường</span>
-            <button type="button">
-              Tất cả trường <Icon name="chevron" size={16} />
-            </button>
-          </label>
+
+          {/* STATUS */}
+
           <label className="account-select">
             <span>Trạng thái</span>
-            <button type="button">
-              Tất cả trạng thái <Icon name="chevron" size={16} />
-            </button>
+
+            <select
+              value={statusFilter}
+              onChange={(e) =>
+                setStatusFilter(e.target.value)
+              }
+            >
+              <option value="all">
+                Tất cả trạng thái
+              </option>
+
+              <option value="active">
+                Đang hoạt động
+              </option>
+
+              <option value="inactive">
+                Đã vô hiệu hóa
+              </option>
+            </select>
           </label>
-          <button type="button" className="refresh-button">
+
+          {/* REFRESH */}
+
+          <button
+            type="button"
+            className="refresh-button"
+            onClick={handleRefresh}
+          >
             <Icon name="refresh" size={17} />
             <span>Làm mới</span>
           </button>
         </div>
 
+        {/* ========================================
+            TABLE
+        ======================================== */}
+
         <div className="account-table-wrap">
           <table className="account-table">
+
             <thead>
               <tr>
-                <th>Tài khoản</th>
-                <th>Tên trường</th>
-                <th>Vai trò</th>
+                <th>Tên giáo viên</th>
+                <th>Gmail</th>
+                <th>Số điện thoại</th>
+                <th>Bộ môn</th>
                 <th>Trạng thái</th>
-                <th>Đăng nhập cuối</th>
                 <th>Thao tác</th>
               </tr>
             </thead>
+
             <tbody>
-              {accounts.map((account) => (
-                <tr key={account.email}>
-                  <td>
-                    <div className="account-cell">
-                      <div className="table-avatar">
-                        <Icon name="user" size={19} />
-                      </div>
-                      <div>
-                        <strong>{account.email}</strong>
-                        <span>{account.name}</span>
-                      </div>
-                    </div>
-                  </td>
-                  <td>
-                    <span className="account-school">{account.school}</span>
-                  </td>
-                  <td>
-                    <span className={`role-badge ${account.roleType}`}>
-                      {account.role}
-                    </span>
-                  </td>
-                  <td>
-                    <span className={`status-badge ${account.statusType}`}>
-                      <i></i>
-                      {account.status}
-                    </span>
-                  </td>
-                  <td>
-                    <span className="last-login">
-                      {account.date}
-                      <br />
-                      {account.time}
-                    </span>
-                  </td>
-                  <td>
-                    <div className="row-actions">
-                      <button
-                        type="button"
-                        aria-label={`Chỉnh sửa ${account.email}`}
-                      >
-                        <Icon name="edit" size={17} />
-                      </button>
-                      <button
-                        type="button"
-                        aria-label={`Thêm thao tác cho ${account.email}`}
-                      >
-                        <Icon name="more" size={18} />
-                      </button>
-                    </div>
+
+              {/* LOADING */}
+
+              {loading ? (
+                <tr>
+                  <td
+                    colSpan="6"
+                    className="table-empty"
+                  >
+                    Đang tải danh sách giáo viên...
                   </td>
                 </tr>
-              ))}
+              ) : filteredTeachers.length === 0 ? (
+                <tr>
+                  <td
+                    colSpan="6"
+                    className="table-empty"
+                  >
+                    Không tìm thấy tài khoản giáo viên.
+                  </td>
+                </tr>
+              ) : (
+
+                /* DATA */
+
+                filteredTeachers.map((teacher) => (
+                  <tr
+                    key={
+                      teacher.id ||
+                      teacher.email
+                    }
+                  >
+
+                    {/* TÊN */}
+
+                    <td>
+                      <div className="account-cell">
+
+                        <div className="table-avatar">
+                          <Icon
+                            name="user"
+                            size={19}
+                          />
+                        </div>
+
+                        <div>
+                          <strong>
+                            {teacher.name}
+                          </strong>
+
+                          <span>
+                            Giáo viên
+                          </span>
+                        </div>
+
+                      </div>
+                    </td>
+
+                    {/* GMAIL */}
+
+                    <td>
+                      <span className="account-email">
+                        {teacher.email}
+                      </span>
+                    </td>
+
+                    {/* SỐ ĐIỆN THOẠI */}
+
+                    <td>
+                      <span className="account-phone">
+                        {teacher.phoneNumber}
+                      </span>
+                    </td>
+
+                    {/* BỘ MÔN */}
+
+                    <td>
+                      <div className="account-subject-list">
+
+                        {teacher.subject.length > 0 ? (
+                          teacher.subject.map(
+                            (subject, index) => (
+                              <span
+                                key={`${subject}-${index}`}
+                                className="account-subject-tag"
+                              >
+                                {subject}
+                              </span>
+                            )
+                          )
+                        ) : (
+                          <span className="account-subject-empty">
+                            Chưa cập nhật
+                          </span>
+                        )}
+
+                      </div>
+                    </td>
+
+                    {/* STATUS */}
+
+                    <td>
+                      <span
+                        className={`status-badge ${
+                          teacher.isActive
+                            ? "active"
+                            : "inactive"
+                        }`}
+                      >
+                        <i />
+
+                        {teacher.isActive
+                          ? "Đang hoạt động"
+                          : "Đã vô hiệu hóa"}
+                      </span>
+                    </td>
+
+                    {/* ACTION */}
+
+                    <td>
+                      <div className="row-actions">
+
+                        <button
+                          type="button"
+                          aria-label={`Chỉnh sửa ${teacher.email}`}
+                        >
+                          <Icon
+                            name="edit"
+                            size={17}
+                          />
+                        </button>
+
+                        <button
+                          type="button"
+                          aria-label={`Thao tác với ${teacher.email}`}
+                        >
+                          <Icon
+                            name="more"
+                            size={18}
+                          />
+                        </button>
+
+                      </div>
+                    </td>
+
+                  </tr>
+                ))
+              )}
+
             </tbody>
           </table>
         </div>
 
+        {/* ========================================
+            PAGINATION
+        ======================================== */}
+
         <div className="account-pagination">
-          <span>Hiển thị 1 đến 5 của 13 tài khoản</span>
+          <span>
+            Hiển thị {filteredTeachers.length} giáo viên
+          </span>
+
           <div>
-            <button type="button" className="page-size">
-              10 / trang <Icon name="chevron" size={14} />
+            <button
+              type="button"
+              disabled
+            >
+              <Icon
+                name="first"
+                size={15}
+              />
             </button>
-            <button type="button" disabled>
-              <Icon name="first" size={15} />
+
+            <button
+              type="button"
+              disabled
+            >
+              <Icon
+                name="arrowLeft"
+                size={15}
+              />
             </button>
-            <button type="button" disabled>
-              <Icon name="arrowLeft" size={15} />
-            </button>
-            <button type="button" className="current-page">
+
+            <button
+              type="button"
+              className="current-page"
+            >
               1
             </button>
-            <button type="button">2</button>
+
             <button type="button">
-              <Icon name="arrowRight" size={15} />
+              <Icon
+                name="arrowRight"
+                size={15}
+              />
             </button>
+
             <button type="button">
-              <Icon name="last" size={15} />
+              <Icon
+                name="last"
+                size={15}
+              />
             </button>
           </div>
         </div>
+
       </section>
     </>
   );

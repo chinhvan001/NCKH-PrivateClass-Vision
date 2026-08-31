@@ -1,20 +1,12 @@
 import { useEffect, useState } from "react";
-import { signOut } from "firebase/auth";
 
 import AdminHeader from "../components/admin/AdminHeader";
 import AdminSidebar from "../components/admin/AdminSidebar";
-import AccountManagementPanel from "../components/admin/AccountManagementPanel";
+import DashboardPanel from "../components/admin/DashboardPanel";
 
-import { auth } from "../firebase";
-import { clearAdminSession } from "../utils/AuthSession";
-
-const AccountManagement = ({ onLogoutSuccess, onNavigate }) => {
+const Dashboard = ({ onLogout, onNavigate }) => {
     const [users, setUsers] = useState([]);
     const [loading, setLoading] = useState(true);
-
-    // =========================
-    // LẤY DANH SÁCH GIÁO VIÊN
-    // =========================
 
     const fetchUsers = async () => {
         try {
@@ -23,7 +15,7 @@ const AccountManagement = ({ onLogoutSuccess, onNavigate }) => {
             const idToken = localStorage.getItem("idToken");
 
             if (!idToken) {
-                throw new Error("Không tìm thấy phiên đăng nhập");
+                return;
             }
 
             const response = await fetch(
@@ -39,48 +31,21 @@ const AccountManagement = ({ onLogoutSuccess, onNavigate }) => {
 
             const data = await response.json();
 
-            console.log("Admin users:", data);
+            console.log("Dashboard users:", data);
 
             if (!response.ok || !data.success) {
                 throw new Error(
-                    data.message || "Không thể lấy danh sách tài khoản"
+                    data.message || "Không thể lấy dữ liệu Dashboard"
                 );
             }
 
             setUsers(data.users || []);
         } catch (error) {
-            console.error("Fetch admin users error:", error);
+            console.error("Fetch dashboard users error:", error);
         } finally {
             setLoading(false);
         }
     };
-
-    // =========================
-    // ĐĂNG XUẤT ADMIN
-    // =========================
-
-    const handleLogout = async () => {
-        try {
-            // 1. Đăng xuất Firebase
-            await signOut(auth);
-
-            // 2. Xóa session trong localStorage
-            clearAdminSession();
-
-            console.log("Admin logout successful");
-
-            // 3. Báo cho App.jsx chuyển về Login
-            if (onLogoutSuccess) {
-                onLogoutSuccess();
-            }
-        } catch (error) {
-            console.error("Logout error:", error);
-        }
-    };
-
-    // =========================
-    // LOAD DANH SÁCH KHI MỞ TRANG
-    // =========================
 
     useEffect(() => {
         fetchUsers();
@@ -89,22 +54,23 @@ const AccountManagement = ({ onLogoutSuccess, onNavigate }) => {
     return (
         <main className="admin-page">
             <AdminSidebar
-                activePage="account-management"
+                onLogout={onLogout}
+                activePage="dashboard"
                 onNavigate={onNavigate}
-                onLogout={handleLogout}
             />
 
             <section className="admin-main-content">
                 <AdminHeader />
 
-                <AccountManagementPanel
+                <DashboardPanel
                     users={users}
                     loading={loading}
                     onRefresh={fetchUsers}
+                    onNavigate={onNavigate}
                 />
             </section>
         </main>
     );
 };
 
-export default AccountManagement;
+export default Dashboard;

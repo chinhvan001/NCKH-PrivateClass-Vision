@@ -1,11 +1,11 @@
-import { useState } from "react";
+// import { useState } from "react";
 
-import LoginMethodSwitcher from "./LoginMethodSwitcher";
-import AccountLoginForm from "./AccountLoginForm";
+// import LoginMethodSwitcher from "./LoginMethodSwitcher";
+// import AccountLoginForm from "./AccountLoginForm";
 import GoogleLoginForm from "./GoogleLoginForm";
 
 const LoginForm = ({ onForgotPassword, onLogin }) => {
-  const [activeMethod, setActiveMethod] = useState("account");
+  // const [activeMethod, setActiveMethod] = useState("account");
 
   return (
     <div className="login-form-wrapper">
@@ -17,20 +17,22 @@ const LoginForm = ({ onForgotPassword, onLogin }) => {
         </div>
 
         {/* Login method switcher */}
-        <LoginMethodSwitcher
+        {/* <LoginMethodSwitcher
           activeMethod={activeMethod}
           onChange={setActiveMethod}
-        />
+        /> */}
 
         {/* Login form */}
-        {activeMethod === "account" && (
+        {/* {activeMethod === "account" && (
           <AccountLoginForm
             onForgotPassword={onForgotPassword}
             onLogin={onLogin}
           />
         )}
 
-        {activeMethod === "google" && <GoogleLoginForm />}
+        {activeMethod === "google" && <GoogleLoginForm />} */}
+
+        <GoogleLoginForm onLogin={onLogin}/>
 
         {/* Security */}
         <div className="security-message">
