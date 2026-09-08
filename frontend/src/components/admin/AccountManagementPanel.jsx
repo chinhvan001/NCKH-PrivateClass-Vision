@@ -1,23 +1,50 @@
 import { useMemo, useState } from "react";
+
 import Icon from "../common/Icon";
+
+import EditTeacherForm from "./EditTeacherForm";
 
 const AccountManagementPanel = ({
   users = [],
   loading = false,
   onRefresh,
+  onUpdateUser,
 }) => {
   const [search, setSearch] = useState("");
   const [subjectFilter, setSubjectFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
+  const [selectedTeacher, setSelectedTeacher] = useState(null);
 
-  // ========================================
-  // Chuẩn hóa dữ liệu teacher
-  // ========================================
+  const SUBJECT_OPTIONS = [
+    "Toán",
+    "Ngữ văn",
+    "Tiếng Anh",
+    "Vật lý",
+    "Hóa học",
+    "Sinh học",
+    "Lịch sử",
+    "Địa lý",
+    "Giáo dục kinh tế và pháp luật",
+    "Tin học",
+    "Công nghệ",
+    "Âm nhạc",
+    "Mỹ thuật",
+    "Thể dục",
+  ];
 
+  /*
+   * Chuẩn hóa dữ liệu giáo viên.
+   *
+   * Backend sử dụng:
+   * - uid
+   * - phone_number
+   * - is_active
+   *
+   * Giữ nguyên các tên field này trong toàn bộ component
+   * để đồng bộ với backend và EditTeacherForm.
+   */
   const teachers = useMemo(() => {
     return users.map((user) => {
-      // subject từ API là array
-      // Ví dụ: ["Toán", "Vật Lý"]
       let subjects = [];
 
       if (Array.isArray(user.subject)) {
@@ -27,93 +54,48 @@ const AccountManagementPanel = ({
       }
 
       return {
-        id: user.id || user.uid,
+        uid: user.uid || user.id,
         email: user.email || "Chưa có email",
         name: user.name || "Chưa cập nhật",
-        phoneNumber: user.phone_number || "--",
+        phone_number: user.phone_number || "",
         subject: subjects,
-
-        isActive:
-          user.is_active ??
-          user.isActive ??
-          true,
+        is_active: user.is_active !== false,
       };
     });
   }, [users]);
 
-  // ========================================
-  // Danh sách tất cả môn học
-  // ========================================
-
-  const subjects = useMemo(() => {
-    const uniqueSubjects = new Set();
-
-    teachers.forEach((teacher) => {
-      teacher.subject.forEach((subject) => {
-        if (subject) {
-          uniqueSubjects.add(subject);
-        }
-      });
-    });
-
-    return [...uniqueSubjects];
-  }, [teachers]);
-
-  // ========================================
-  // Filter
-  // ========================================
+  const subjects = SUBJECT_OPTIONS;
 
   const filteredTeachers = useMemo(() => {
     const keyword = search.trim().toLowerCase();
 
     return teachers.filter((teacher) => {
-      // Tìm theo tên, email hoặc số điện thoại
       const matchSearch =
         !keyword ||
         teacher.name.toLowerCase().includes(keyword) ||
         teacher.email.toLowerCase().includes(keyword) ||
-        teacher.phoneNumber.toLowerCase().includes(keyword);
+        teacher.phone_number.toLowerCase().includes(keyword);
 
-      // Giáo viên có thể có nhiều môn
       const matchSubject =
         subjectFilter === "all" ||
         teacher.subject.includes(subjectFilter);
 
-      // Lọc trạng thái
       const matchStatus =
         statusFilter === "all" ||
-        (statusFilter === "active" && teacher.isActive) ||
-        (statusFilter === "inactive" && !teacher.isActive);
+        (statusFilter === "active" && teacher.is_active) ||
+        (statusFilter === "inactive" && !teacher.is_active);
 
-      return (
-        matchSearch &&
-        matchSubject &&
-        matchStatus
-      );
+      return matchSearch && matchSubject && matchStatus;
     });
-  }, [
-    teachers,
-    search,
-    subjectFilter,
-    statusFilter,
-  ]);
-
-  // ========================================
-  // Statistics
-  // ========================================
+  }, [teachers, search, subjectFilter, statusFilter]);
 
   const totalTeachers = teachers.length;
 
   const activeTeachers = teachers.filter(
-    (teacher) => teacher.isActive
+    (teacher) => teacher.is_active
   ).length;
 
-  const inactiveTeachers =
-    totalTeachers - activeTeachers;
-
-  // ========================================
-  // Refresh
-  // ========================================
+  const inactiveTeachers = totalTeachers - activeTeachers;
 
   const handleRefresh = () => {
     if (onRefresh) {
@@ -121,19 +103,42 @@ const AccountManagementPanel = ({
     }
   };
 
+  /*
+   * EditTeacherForm trả về:
+   * {
+   *   uid,
+   *   name,
+   *   phone_number,
+   *   subject,
+   *   is_active
+   * }
+   *
+   * Việc gọi API được xử lý ở AccountManagement.jsx
+   * thông qua onUpdateUser để đảm bảo Authorization token
+   * được gửi đúng cách.
+   */
+  const handleSaveTeacher = async (updatedTeacher) => {
+    try {
+      if (!onUpdateUser) {
+        throw new Error(
+          "Không tìm thấy chức năng cập nhật tài khoản."
+        );
+      }
+
+      await onUpdateUser(updatedTeacher);
+
+      setSelectedTeacher(null);
+    } catch (error) {
+      console.error("Update teacher error:", error);
+    }
+  };
+
   return (
     <>
-      {/* ========================================
-          STATISTICS
-      ======================================== */}
-
       <section className="account-stats-section">
         <h2>Tài khoản giáo viên</h2>
 
         <div className="account-stats-grid">
-
-          {/* Tổng giáo viên */}
-
           <article className="account-stat-card blue">
             <div className="account-stat-icon">
               <Icon name="user" size={21} />
@@ -145,8 +150,6 @@ const AccountManagementPanel = ({
               <small>Tài khoản</small>
             </div>
           </article>
-
-          {/* Đang hoạt động */}
 
           <article className="account-stat-card green">
             <div className="account-stat-icon">
@@ -160,8 +163,6 @@ const AccountManagementPanel = ({
             </div>
           </article>
 
-          {/* Đã vô hiệu hóa */}
-
           <article className="account-stat-card red">
             <div className="account-stat-icon">
               <Icon name="xCircle" size={21} />
@@ -173,8 +174,6 @@ const AccountManagementPanel = ({
               <small>Tài khoản</small>
             </div>
           </article>
-
-          {/* Bộ môn */}
 
           <article className="account-stat-card purple">
             <div className="account-stat-icon">
@@ -188,8 +187,6 @@ const AccountManagementPanel = ({
             </div>
           </article>
 
-          {/* Sắp có thêm */}
-
           <article className="account-stat-card add-stat-card">
             <div className="account-stat-icon">
               <Icon name="plus" size={22} />
@@ -200,25 +197,14 @@ const AccountManagementPanel = ({
               <small>Tính năng sắp cập nhật</small>
             </div>
           </article>
-
         </div>
       </section>
 
-      {/* ========================================
-          MANAGEMENT
-      ======================================== */}
-
       <section className="account-panel">
-
-        {/* HEADER */}
-
         <div className="account-panel-heading">
           <div>
             <h2>Quản lý tài khoản giáo viên</h2>
-
-            <p>
-              Danh sách tài khoản giáo viên trong hệ thống.
-            </p>
+            <p>Danh sách tài khoản giáo viên trong hệ thống.</p>
           </div>
 
           <button
@@ -230,21 +216,12 @@ const AccountManagementPanel = ({
           </button>
         </div>
 
-        {/* ========================================
-            FILTERS
-        ======================================== */}
-
         <div className="account-filters">
-
-          {/* SEARCH */}
-
           <div className="account-search">
             <input
               type="text"
               value={search}
-              onChange={(e) =>
-                setSearch(e.target.value)
-              }
+              onChange={(e) => setSearch(e.target.value)}
               placeholder="Tìm kiếm theo tên..."
             />
 
@@ -253,58 +230,35 @@ const AccountManagementPanel = ({
             </span>
           </div>
 
-          {/* SUBJECT */}
-
           <label className="account-select">
             <span>Bộ môn</span>
 
             <select
               value={subjectFilter}
-              onChange={(e) =>
-                setSubjectFilter(e.target.value)
-              }
+              onChange={(e) => setSubjectFilter(e.target.value)}
             >
-              <option value="all">
-                Tất cả bộ môn
-              </option>
+              <option value="all">Tất cả các môn</option>
 
               {subjects.map((subject) => (
-                <option
-                  key={subject}
-                  value={subject}
-                >
+                <option key={subject} value={subject}>
                   {subject}
                 </option>
               ))}
             </select>
           </label>
 
-          {/* STATUS */}
-
           <label className="account-select">
             <span>Trạng thái</span>
 
             <select
               value={statusFilter}
-              onChange={(e) =>
-                setStatusFilter(e.target.value)
-              }
+              onChange={(e) => setStatusFilter(e.target.value)}
             >
-              <option value="all">
-                Tất cả trạng thái
-              </option>
-
-              <option value="active">
-                Đang hoạt động
-              </option>
-
-              <option value="inactive">
-                Đã vô hiệu hóa
-              </option>
+              <option value="all">Tất cả trạng thái</option>
+              <option value="active">Đang hoạt động</option>
+              <option value="inactive">Đã vô hiệu hóa</option>
             </select>
           </label>
-
-          {/* REFRESH */}
 
           <button
             type="button"
@@ -316,13 +270,8 @@ const AccountManagementPanel = ({
           </button>
         </div>
 
-        {/* ========================================
-            TABLE
-        ======================================== */}
-
         <div className="account-table-wrap">
           <table className="account-table">
-
             <thead>
               <tr>
                 <th>Tên giáo viên</th>
@@ -335,9 +284,6 @@ const AccountManagementPanel = ({
             </thead>
 
             <tbody>
-
-              {/* LOADING */}
-
               {loading ? (
                 <tr>
                   <td
@@ -357,43 +303,22 @@ const AccountManagementPanel = ({
                   </td>
                 </tr>
               ) : (
-
-                /* DATA */
-
                 filteredTeachers.map((teacher) => (
                   <tr
-                    key={
-                      teacher.id ||
-                      teacher.email
-                    }
+                    key={teacher.uid || teacher.email}
                   >
-
-                    {/* TÊN */}
-
                     <td>
                       <div className="account-cell">
-
                         <div className="table-avatar">
-                          <Icon
-                            name="user"
-                            size={19}
-                          />
+                          <Icon name="user" size={19} />
                         </div>
 
                         <div>
-                          <strong>
-                            {teacher.name}
-                          </strong>
-
-                          <span>
-                            Giáo viên
-                          </span>
+                          <strong>{teacher.name}</strong>
+                          <span>Giáo viên</span>
                         </div>
-
                       </div>
                     </td>
-
-                    {/* GMAIL */}
 
                     <td>
                       <span className="account-email">
@@ -401,19 +326,14 @@ const AccountManagementPanel = ({
                       </span>
                     </td>
 
-                    {/* SỐ ĐIỆN THOẠI */}
-
                     <td>
                       <span className="account-phone">
-                        {teacher.phoneNumber}
+                        {teacher.phone_number || "--"}
                       </span>
                     </td>
 
-                    {/* BỘ MÔN */}
-
                     <td>
                       <div className="account-subject-list">
-
                         {teacher.subject.length > 0 ? (
                           teacher.subject.map(
                             (subject, index) => (
@@ -430,67 +350,51 @@ const AccountManagementPanel = ({
                             Chưa cập nhật
                           </span>
                         )}
-
                       </div>
                     </td>
-
-                    {/* STATUS */}
 
                     <td>
                       <span
                         className={`status-badge ${
-                          teacher.isActive
+                          teacher.is_active
                             ? "active"
                             : "inactive"
                         }`}
                       >
                         <i />
 
-                        {teacher.isActive
+                        {teacher.is_active
                           ? "Đang hoạt động"
                           : "Đã vô hiệu hóa"}
                       </span>
                     </td>
 
-                    {/* ACTION */}
-
                     <td>
                       <div className="row-actions">
-
                         <button
                           type="button"
                           aria-label={`Chỉnh sửa ${teacher.email}`}
+                          onClick={() =>
+                            setSelectedTeacher(teacher)
+                          }
                         >
-                          <Icon
-                            name="edit"
-                            size={17}
-                          />
+                          <Icon name="edit" size={17} />
                         </button>
 
                         <button
                           type="button"
                           aria-label={`Thao tác với ${teacher.email}`}
                         >
-                          <Icon
-                            name="more"
-                            size={18}
-                          />
+                          <Icon name="more" size={18} />
                         </button>
-
                       </div>
                     </td>
-
                   </tr>
                 ))
               )}
-
             </tbody>
           </table>
         </div>
-
-        {/* ========================================
-            PAGINATION
-        ======================================== */}
 
         <div className="account-pagination">
           <span>
@@ -502,20 +406,14 @@ const AccountManagementPanel = ({
               type="button"
               disabled
             >
-              <Icon
-                name="first"
-                size={15}
-              />
+              <Icon name="first" size={15} />
             </button>
 
             <button
               type="button"
               disabled
             >
-              <Icon
-                name="arrowLeft"
-                size={15}
-              />
+              <Icon name="arrowLeft" size={15} />
             </button>
 
             <button
@@ -526,22 +424,23 @@ const AccountManagementPanel = ({
             </button>
 
             <button type="button">
-              <Icon
-                name="arrowRight"
-                size={15}
-              />
+              <Icon name="arrowRight" size={15} />
             </button>
 
             <button type="button">
-              <Icon
-                name="last"
-                size={15}
-              />
+              <Icon name="last" size={15} />
             </button>
           </div>
         </div>
-
       </section>
+
+      {selectedTeacher && (
+        <EditTeacherForm
+          teacher={selectedTeacher}
+          onClose={() => setSelectedTeacher(null)}
+          onSave={handleSaveTeacher}
+        />
+      )}
     </>
   );
 };

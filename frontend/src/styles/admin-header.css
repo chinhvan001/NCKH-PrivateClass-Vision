@@ -90,3 +90,28 @@
 .admin-profile-chevron {
   color: var(--text-soft);
 }
+
+.admin-profile-button-area {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 12px;
+  background: transparent;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.admin-profile-button-area:hover {
+  background: rgba(37, 99, 235, 0.04);
+}
+
+.admin-profile-button-area:active {
+  background: rgba(37, 99, 235, 0.08);
+}
+
+.admin-profile-button-area:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}

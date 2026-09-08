@@ -8,6 +8,7 @@ const Input = ({
   icon,
   rightElement,
   className = "",
+  disabled = false,
 }) => {
   return (
     <div className={`input-wrapper ${className}`}>
@@ -20,6 +21,7 @@ const Input = ({
         value={value}
         onChange={onChange}
         autoComplete={autoComplete}
+        disabled={disabled}
       />
 
       {rightElement}
@@ -27,4 +29,4 @@ const Input = ({
   );
 };
 
-export default Input;  
+export default Input;

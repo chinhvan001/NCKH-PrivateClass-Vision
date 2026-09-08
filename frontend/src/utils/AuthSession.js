@@ -1,3 +1,7 @@
+import { signOut } from "firebase/auth";
+
+import { auth } from "../firebase";
+
 const SESSION_DURATION = 30 * 60 * 1000; // 30 phút
 
 export const saveAdminSession = (user, idToken) => {
@@ -19,7 +23,6 @@ export const getAdminSession = () => {
 
   const now = Date.now();
 
-  // Session hết hạn
   if (now >= Number(expiresAt)) {
     clearAdminSession();
     return null;
@@ -44,4 +47,22 @@ export const clearAdminSession = () => {
   localStorage.removeItem("adminUser");
   localStorage.removeItem("idToken");
   localStorage.removeItem("sessionExpiresAt");
+};
+
+export const logoutAdmin = async (navigate) => {
+  try {
+    if (auth) {
+      await signOut(auth);
+    }
+  } catch (error) {
+    console.error("Firebase logout error:", error);
+  }
+
+  clearAdminSession();
+
+  if (navigate) {
+    navigate("/login", { replace: true });
+  }
+
+  return true;
 };

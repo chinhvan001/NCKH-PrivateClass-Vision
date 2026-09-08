@@ -1,119 +1,69 @@
-import { useEffect, useState } from "react";
+import { Navigate, Route, Routes } from "react-router-dom";
 
 import Login from "./pages/Login";
-import Dashboard from "./pages/Dashboard";
+import Dashboard from "./pages/DashBoard";
 import AccountManagement from "./pages/AccountManagement";
+import SessionManagement from "./pages/SessionManagement";
+import SessionDetail from "./pages/SessionDetail";
 
-import {
-  getAdminSession,
-  clearAdminSession,
-} from "./utils/AuthSession";
+import { getAdminSession, clearAdminSession } from "./utils/AuthSession";
+
+function ProtectedRoute({ children }) {
+  const session = getAdminSession();
+
+  if (!session) {
+    clearAdminSession();
+    return <Navigate to="/login" replace />;
+  }
+
+  return children;
+}
 
 function App() {
-  const [activePage, setActivePage] = useState("login");
-
-  // const [recoveryEmail, setRecoveryEmail] = useState("");
-
-  // =========================
-  // KIỂM TRA ADMIN SESSION
-  // =========================
-
-  useEffect(() => {
-    const session = getAdminSession();
-
-    if (session) {
-      // Session vẫn còn hạn
-      setActivePage("dashboard");
-    } else {
-      // Session hết hạn hoặc chưa đăng nhập
-      clearAdminSession();
-      setActivePage("login");
-    }
-  }, []);
-
-  // =========================
-  // ĐĂNG XUẤT
-  // =========================
-
-  const handleLogout = () => {
-    clearAdminSession();
-    setActivePage("login");
-  };
-
-  // =========================
-  // ĐIỀU HƯỚNG
-  // =========================
-
-  const handleNavigate = (page) => {
-    setActivePage(page);
-  };
-
-  // =========================
-  // DASHBOARD
-  // =========================
-
-  if (activePage === "dashboard") {
-    return (
-      <Dashboard
-        onLogout={handleLogout}
-        onNavigate={handleNavigate}
-      />
-    );
-  }
-
-  // =========================
-  // ACCOUNT MANAGEMENT
-  // =========================
-
-  if (activePage === "account-management") {
-    return (
-      <AccountManagement
-        onLogout={handleLogout}
-        onNavigate={handleNavigate}
-      />
-    );
-  }
-
-  // =========================
-  // FORGOT PASSWORD
-  // =========================
-
-  // if (activePage === "forgot-password") {
-  //   return (
-  //     <ForgotPassword
-  //       onBackToLogin={() => setActivePage("login")}
-  //       onContinue={(email) => {
-  //         setRecoveryEmail(email);
-  //         setActivePage("otp-verification");
-  //       }}
-  //     />
-  //   );
-  // }
-
-  // =========================
-  // OTP VERIFICATION
-  // =========================
-
-  // if (activePage === "otp-verification") {
-  //   return (
-  //     <OtpVerification
-  //       email={recoveryEmail}
-  //       onBackToLogin={() => setActivePage("login")}
-  //       onChangeEmail={() => setActivePage("forgot-password")}
-  //     />
-  //   );
-  // }
-
-  // =========================
-  // LOGIN
-  // =========================
-
   return (
-    <Login
-      // onForgotPassword={() => setActivePage("forgot-password")}
+    <Routes>
+      <Route path="/login" element={<Login />} />
 
-      onLogin={() => setActivePage("dashboard")}
-    />
+      <Route
+        path="/dashboard"
+        element={
+          <ProtectedRoute>
+            <Dashboard />
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/account-management"
+        element={
+          <ProtectedRoute>
+            <AccountManagement />
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/session-management"
+        element={
+          <ProtectedRoute>
+            <SessionManagement />
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/session-management/:sessionId"
+        element={
+          <ProtectedRoute>
+            <SessionDetail />
+          </ProtectedRoute>
+        }
+      />
+
+      <Route path="/" element={<Navigate to="/login" replace />} />
+
+      <Route path="*" element={<Navigate to="/login" replace />} />
+    </Routes>
   );
 }
 

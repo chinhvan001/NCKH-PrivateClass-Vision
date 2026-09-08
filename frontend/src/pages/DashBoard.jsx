@@ -1,12 +1,19 @@
 import { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 
 import AdminHeader from "../components/admin/AdminHeader";
 import AdminSidebar from "../components/admin/AdminSidebar";
 import DashboardPanel from "../components/admin/DashboardPanel";
 
-const Dashboard = ({ onLogout, onNavigate }) => {
+import { logoutAdmin } from "../utils/AuthSession";
+
+
+const Dashboard = () => {
+    const navigate = useNavigate();
+
     const [users, setUsers] = useState([]);
     const [loading, setLoading] = useState(true);
+
 
     const fetchUsers = async () => {
         try {
@@ -31,46 +38,59 @@ const Dashboard = ({ onLogout, onNavigate }) => {
 
             const data = await response.json();
 
-            console.log("Dashboard users:", data);
+            // console.log("Dashboard users:", data);
 
             if (!response.ok || !data.success) {
                 throw new Error(
-                    data.message || "Không thể lấy dữ liệu Dashboard"
+                    data.message ||
+                    "Không thể lấy dữ liệu Dashboard"
                 );
             }
 
             setUsers(data.users || []);
+
         } catch (error) {
-            console.error("Fetch dashboard users error:", error);
+            console.error(
+                "Fetch dashboard users error:",
+                error
+            );
         } finally {
             setLoading(false);
         }
     };
 
+    const handleLogout = async () => {
+        await logoutAdmin(navigate);
+    };
+
+
     useEffect(() => {
         fetchUsers();
     }, []);
 
+
     return (
         <main className="admin-page">
+
             <AdminSidebar
-                onLogout={onLogout}
-                activePage="dashboard"
-                onNavigate={onNavigate}
+                onLogout={handleLogout}
             />
 
             <section className="admin-main-content">
+
                 <AdminHeader />
 
                 <DashboardPanel
                     users={users}
                     loading={loading}
                     onRefresh={fetchUsers}
-                    onNavigate={onNavigate}
                 />
+
             </section>
+
         </main>
     );
 };
+
 
 export default Dashboard;

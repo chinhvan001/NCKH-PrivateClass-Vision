@@ -16,7 +16,6 @@ const DashboardPanel = ({
         (user) => user.is_active === false
     ).length;
 
-    // Lấy danh sách môn học thực tế từ tài khoản giáo viên
     const subjects = [
         ...new Set(
             users.flatMap((user) =>
@@ -27,10 +26,6 @@ const DashboardPanel = ({
         ),
     ];
 
-    /*
-     * DỮ LIỆU TẠM THỜI
-     * Sau này sẽ thay bằng API monitoring thật.
-     */
     const monitoringSessions = [
         {
             className: "Lớp 10A1",
@@ -86,7 +81,6 @@ const DashboardPanel = ({
     return (
         <div className="dashboard-content">
 
-            {/* ================= HEADER ================= */}
             <div className="dashboard-heading">
                 <div>
                     <h2>Dashboard</h2>
@@ -105,8 +99,6 @@ const DashboardPanel = ({
                 </button>
             </div>
 
-
-            {/* ================= STAT CARDS ================= */}
             <section className="dashboard-stat-grid">
 
                 <div className="dashboard-stat-card">
@@ -196,8 +188,6 @@ const DashboardPanel = ({
 
             </section>
 
-
-            {/* ================= MAIN GRID ================= */}
             <section className="dashboard-main-grid">
 
                 {/* ===== ENGAGEMENT ===== */}
@@ -269,8 +259,6 @@ const DashboardPanel = ({
 
                 </div>
 
-
-                {/* ===== MONITORING SESSION ===== */}
                 <div className="dashboard-card">
 
                     <div className="dashboard-card-header">
@@ -361,11 +349,8 @@ const DashboardPanel = ({
 
             </section>
 
-
-            {/* ================= BOTTOM GRID ================= */}
             <section className="dashboard-bottom-grid">
 
-                {/* ===== SYSTEM STATUS ===== */}
                 <div className="dashboard-card system-status-card">
 
                     <div className="dashboard-card-header">
@@ -449,8 +434,6 @@ const DashboardPanel = ({
 
                 </div>
 
-
-                {/* ===== ALERTS ===== */}
                 <div className="dashboard-card">
 
                     <div className="dashboard-card-header">
@@ -506,8 +489,6 @@ const DashboardPanel = ({
 
                 </div>
 
-
-                {/* ===== ACTIVITIES ===== */}
                 <div className="dashboard-card">
 
                     <div className="dashboard-card-header">

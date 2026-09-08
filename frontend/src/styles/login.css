@@ -478,6 +478,16 @@ form {
   height: 14px;
 }
 
+.login-button .spinner {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  border-top-color: white;
+  border-radius: 50%;
+  animation: spin 0.6s linear infinite;
+}
+
 .security-message {
   margin-top: 13px;
   display: flex;
@@ -912,4 +922,479 @@ form {
 
 .otp-security-message {
   margin-top: 14px;
+}
+
+/* =========================================================
+   EMAIL + PASSWORD LOGIN
+   PrivateClass Vision - Login UI
+========================================================= */
+
+.google-login-container {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+
+/* =========================================================
+   FORM
+========================================================= */
+
+.email-password-form {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+
+  margin-top: 18px;
+  margin-bottom: 0;
+
+  gap: 16px;
+}
+
+.email-password-form .form-group {
+  width: 100%;
+  margin: 0;
+}
+
+
+/* =========================================================
+   LABEL
+========================================================= */
+
+.email-password-form .form-group label {
+  display: block;
+
+  margin-bottom: 7px;
+
+  color: #455166;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+
+/* =========================================================
+   INPUT WRAPPER
+========================================================= */
+
+.email-password-form .input-wrapper {
+  position: relative;
+
+  width: 100%;
+  height: 44px;
+
+  box-sizing: border-box;
+}
+
+
+/* =========================================================
+   INPUT
+========================================================= */
+
+.email-password-form .input-wrapper input {
+  width: 100%;
+  height: 44px;
+
+  box-sizing: border-box;
+
+  padding: 0 42px;
+
+  border: 1px solid #dce3ec;
+  border-radius: 8px;
+
+  outline: none;
+
+  background: #ffffff;
+  color: #26334a;
+
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 400;
+
+  transition:
+    border-color 0.2s ease,
+    box-shadow 0.2s ease,
+    background-color 0.2s ease;
+}
+
+
+/* Placeholder */
+
+.email-password-form .input-wrapper input::placeholder {
+  color: #aeb8c7;
+  opacity: 1;
+}
+
+
+/* Hover */
+
+.email-password-form .input-wrapper:hover input {
+  border-color: #c9d4e2;
+}
+
+
+/* Focus */
+
+.email-password-form .input-wrapper input:focus {
+  border-color: #2864ea;
+
+  box-shadow:
+    0 0 0 3px rgba(40, 100, 234, 0.09);
+}
+
+
+/* Disabled */
+
+.email-password-form .input-wrapper input:disabled {
+  background: #f8fafc;
+  color: #aeb8c7;
+  cursor: not-allowed;
+}
+
+
+/* =========================================================
+   LEFT INPUT ICON
+========================================================= */
+
+.email-password-form .input-icon {
+  position: absolute;
+
+  left: 13px;
+  top: 50%;
+
+  width: 16px;
+  height: 16px;
+
+  transform: translateY(-50%);
+
+  color: #9aa7b9;
+
+  pointer-events: none;
+
+  z-index: 2;
+}
+
+
+/* =========================================================
+   PASSWORD EYE BUTTON
+========================================================= */
+
+.email-password-form .password-toggle {
+  position: absolute;
+
+  right: 10px;
+  top: 50%;
+
+  width: 24px;
+  height: 24px;
+
+  padding: 0;
+
+  transform: translateY(-50%);
+
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  border: none;
+  outline: none;
+
+  background: transparent;
+
+  color: #98a4b5;
+
+  cursor: pointer;
+
+  z-index: 3;
+
+  transition:
+    color 0.2s ease,
+    background-color 0.2s ease;
+}
+
+
+.email-password-form .password-toggle:hover:not(:disabled) {
+  color: #2864ea;
+}
+
+
+.email-password-form .password-toggle:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+
+.email-password-form .password-toggle svg {
+  width: 16px;
+  height: 16px;
+}
+
+
+/* =========================================================
+   ERROR
+========================================================= */
+
+.email-password-form .error-message {
+  width: 100%;
+
+  box-sizing: border-box;
+
+  display: flex;
+  align-items: center;
+
+  gap: 8px;
+
+  margin-top: -3px;
+
+  padding: 9px 11px;
+
+  border: 1px solid #fecaca;
+  border-radius: 7px;
+
+  background: #fff7f7;
+
+  color: #b42318;
+
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+
+.email-password-form .error-message svg {
+  width: 14px;
+  height: 14px;
+
+  flex-shrink: 0;
+
+  color: #dc2626;
+}
+
+
+/* =========================================================
+   LOGIN BUTTON
+========================================================= */
+
+.email-password-button {
+  position: relative;
+
+  width: 100%;
+  height: 44px;
+
+  box-sizing: border-box;
+
+  margin-top: 2px;
+  padding: 0 18px;
+
+  border: none;
+  border-radius: 8px;
+
+  background: #2864ea;
+
+  color: #ffffff;
+
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  gap: 9px;
+
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 600;
+
+  cursor: pointer;
+
+  box-shadow:
+    0 5px 12px rgba(40, 100, 234, 0.20);
+
+  transition:
+    background-color 0.2s ease,
+    box-shadow 0.2s ease,
+    transform 0.15s ease;
+}
+
+
+/* Hover */
+
+.email-password-button:hover:not(:disabled) {
+  background: #1f58d7;
+
+  box-shadow:
+    0 7px 16px rgba(40, 100, 234, 0.27);
+}
+
+
+/* Active */
+
+.email-password-button:active:not(:disabled) {
+  transform: translateY(1px);
+
+  box-shadow:
+    0 3px 8px rgba(40, 100, 234, 0.20);
+}
+
+
+/* Disabled */
+
+.email-password-button:disabled {
+  opacity: 0.65;
+
+  cursor: not-allowed;
+
+  box-shadow:
+    0 4px 10px rgba(40, 100, 234, 0.12);
+}
+
+
+/* =========================================================
+   SPINNER
+========================================================= */
+
+.email-password-button .spinner {
+  width: 13px;
+  height: 13px;
+
+  display: inline-block;
+
+  border: 2px solid rgba(255, 255, 255, 0.35);
+  border-top-color: #ffffff;
+
+  border-radius: 50%;
+
+  animation: login-spin 0.65s linear infinite;
+}
+
+
+@keyframes login-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+
+/* =========================================================
+   DIVIDER
+========================================================= */
+
+.login-divider {
+  width: 100%;
+
+  display: flex;
+  align-items: center;
+
+  gap: 11px;
+
+  margin: 18px 0;
+}
+
+
+.login-divider::before,
+.login-divider::after {
+  content: "";
+
+  flex: 1;
+
+  height: 1px;
+
+  background: #e7ebf1;
+}
+
+
+.login-divider span {
+  flex-shrink: 0;
+
+  color: #9aa5b5;
+
+  font-size: 10px;
+  font-weight: 400;
+
+  white-space: nowrap;
+}
+
+
+/* =========================================================
+   GOOGLE BUTTON
+========================================================= */
+
+.google-login-button {
+  width: 100%;
+  height: 42px;
+
+  box-sizing: border-box;
+
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  gap: 9px;
+
+  padding: 0 16px;
+
+  border: 1px solid #dce3ec;
+  border-radius: 8px;
+
+  background: #ffffff;
+
+  color: #374151;
+
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 600;
+
+  cursor: pointer;
+
+  transition:
+    background-color 0.2s ease,
+    border-color 0.2s ease,
+    box-shadow 0.2s ease,
+    transform 0.15s ease;
+}
+
+
+.google-login-button:hover {
+  background: #f8fafc;
+
+  border-color: #cbd5e1;
+
+  box-shadow:
+    0 3px 8px rgba(30, 50, 90, 0.07);
+}
+
+
+.google-login-button:active {
+  transform: translateY(1px);
+}
+
+
+.google-logo {
+  width: 17px;
+  height: 17px;
+
+  flex-shrink: 0;
+}
+
+
+/* =========================================================
+   RESPONSIVE
+========================================================= */
+
+@media (max-width: 768px) {
+
+  .email-password-form {
+    margin-top: 16px;
+    gap: 14px;
+  }
+
+  .email-password-form .input-wrapper,
+  .email-password-form .input-wrapper input {
+    height: 43px;
+  }
+
+  .email-password-button {
+    height: 43px;
+  }
+
+  .google-login-button {
+    height: 42px;
+  }
 }

@@ -1,20 +1,19 @@
 import { useEffect, useState } from "react";
-import { signOut } from "firebase/auth";
+import { useNavigate } from "react-router-dom";
 
 import AdminHeader from "../components/admin/AdminHeader";
 import AdminSidebar from "../components/admin/AdminSidebar";
 import AccountManagementPanel from "../components/admin/AccountManagementPanel";
 
-import { auth } from "../firebase";
-import { clearAdminSession } from "../utils/AuthSession";
+import { clearAdminSession, logoutAdmin } from "../utils/AuthSession";
 
-const AccountManagement = ({ onLogoutSuccess, onNavigate }) => {
+
+const AccountManagement = () => {
+    const navigate = useNavigate();
+
     const [users, setUsers] = useState([]);
     const [loading, setLoading] = useState(true);
 
-    // =========================
-    // LẤY DANH SÁCH GIÁO VIÊN
-    // =========================
 
     const fetchUsers = async () => {
         try {
@@ -39,7 +38,7 @@ const AccountManagement = ({ onLogoutSuccess, onNavigate }) => {
 
             const data = await response.json();
 
-            console.log("Admin users:", data);
+            // console.log("Admin users:", data);
 
             if (!response.ok || !data.success) {
                 throw new Error(
@@ -48,63 +47,130 @@ const AccountManagement = ({ onLogoutSuccess, onNavigate }) => {
             }
 
             setUsers(data.users || []);
+
         } catch (error) {
             console.error("Fetch admin users error:", error);
+
+            if (
+                error.message.includes("phiên đăng nhập") ||
+                error.message.includes("authorization")
+            ) {
+                clearAdminSession();
+                navigate("/login", { replace: true });
+            }
+
         } finally {
             setLoading(false);
         }
     };
 
-    // =========================
-    // ĐĂNG XUẤT ADMIN
-    // =========================
 
-    const handleLogout = async () => {
+    const handleUpdateUser = async (updatedUser) => {
         try {
-            // 1. Đăng xuất Firebase
-            await signOut(auth);
+            const idToken = localStorage.getItem("idToken");
 
-            // 2. Xóa session trong localStorage
-            clearAdminSession();
-
-            console.log("Admin logout successful");
-
-            // 3. Báo cho App.jsx chuyển về Login
-            if (onLogoutSuccess) {
-                onLogoutSuccess();
+            if (!idToken) {
+                throw new Error("Không tìm thấy phiên đăng nhập");
             }
+
+            const uid = updatedUser.uid || updatedUser.id;
+
+            if (!uid) {
+                throw new Error(
+                    "Không xác định được UID của giáo viên"
+                );
+            }
+
+            const response = await fetch(
+                `http://127.0.0.1:5000/api/users/${uid}`,
+                {
+                    method: "PUT",
+                    headers: {
+                        Authorization: `Bearer ${idToken}`,
+                        "Content-Type": "application/json",
+                    },
+                    body: JSON.stringify({
+                        name: updatedUser.name,
+                        phone_number: updatedUser.phone_number,
+                        subject: updatedUser.subject || [],
+                        is_active: updatedUser.is_active,
+                    }),
+                }
+            );
+
+            const data = await response.json();
+
+            console.log("Update user response:", data);
+
+            if (!response.ok) {
+                throw new Error(
+                    data.message || "Cập nhật tài khoản thất bại"
+                );
+            }
+
+            setUsers((prevUsers) =>
+                prevUsers.map((user) =>
+                    user.id === uid || user.uid === uid
+                        ? {
+                            ...user,
+                            name: updatedUser.name,
+                            phone_number: updatedUser.phone_number,
+                            subject: updatedUser.subject || [],
+                            is_active: updatedUser.is_active,
+                        }
+                        : user
+                )
+            );
+
+            alert("Cập nhật tài khoản thành công.");
+
+            return data;
+
         } catch (error) {
-            console.error("Logout error:", error);
+            console.error("Update user error:", error);
+
+            alert(
+                error.message ||
+                "Có lỗi xảy ra khi cập nhật tài khoản."
+            );
+
+            throw error;
         }
     };
 
-    // =========================
-    // LOAD DANH SÁCH KHI MỞ TRANG
-    // =========================
+    const handleLogout = async () => {
+        await logoutAdmin(navigate);
+    };
+
 
     useEffect(() => {
         fetchUsers();
     }, []);
 
+
     return (
         <main className="admin-page">
+
             <AdminSidebar
-                activePage="account-management"
-                onNavigate={onNavigate}
                 onLogout={handleLogout}
             />
 
             <section className="admin-main-content">
+
                 <AdminHeader />
 
                 <AccountManagementPanel
                     users={users}
                     loading={loading}
                     onRefresh={fetchUsers}
+                    onUpdateUser={handleUpdateUser}
                 />
+
             </section>
+
         </main>
     );
 };
+
 
 export default AccountManagement;

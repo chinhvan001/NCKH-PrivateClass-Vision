@@ -459,23 +459,27 @@
 }
 
 .account-subject-tag {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
 
-  padding: 5px 9px;
+    max-width: 160px;
 
-  border-radius: 7px;
-  border: 1px solid #dfe9ff;
+    padding: 5px 9px;
 
-  background: #eef4ff;
-  color: #2e5cc7;
+    border-radius: 7px;
+    border: 1px solid #dfe9ff;
+    background: #eef4ff;
 
-  font-size: 11px;
-  font-weight: 600;
-  line-height: 1.2;
+    color: #2e5cc7;
 
-  white-space: nowrap;
+    font-size: 11px;
+    font-weight: 600;
+    line-height: 1.3;
+
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 .account-subject-empty {
@@ -723,7 +727,6 @@
   box-shadow: none;
 }
 
-
 .account-pagination .current-page {
   border: 1px solid #2864ea;
 
@@ -792,4 +795,364 @@
 
 .refresh-button svg {
   flex-shrink: 0;
+}
+
+.edit-teacher-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  padding: 24px;
+
+  background: rgba(15, 23, 42, 0.45);
+  backdrop-filter: blur(3px);
+}
+
+.edit-teacher-modal {
+  width: 100%;
+  max-width: 520px;
+  max-height: calc(100vh - 48px);
+
+  overflow-y: auto;
+
+  background: #ffffff;
+  border-radius: 16px;
+
+  box-shadow:
+    0 20px 60px rgba(15, 23, 42, 0.2);
+}
+
+.edit-teacher-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+
+  padding: 22px 24px 18px;
+
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.edit-teacher-header h2 {
+  margin: 0;
+
+  font-size: 18px;
+  font-weight: 700;
+
+  color: #111827;
+}
+
+.edit-teacher-header p {
+  margin: 6px 0 0;
+
+  font-size: 12px;
+  color: #6b7280;
+}
+
+.edit-teacher-close {
+  width: 32px;
+  height: 32px;
+
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  border: none;
+  border-radius: 8px;
+
+  background: transparent;
+
+  color: #6b7280;
+
+  font-size: 24px;
+  line-height: 1;
+
+  cursor: pointer;
+
+  transition: background 0.2s ease;
+}
+
+.edit-teacher-close:hover {
+  background: #f3f4f6;
+}
+
+.edit-teacher-form {
+  padding: 22px 24px 24px;
+}
+
+.edit-teacher-field {
+  margin-bottom: 18px;
+}
+
+.edit-teacher-field > label {
+  display: block;
+
+  margin-bottom: 7px;
+
+  font-size: 12px;
+  font-weight: 600;
+
+  color: #374151;
+}
+
+.edit-teacher-field input[type="text"],
+.edit-teacher-field input[type="email"],
+.edit-teacher-field input[type="tel"] {
+  width: 100%;
+  height: 40px;
+
+  padding: 0 12px;
+
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+
+  outline: none;
+
+  font-size: 13px;
+  color: #111827;
+
+  box-sizing: border-box;
+
+  transition:
+    border-color 0.2s ease,
+    box-shadow 0.2s ease;
+}
+
+.edit-teacher-field input:focus {
+  border-color: #2658d6;
+
+  box-shadow:
+    0 0 0 3px rgba(38, 88, 214, 0.1);
+}
+
+.edit-teacher-field input:disabled {
+  background: #f3f4f6;
+  color: #9ca3af;
+  cursor: not-allowed;
+}
+
+.edit-teacher-field small {
+  display: block;
+
+  margin-top: 5px;
+
+  font-size: 10px;
+  line-height: 1.5;
+
+  color: #9ca3af;
+}
+
+.edit-teacher-status {
+  display: inline-flex !important;
+
+  align-items: center;
+
+  gap: 8px;
+
+  margin: 0 !important;
+
+  cursor: pointer;
+}
+
+.edit-teacher-status input {
+  width: 16px;
+  height: 16px;
+
+  accent-color: #2658d6;
+
+  cursor: pointer;
+}
+
+.edit-teacher-status span {
+  font-size: 12px;
+  font-weight: 500;
+
+  color: #374151;
+}
+
+.edit-teacher-actions {
+  display: flex;
+  justify-content: flex-end;
+
+  gap: 10px;
+
+  margin-top: 24px;
+  padding-top: 18px;
+
+  border-top: 1px solid #e5e7eb;
+}
+
+.edit-teacher-cancel,
+.edit-teacher-save {
+  height: 38px;
+
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+
+  gap: 7px;
+
+  padding: 0 16px;
+
+  border-radius: 8px;
+
+  font-size: 12px;
+  font-weight: 600;
+
+  cursor: pointer;
+
+  transition:
+    background 0.2s ease,
+    transform 0.2s ease;
+}
+
+.edit-teacher-cancel {
+  border: 1px solid #d1d5db;
+
+  background: #ffffff;
+
+  color: #374151;
+}
+
+.edit-teacher-cancel:hover {
+  background: #f9fafb;
+}
+
+.edit-teacher-save {
+  border: none;
+
+  background: #2658d6;
+
+  color: #ffffff;
+}
+
+.edit-teacher-save:hover {
+  background: #1d4ec5;
+  transform: translateY(-1px);
+}
+
+.edit-teacher-cancel:disabled,
+.edit-teacher-save:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.edit-teacher-subjects {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-height: 40px;
+  padding: 8px;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.edit-teacher-subject-tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+
+    max-width: 100%;
+
+    padding: 6px 9px;
+
+    border: 1px solid #dfe9ff;
+    border-radius: 7px;
+
+    background: #eef4ff;
+    color: #2e5cc7;
+
+    font-size: 11px;
+    font-weight: 600;
+
+    line-height: 1.4;
+}
+
+.edit-teacher-subject-tag span {
+    white-space: normal;
+    overflow-wrap: anywhere;
+}
+
+.edit-teacher-subject-tag button {
+  width: 17px;
+  height: 17px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: #6b7da0;
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.edit-teacher-subject-tag button:hover {
+  background: #dce8ff;
+  color: #ef5362;
+}
+
+.edit-teacher-no-subject {
+  color: #9aa9bf;
+  font-size: 11px;
+  padding: 3px;
+}
+
+.edit-teacher-add-subject {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.edit-teacher-add-subject select {
+  flex: 1;
+  height: 40px;
+  padding: 0 12px;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #111827;
+  font-family: inherit;
+  font-size: 13px;
+  outline: none;
+  cursor: pointer;
+}
+
+.edit-teacher-add-subject select:focus {
+  border-color: #2658d6;
+  box-shadow: 0 0 0 3px rgba(38, 88, 214, 0.1);
+}
+
+.edit-teacher-add-subject-button {
+  height: 40px;
+  padding: 0 13px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border: 1px solid #dfe7f2;
+  border-radius: 8px;
+  background: #f7faff;
+  color: #2864ea;
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.edit-teacher-add-subject-button:hover:not(:disabled) {
+  border-color: #aecaf8;
+  background: #eef5ff;
+}
+
+.edit-teacher-add-subject-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }

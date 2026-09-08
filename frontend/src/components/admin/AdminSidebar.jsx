@@ -1,54 +1,63 @@
+import { useLocation, useNavigate } from "react-router-dom";
+
 import logo from "../../assets/logo.png";
 import Icon from "../common/Icon";
+
 
 const navigationItems = [
     {
         label: "Tổng quan",
         icon: "grid",
-        page: "dashboard",
+        path: "/dashboard",
         group: "TỔNG QUAN",
         enabled: true,
     },
     {
-        label: "Quản lý tài khoản",
+        label: "Quản lý giáo viên",
         icon: "user",
-        page: "account-management",
+        path: "/account-management",
         group: "QUẢN LÝ HỆ THỐNG",
+        enabled: true,
+    },
+    {
+        label: "Quản lý phiên",
+        icon: "school",
+        path: "/session-management",
         enabled: true,
     },
     {
         label: "Nhật ký hoạt động",
         icon: "activity",
-        page: "activity-log",
-        enabled: false,
-    },
-    {
-        label: "Cài đặt hệ thống",
-        icon: "settings",
-        page: "settings",
-        group: "CÀI ĐẶT",
+        path: "/activity-log",
+        group: "Hệ thống",
         enabled: false,
     },
     {
         label: "Trung tâm trợ giúp",
         icon: "help",
-        page: "help",
+        path: "/help",
         group: "HỖ TRỢ",
         enabled: false,
     },
 ];
 
-const AdminSidebar = ({
-    activePage,
-    onNavigate,
-    onLogout,
-}) => {
+
+const AdminSidebar = ({ onLogout }) => {
+    const navigate = useNavigate();
+    const location = useLocation();
+
+
+    const handleNavigation = (path, enabled) => {
+        if (!enabled) {
+            return;
+        }
+
+        navigate(path);
+    };
+
+
     return (
         <aside className="admin-sidebar">
-
-            {/* =========================
-                LOGO
-            ========================= */}
 
             <div className="admin-brand">
                 <img
@@ -62,19 +71,17 @@ const AdminSidebar = ({
                 </div>
             </div>
 
-            {/* =========================
-                NAVIGATION
-            ========================= */}
-
             <nav
                 className="admin-navigation"
                 aria-label="Điều hướng quản trị"
             >
                 {navigationItems.map((item) => (
+
                     <div
                         key={item.label}
                         className="admin-nav-group"
                     >
+
                         {item.group && (
                             <span className="admin-nav-group-label">
                                 {item.group}
@@ -85,7 +92,7 @@ const AdminSidebar = ({
                             type="button"
                             disabled={!item.enabled}
                             className={`admin-nav-item ${
-                                activePage === item.page
+                                location.pathname === item.path
                                     ? "active"
                                     : ""
                             } ${
@@ -93,11 +100,12 @@ const AdminSidebar = ({
                                     ? "disabled"
                                     : ""
                             }`}
-                            onClick={() => {
-                                if (item.enabled) {
-                                    onNavigate?.(item.page);
-                                }
-                            }}
+                            onClick={() =>
+                                handleNavigation(
+                                    item.path,
+                                    item.enabled
+                                )
+                            }
                         >
                             <Icon
                                 name={item.icon}
@@ -108,13 +116,11 @@ const AdminSidebar = ({
                                 {item.label}
                             </span>
                         </button>
+
                     </div>
+
                 ))}
             </nav>
-
-            {/* =========================
-                SIDEBAR ACTIONS
-            ========================= */}
 
             <div className="admin-sidebar-actions">
 
@@ -130,6 +136,7 @@ const AdminSidebar = ({
                     <span>Cài đặt</span>
                 </button>
 
+
                 <button
                     type="button"
                     onClick={onLogout}
@@ -144,10 +151,6 @@ const AdminSidebar = ({
 
             </div>
 
-            {/* =========================
-                FOOTER
-            ========================= */}
-
             <p className="admin-sidebar-footer">
                 © 2026 PrivateClass Vision.
                 <br />
@@ -157,5 +160,6 @@ const AdminSidebar = ({
         </aside>
     );
 };
+
 
 export default AdminSidebar;
