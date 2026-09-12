@@ -71,19 +71,19 @@ class StudentModel {
   }
 
   Map<String, dynamic> toMap() => {
-    'name': name,
-    'className': className,
-    'schoolName': schoolName,
-    'teacherName': teacherName,
-    'dateOfBirth': dateOfBirth,
-    'parentPhone': parentPhone,
-    'parentEmail': parentEmail,
-    'avgFocusPercent': avgFocusPercent,
-    'totalSessions': totalSessions,
-    'presentSessions': presentSessions,
-    'excusedSessions': excusedSessions,
-    'absentSessions': absentSessions,
-    'lateSessions': lateSessions,
-    'nextSessionTime': nextSessionTime,
-  };
+        'name': name,
+        'className': className,
+        'schoolName': schoolName,
+        'teacherName': teacherName,
+        'dateOfBirth': dateOfBirth,
+        'parentPhone': parentPhone,
+        'parentEmail': parentEmail,
+        'avgFocusPercent': avgFocusPercent,
+        'totalSessions': totalSessions,
+        'presentSessions': presentSessions,
+        'excusedSessions': excusedSessions,
+        'absentSessions': absentSessions,
+        'lateSessions': lateSessions,
+        'nextSessionTime': nextSessionTime,
+      };
 }

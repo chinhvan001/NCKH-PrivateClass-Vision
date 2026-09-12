@@ -36,7 +36,7 @@ class SubjectFocusService {
         .orderBy('percent', descending: true)
         .snapshots()
         .map((snap) =>
-        snap.docs.map(SubjectFocusModel.fromFirestore).toList());
+            snap.docs.map(SubjectFocusModel.fromFirestore).toList());
   }
 
   // ── Seed data (dùng 1 lần để tạo dữ liệu mẫu trên Firestore) ──────────────

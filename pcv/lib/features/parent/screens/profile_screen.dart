@@ -43,7 +43,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
           icon: const Icon(Icons.arrow_back_ios,
               color: AppColors.textPrimary, size: 20),
           onPressed: () =>
-          Navigator.canPop(context) ? Navigator.pop(context) : null,
+              Navigator.canPop(context) ? Navigator.pop(context) : null,
         ),
         title: const Text('Hồ sơ học sinh', style: AppTextStyles.heading2),
         actions: [
@@ -237,7 +237,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                             bgColor: AppColors.greenLight,
                             label: 'Điểm danh',
                             value:
-                            '${student.presentSessions}/${student.totalSessions}',
+                                '${student.presentSessions}/${student.totalSessions}',
                           ),
                           const SizedBox(width: 10),
                           _QuickStat(

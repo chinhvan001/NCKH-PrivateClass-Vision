@@ -31,11 +31,11 @@ class SubjectFocusModel {
   }
 
   Map<String, dynamic> toMap() => {
-    'studentId': studentId,
-    'subject': subject,
-    'percent': percent,
-    'period': period,
-  };
+        'studentId': studentId,
+        'subject': subject,
+        'percent': percent,
+        'period': period,
+      };
 
   /// Màu hiển thị theo thứ tự môn học
   static Color colorForIndex(int index) {

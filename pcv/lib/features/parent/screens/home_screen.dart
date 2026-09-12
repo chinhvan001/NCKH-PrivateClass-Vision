@@ -9,11 +9,15 @@ import '../services/student_service.dart';
 import '../services/session_service.dart';
 import '../services/notification_service.dart';
 import '../services/subject_focus_service.dart';
+import '../services/schedule_service.dart';
+import '../services/child_service.dart';
+import '../services/attendance_detail_service.dart';
 import 'session_history_screen.dart';
 import 'notification_screen.dart';
 import 'profile_screen.dart';
 import 'daily_overview_screen.dart';
 import 'switch_account_screen.dart';
+import 'upcoming_schedule_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -35,6 +39,9 @@ class _HomeScreenState extends State<HomeScreen> {
         SessionService().seedSampleData(_studentId),
         NotificationService().seedSampleData(_studentId),
         SubjectFocusService().seedSampleData(_studentId),
+        ScheduleService().seedSampleData(_studentId),
+        ChildService().seedSampleData('parent_001'),
+        AttendanceDetailService().seedSampleData(_studentId),
       ]);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -359,7 +366,7 @@ class _HomeContentState extends State<_HomeContent> {
                                 bgColor: AppColors.greenLight,
                                 label: 'Điểm danh',
                                 percent:
-                                (summary.attendanceRate * 100).round(),
+                                    (summary.attendanceRate * 100).round(),
                                 color: AppColors.green,
                                 centerText: summary.attendanceLabel,
                               ),
@@ -482,6 +489,78 @@ class _HomeContentState extends State<_HomeContent> {
                             ),
                             child: const Icon(Icons.arrow_forward_rounded,
                                 color: Colors.white, size: 18),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+
+                const SizedBox(height: 20),
+
+                // ── Lịch học sắp tới card ────────────────────────────────────
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: _TapScaleWidget(
+                    onTap: () => Navigator.push(
+                      context,
+                      _slideRoute(const UpcomingScheduleScreen()),
+                    ),
+                    child: Container(
+                      padding: const EdgeInsets.all(14),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(14),
+                        boxShadow: const [
+                          BoxShadow(
+                            color: Color(0x0F000000),
+                            blurRadius: 8,
+                            offset: Offset(0, 2),
+                          ),
+                        ],
+                      ),
+                      child: Row(
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.all(10),
+                            decoration: BoxDecoration(
+                              color: AppColors.greenLight,
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            child: const Icon(Icons.calendar_month_rounded,
+                                color: AppColors.green, size: 26),
+                          ),
+                          const SizedBox(width: 14),
+                          const Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'Lịch học sắp tới',
+                                  style: TextStyle(
+                                    fontSize: 15,
+                                    fontWeight: FontWeight.bold,
+                                    color: AppColors.textPrimary,
+                                  ),
+                                ),
+                                SizedBox(height: 3),
+                                Text(
+                                  'Xem các buổi học sắp diễn ra',
+                                  style: TextStyle(
+                                      fontSize: 12,
+                                      color: AppColors.textSecondary),
+                                ),
+                              ],
+                            ),
+                          ),
+                          Container(
+                            padding: const EdgeInsets.all(6),
+                            decoration: BoxDecoration(
+                              color: AppColors.greenLight,
+                              shape: BoxShape.circle,
+                            ),
+                            child: const Icon(Icons.arrow_forward_rounded,
+                                color: AppColors.green, size: 18),
                           ),
                         ],
                       ),

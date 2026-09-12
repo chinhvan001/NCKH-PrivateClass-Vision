@@ -60,7 +60,7 @@ class SessionService {
 
       final avgFocus = total > 0
           ? (sessions.map((s) => s.percent).reduce((a, b) => a + b) / total)
-          .round()
+              .round()
           : 0;
 
       return AttendanceSummaryModel(

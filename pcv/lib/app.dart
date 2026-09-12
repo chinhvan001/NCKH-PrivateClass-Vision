@@ -16,7 +16,7 @@ class PrivateClassVision extends StatelessWidget {
         useMaterial3: true,
       ),
       // home: const AuthWrapper(),
-      home: const HomeScreen(),
+      home: const HomeScreen(), // TODO: đổi lại AuthWrapper() sau khi test xong
     );
   }
 }
