@@ -7,170 +7,188 @@ import AccountManagementPanel from "../components/admin/AccountManagementPanel";
 
 import { clearAdminSession, logoutAdmin } from "../utils/AuthSession";
 
-
 const AccountManagement = () => {
-    const navigate = useNavigate();
+  const navigate = useNavigate();
 
-    const [users, setUsers] = useState([]);
-    const [loading, setLoading] = useState(true);
+  const [users, setUsers] = useState([]);
+  const [loading, setLoading] = useState(true);
 
+  const fetchUsers = async () => {
+    try {
+      setLoading(true);
 
-    const fetchUsers = async () => {
-        try {
-            setLoading(true);
+      const idToken = localStorage.getItem("idToken");
 
-            const idToken = localStorage.getItem("idToken");
+      if (!idToken) {
+        throw new Error("Không tìm thấy phiên đăng nhập");
+      }
 
-            if (!idToken) {
-                throw new Error("Không tìm thấy phiên đăng nhập");
-            }
+      const response = await fetch("http://127.0.0.1:5000/api/admin/users", {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${idToken}`,
+          "Content-Type": "application/json",
+        },
+      });
 
-            const response = await fetch(
-                "http://127.0.0.1:5000/api/admin/users",
-                {
-                    method: "GET",
-                    headers: {
-                        Authorization: `Bearer ${idToken}`,
-                        "Content-Type": "application/json",
-                    },
-                }
-            );
+      const data = await response.json();
 
-            const data = await response.json();
+      // console.log("Admin users:", data);
 
-            // console.log("Admin users:", data);
+      if (!response.ok || !data.success) {
+        throw new Error(data.message || "Không thể lấy danh sách tài khoản");
+      }
 
-            if (!response.ok || !data.success) {
-                throw new Error(
-                    data.message || "Không thể lấy danh sách tài khoản"
-                );
-            }
+      setUsers(data.users || []);
+    } catch (error) {
+      console.error("Fetch admin users error:", error);
 
-            setUsers(data.users || []);
+      if (
+        error.message.includes("phiên đăng nhập") ||
+        error.message.includes("authorization")
+      ) {
+        clearAdminSession();
+        navigate("/login", { replace: true });
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
 
-        } catch (error) {
-            console.error("Fetch admin users error:", error);
+  const handleUpdateUser = async (updatedUser) => {
+    try {
+      const idToken = localStorage.getItem("idToken");
 
-            if (
-                error.message.includes("phiên đăng nhập") ||
-                error.message.includes("authorization")
-            ) {
-                clearAdminSession();
-                navigate("/login", { replace: true });
-            }
+      if (!idToken) {
+        throw new Error("Không tìm thấy phiên đăng nhập");
+      }
 
-        } finally {
-            setLoading(false);
-        }
-    };
+      const uid = updatedUser.uid || updatedUser.id;
 
+      if (!uid) {
+        throw new Error("Không xác định được UID của giáo viên");
+      }
 
-    const handleUpdateUser = async (updatedUser) => {
-        try {
-            const idToken = localStorage.getItem("idToken");
+      const response = await fetch(`http://127.0.0.1:5000/api/users/${uid}`, {
+        method: "PUT",
+        headers: {
+          Authorization: `Bearer ${idToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          name: updatedUser.name,
+          phone_number: updatedUser.phone_number,
+          subject: updatedUser.subject || [],
+          is_active: updatedUser.is_active,
+        }),
+      });
 
-            if (!idToken) {
-                throw new Error("Không tìm thấy phiên đăng nhập");
-            }
+      const data = await response.json();
 
-            const uid = updatedUser.uid || updatedUser.id;
+      console.log("Update user response:", data);
 
-            if (!uid) {
-                throw new Error(
-                    "Không xác định được UID của giáo viên"
-                );
-            }
+      if (!response.ok) {
+        throw new Error(data.message || "Cập nhật tài khoản thất bại");
+      }
 
-            const response = await fetch(
-                `http://127.0.0.1:5000/api/users/${uid}`,
-                {
-                    method: "PUT",
-                    headers: {
-                        Authorization: `Bearer ${idToken}`,
-                        "Content-Type": "application/json",
-                    },
-                    body: JSON.stringify({
-                        name: updatedUser.name,
-                        phone_number: updatedUser.phone_number,
-                        subject: updatedUser.subject || [],
-                        is_active: updatedUser.is_active,
-                    }),
-                }
-            );
+      setUsers((prevUsers) =>
+        prevUsers.map((user) =>
+          user.id === uid || user.uid === uid
+            ? {
+                ...user,
+                name: updatedUser.name,
+                phone_number: updatedUser.phone_number,
+                subject: updatedUser.subject || [],
+                is_active: updatedUser.is_active,
+              }
+            : user,
+        ),
+      );
 
-            const data = await response.json();
+      alert("Cập nhật tài khoản thành công.");
 
-            console.log("Update user response:", data);
+      return data;
+    } catch (error) {
+      console.error("Update user error:", error);
 
-            if (!response.ok) {
-                throw new Error(
-                    data.message || "Cập nhật tài khoản thất bại"
-                );
-            }
+      alert(error.message || "Có lỗi xảy ra khi cập nhật tài khoản.");
 
-            setUsers((prevUsers) =>
-                prevUsers.map((user) =>
-                    user.id === uid || user.uid === uid
-                        ? {
-                            ...user,
-                            name: updatedUser.name,
-                            phone_number: updatedUser.phone_number,
-                            subject: updatedUser.subject || [],
-                            is_active: updatedUser.is_active,
-                        }
-                        : user
-                )
-            );
+      throw error;
+    }
+  };
 
-            alert("Cập nhật tài khoản thành công.");
+  const handleLogout = async () => {
+    await logoutAdmin(navigate);
+  };
 
-            return data;
+  const handleDeleteTeacher = async (teacher) => {
+    try {
+      const idToken = localStorage.getItem("idToken");
 
-        } catch (error) {
-            console.error("Update user error:", error);
+      if (!idToken) {
+        throw new Error("Không tìm thấy phiên đăng nhập");
+      }
 
-            alert(
-                error.message ||
-                "Có lỗi xảy ra khi cập nhật tài khoản."
-            );
+      const uid = teacher.uid || teacher.id;
 
-            throw error;
-        }
-    };
+      if (!uid) {
+        throw new Error("Không xác định được UID của giáo viên");
+      }
 
-    const handleLogout = async () => {
-        await logoutAdmin(navigate);
-    };
+      const response = await fetch(
+        `http://127.0.0.1:5000/api/admin/teachers/${uid}`,
+        {
+          method: "DELETE",
+          headers: {
+            Authorization: `Bearer ${idToken}`,
+            "Content-Type": "application/json",
+          },
+        },
+      );
 
+      const data = await response.json();
 
-    useEffect(() => {
-        fetchUsers();
-    }, []);
+      console.log("Delete teacher response:", data);
 
+      if (!response.ok || !data.success) {
+        throw new Error(data.message || "Xóa giáo viên thất bại");
+      }
 
-    return (
-        <main className="admin-page">
+      await fetchUsers();
 
-            <AdminSidebar
-                onLogout={handleLogout}
-            />
+      alert(data.message || "Xóa giáo viên thành công.");
 
-            <section className="admin-main-content">
+      return data;
+    } catch (error) {
+      console.error("Delete teacher error:", error);
 
-                <AdminHeader />
+      alert(error.message || "Có lỗi xảy ra khi xóa giáo viên.");
 
-                <AccountManagementPanel
-                    users={users}
-                    loading={loading}
-                    onRefresh={fetchUsers}
-                    onUpdateUser={handleUpdateUser}
-                />
+      throw error;
+    }
+  };
 
-            </section>
+  useEffect(() => {
+    fetchUsers();
+  }, []);
 
-        </main>
-    );
+  return (
+    <main className="admin-page">
+      <AdminSidebar onLogout={handleLogout} />
+
+      <section className="admin-main-content">
+        <AdminHeader />
+
+        <AccountManagementPanel
+          users={users}
+          loading={loading}
+          onRefresh={fetchUsers}
+          onUpdateUser={handleUpdateUser}
+          onDeleteTeacher={handleDeleteTeacher}
+        />
+      </section>
+    </main>
+  );
 };
-
 
 export default AccountManagement;

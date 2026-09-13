@@ -47,6 +47,12 @@ const Icon = ({ name, size = 20, strokeWidth = 1.8, className = "" }) => {
         <path d="M21 9v6" />
       </>
     ),
+    camera: (
+      <>
+        <path d="M4 7h4l2-2h4l2 2h4v12H4V7Z" />
+        <circle cx="12" cy="13" r="3.5" />
+      </>
+    ),
     checkCircle: (
       <>
         <circle cx="12" cy="12" r="9" />
@@ -96,6 +102,14 @@ const Icon = ({ name, size = 20, strokeWidth = 1.8, className = "" }) => {
       <>
         <path d="m4 16-.8 4.8L8 20l11.5-11.5a2.1 2.1 0 0 0-3-3Z" />
         <path d="m14.5 6.5 3 3" />
+      </>
+    ),
+    trash: (
+      <>
+        <path d="M3 6h18" />
+        <path d="M8 6V4h8v2" />
+        <path d="M19 6l-1 15H6L5 6" />
+        <path d="M10 11v6M14 11v6" />
       </>
     ),
     arrowLeft: (

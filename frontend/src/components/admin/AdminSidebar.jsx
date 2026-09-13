@@ -26,6 +26,13 @@ const navigationItems = [
         enabled: true,
     },
     {
+        label: "Quản lý camera",
+        icon: "camera",
+        path: "/camera-management",
+        group: "QUẢN LÝ HỆ THỐNG",
+        enabled: true,
+    },
+    {
         label: "Nhật ký hoạt động",
         icon: "activity",
         path: "/activity-log",

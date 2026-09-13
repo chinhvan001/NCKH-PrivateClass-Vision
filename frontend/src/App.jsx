@@ -5,6 +5,7 @@ import Dashboard from "./pages/DashBoard";
 import AccountManagement from "./pages/AccountManagement";
 import SessionManagement from "./pages/SessionManagement";
 import SessionDetail from "./pages/SessionDetail";
+import CameraManagement from "./pages/CameraManagement";
 
 import { getAdminSession, clearAdminSession } from "./utils/AuthSession";
 
@@ -56,6 +57,15 @@ function App() {
         element={
           <ProtectedRoute>
             <SessionDetail />
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/camera-management"
+        element={
+          <ProtectedRoute>
+            <CameraManagement />
           </ProtectedRoute>
         }
       />
