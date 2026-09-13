@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_privateclass_vision/features/auth/controllers/auth_wrapper_login.dart';
 
-
 class PrivateClassVision extends StatelessWidget {
   const PrivateClassVision({super.key});
 

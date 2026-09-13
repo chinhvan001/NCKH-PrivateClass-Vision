@@ -1,8 +1,6 @@
 import 'package:flutter/material.dart';
 
 import '../../../../../core/constants/app_colors.dart';
-
-// THÊM DÒNG NÀY ĐỂ KẾT NỐI VỚI MÀN HÌNH DANH SÁCH LỚP
 import 'student_list_screen.dart';
 
 // ==========================================
@@ -17,8 +15,8 @@ class SeatInfo {
   bool present;
   bool distracted;
   int? attention;
-  final List<int>? recentAttention; // Lịch sử tập trung 2 ngày gần nhất
-  String note; // Ghi chú của giáo viên
+  final List<int>? recentAttention;
+  String note;
 
   SeatInfo({
     required this.id,
@@ -32,53 +30,34 @@ class SeatInfo {
     this.recentAttention,
     this.note = '',
   });
+
+  SeatInfo copyWith({
+    bool? present,
+    bool? distracted,
+    int? attention,
+    String? note,
+  }) {
+    return SeatInfo(
+      id: id,
+      name: name,
+      fullName: fullName,
+      dob: dob,
+      parentPhone: parentPhone,
+      present: present ?? this.present,
+      distracted: distracted ?? this.distracted,
+      attention: attention ?? this.attention,
+      recentAttention: recentAttention,
+      note: note ?? this.note,
+    );
+  }
 }
 
-// Hàm giả lập tạo sơ đồ lớp (Đã thêm thông tin cá nhân và lịch sử)
 List<SeatInfo> generateMockSeats(int rows, int cols, String status) {
   final List<String> initials = [
-    'An',
-    'Bảo',
-    'Cường',
-    'Dũng',
-    'Hà',
-    'Huy',
-    'Khang',
-    'Linh',
-    'Minh',
-    'Nam',
-    'Ngọc',
-    'Oanh',
-    'Phúc',
-    'Quân',
-    'Sơn',
-    'Trang',
-    'Tú',
-    'Uyên',
-    'Vy',
-    'Yến',
-    'Bình',
-    'Châu',
-    'Đạt',
-    'Hương',
-    'Kiên',
-    'Lan',
-    'Mai',
-    'Nhung',
-    'Phong',
-    'Quỳnh',
-    'Sang',
-    'Thảo',
-    'Trí',
-    'Vân',
-    'Việt',
-    'Xuân',
-    'Ánh',
-    'Diệp',
-    'Hòa',
-    'Long',
-    'Tâm',
-    'Yên',
+    'An', 'Bảo', 'Cường', 'Dũng', 'Hà', 'Huy', 'Khang', 'Linh', 'Minh', 'Nam',
+    'Ngọc', 'Oanh', 'Phúc', 'Quân', 'Sơn', 'Trang', 'Tú', 'Uyên', 'Vy', 'Yến',
+    'Bình', 'Châu', 'Đạt', 'Hương', 'Kiên', 'Lan', 'Mai', 'Nhung', 'Phong', 'Quỳnh',
+    'Sang', 'Thảo', 'Trí', 'Vân', 'Việt', 'Xuân', 'Ánh', 'Diệp', 'Hòa', 'Long', 'Tâm', 'Yên',
   ];
 
   bool isFuture = status == 'Sắp diễn ra';
@@ -96,14 +75,12 @@ List<SeatInfo> generateMockSeats(int rows, int cols, String status) {
       );
     }
 
-    // Giả lập trạng thái điểm danh
     bool present = isFuture ? true : (index % 10) != 0;
     bool distracted = isFuture ? false : (present && (index % 7) == 0);
     int? attention = (!present || isFuture)
         ? null
         : (distracted ? 38 + ((index * 7) % 20) : 78 + ((index * 5) % 18));
 
-    // Giả lập điểm 2 ngày trước (80% -> 100%)
     List<int>? recent = (!present && !isFuture)
         ? null
         : [85 + (index % 15), 80 + (index % 20)];
@@ -118,7 +95,7 @@ List<SeatInfo> generateMockSeats(int rows, int cols, String status) {
       distracted: distracted,
       attention: attention,
       recentAttention: recent,
-      note: '', // Ban đầu ghi chú trống
+      note: '',
     );
   });
 }
@@ -154,11 +131,70 @@ class _SessionDetailScreenState extends State<SessionDetailScreen> {
   final int rows = 6;
   final int cols = 7;
   late List<SeatInfo> seats;
+  late List<SeatInfo> _originalSeats;
+  bool _hasChanges = false;
 
   @override
   void initState() {
     super.initState();
     seats = generateMockSeats(rows, cols, widget.status);
+    _saveSnapshot();
+  }
+
+  void _saveSnapshot() {
+    _originalSeats = seats.map((s) => s.copyWith()).toList();
+    _hasChanges = false;
+  }
+
+  // Chuyển đổi trạng thái tuần tự: Có mặt -> Mất tập trung -> Vắng -> Có mặt
+  void _toggleSeatStatus(SeatInfo seat) {
+    if (seat.name.isEmpty) return;
+
+    setState(() {
+      if (seat.present && !seat.distracted) {
+        // Đang Có mặt -> Chuyển sang Mất tập trung (Vàng)
+        seat.present = true;
+        seat.distracted = true;
+        seat.attention = 45;
+      } else if (seat.present && seat.distracted) {
+        // Đang Mất tập trung -> Chuyển sang Vắng mặt (Xám)
+        seat.present = false;
+        seat.distracted = false;
+        seat.attention = null;
+      } else {
+        // Đang Vắng -> Quay lại Có mặt (Xanh lá)
+        seat.present = true;
+        seat.distracted = false;
+        seat.attention = 95;
+      }
+      _hasChanges = true;
+    });
+  }
+
+  void _handleCancel() {
+    setState(() {
+      seats = _originalSeats.map((s) => s.copyWith()).toList();
+      _hasChanges = false;
+    });
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Đã hủy toàn bộ thay đổi!'),
+        duration: Duration(seconds: 1),
+      ),
+    );
+  }
+
+  void _handleSave() {
+    setState(() {
+      _saveSnapshot();
+    });
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Đã lưu trạng thái điểm danh thành công!'),
+        backgroundColor: Color(0xFF137A41),
+        duration: Duration(seconds: 2),
+      ),
+    );
   }
 
   @override
@@ -195,12 +231,9 @@ class _SessionDetailScreenState extends State<SessionDetailScreen> {
                         distracted,
                       ),
                       const SizedBox(height: 20),
-
                       _buildSeatingChart(),
-
-                      // =====================================
-                      // ĐÃ THÊM LỐI TẮT DANH SÁCH LỚP Ở ĐÂY
-                      // =====================================
+                      const SizedBox(height: 16),
+                      _buildActionButtons(),
                       const SizedBox(height: 20),
                       _buildClassListShortcut(),
                     ],
@@ -276,11 +309,11 @@ class _SessionDetailScreenState extends State<SessionDetailScreen> {
   }
 
   Widget _buildInfoAndStatsCard(
-    int total,
-    int present,
-    int absent,
-    int distracted,
-  ) {
+      int total,
+      int present,
+      int absent,
+      int distracted,
+      ) {
     bool isFuture = widget.status == 'Sắp diễn ra';
 
     return Card(
@@ -504,8 +537,8 @@ class _SessionDetailScreenState extends State<SessionDetailScreen> {
               ),
             ),
             Text(
-              'Nhấn vào học sinh để xem',
-              style: TextStyle(fontSize: 12, color: AppColors.muted),
+              'Chạm để đổi màu · Nhấn giữ để xem chi tiết',
+              style: TextStyle(fontSize: 11, color: AppColors.muted),
             ),
           ],
         ),
@@ -557,32 +590,27 @@ class _SessionDetailScreenState extends State<SessionDetailScreen> {
                     if (seat.name.isEmpty) return const SizedBox.shrink();
 
                     Color bgColor, borderColor, textColor, dotColor;
-                    if (widget.status == 'Sắp diễn ra') {
+                    if (!seat.present) {
                       bgColor = AppColors.appBg;
                       borderColor = AppColors.hair;
-                      textColor = AppColors.navy;
-                      dotColor = AppColors.muted.withOpacity(0.3);
+                      textColor = const Color(0xFF94A3B8);
+                      dotColor = const Color(0xFFCBD5E1);
+                    } else if (seat.distracted) {
+                      bgColor = const Color(0xFFFFF4E3);
+                      borderColor = const Color(0xFFF0CFA0);
+                      textColor = const Color(0xFF7A4D13);
+                      dotColor = const Color(0xFFD9822B);
                     } else {
-                      if (!seat.present) {
-                        bgColor = AppColors.appBg;
-                        borderColor = AppColors.hair;
-                        textColor = const Color(0xFF94A3B8);
-                        dotColor = const Color(0xFFCBD5E1);
-                      } else if (seat.distracted) {
-                        bgColor = const Color(0xFFFFF4E3);
-                        borderColor = const Color(0xFFF0CFA0);
-                        textColor = const Color(0xFF7A4D13);
-                        dotColor = const Color(0xFFD9822B);
-                      } else {
-                        bgColor = const Color(0xFFE9F8EF);
-                        borderColor = const Color(0xFFBFE6CF);
-                        textColor = const Color(0xFF137A41);
-                        dotColor = const Color(0xFF20A75A);
-                      }
+                      bgColor = const Color(0xFFE9F8EF);
+                      borderColor = const Color(0xFFBFE6CF);
+                      textColor = const Color(0xFF137A41);
+                      dotColor = const Color(0xFF20A75A);
                     }
 
                     return InkWell(
-                      onTap: () => _showStudentDetails(seat),
+                      onTap: () => _toggleSeatStatus(seat),
+                      onLongPress: () => _showStudentDetails(seat),
+                      borderRadius: BorderRadius.circular(8),
                       child: Container(
                         decoration: BoxDecoration(
                           color: bgColor,
@@ -625,6 +653,63 @@ class _SessionDetailScreenState extends State<SessionDetailScreen> {
     );
   }
 
+  // --- 2 NÚT LƯU VÀ HỦY ---
+  Widget _buildActionButtons() {
+    return Row(
+      children: [
+        Expanded(
+          child: SizedBox(
+            height: 44,
+            child: OutlinedButton(
+              style: OutlinedButton.styleFrom(
+                side: BorderSide(
+                  color: _hasChanges ? Colors.redAccent : AppColors.hair,
+                ),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                backgroundColor: Colors.white,
+              ),
+              onPressed: _hasChanges ? _handleCancel : null,
+              child: Text(
+                'Hủy thay đổi',
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                  color: _hasChanges ? Colors.redAccent : AppColors.muted,
+                ),
+              ),
+            ),
+          ),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: SizedBox(
+            height: 44,
+            child: ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: _hasChanges ? AppColors.navy : Colors.grey.shade300,
+                elevation: 0,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
+              onPressed: _hasChanges ? _handleSave : null,
+              child: const Text(
+                'Lưu thay đổi',
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.white,
+                ),
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
   Widget _buildPulsingDot() {
     return TweenAnimationBuilder<double>(
       tween: Tween(begin: 0.5, end: 1.0),
@@ -647,7 +732,6 @@ class _SessionDetailScreenState extends State<SessionDetailScreen> {
     );
   }
 
-  // --- HÀM BUILD LỐI TẮT DANH SÁCH LỚP ---
   Widget _buildClassListShortcut() {
     return Card(
       elevation: 0,
@@ -660,7 +744,6 @@ class _SessionDetailScreenState extends State<SessionDetailScreen> {
       clipBehavior: Clip.antiAlias,
       child: InkWell(
         onTap: () async {
-          // Mở trang danh sách lớp và đợi khi quay lại để cập nhật sơ đồ (nếu điểm danh đổi)
           await Navigator.push(
             context,
             MaterialPageRoute(
@@ -668,7 +751,9 @@ class _SessionDetailScreenState extends State<SessionDetailScreen> {
                   StudentListScreen(seats: seats, status: widget.status),
             ),
           );
-          setState(() {});
+          setState(() {
+            _hasChanges = true;
+          });
         },
         child: Padding(
           padding: const EdgeInsets.all(16),
@@ -716,7 +801,6 @@ class _SessionDetailScreenState extends State<SessionDetailScreen> {
     );
   }
 
-  // --- 3. BOTTOM SHEET CHI TIẾT HỌC SINH (NÂNG CẤP) ---
   void _showStudentDetails(SeatInfo student) {
     showModalBottomSheet(
       context: context,
@@ -750,7 +834,6 @@ class _SessionDetailScreenState extends State<SessionDetailScreen> {
                     ),
                     const SizedBox(height: 20),
 
-                    // --- Avatar & Name ---
                     Row(
                       children: [
                         CircleAvatar(
@@ -781,7 +864,6 @@ class _SessionDetailScreenState extends State<SessionDetailScreen> {
                               const SizedBox(height: 6),
                               Row(
                                 children: [
-                                  // COMBOBOX ĐIỂM DANH
                                   Container(
                                     height: 28,
                                     padding: const EdgeInsets.symmetric(
@@ -812,13 +894,10 @@ class _SessionDetailScreenState extends State<SessionDetailScreen> {
                                                 Container(
                                                   width: 6,
                                                   height: 6,
-                                                  decoration:
-                                                      const BoxDecoration(
-                                                        color: Color(
-                                                          0xFF20A75A,
-                                                        ),
-                                                        shape: BoxShape.circle,
-                                                      ),
+                                                  decoration: const BoxDecoration(
+                                                    color: Color(0xFF20A75A),
+                                                    shape: BoxShape.circle,
+                                                  ),
                                                 ),
                                                 const SizedBox(width: 6),
                                                 const Text(
@@ -839,13 +918,10 @@ class _SessionDetailScreenState extends State<SessionDetailScreen> {
                                                 Container(
                                                   width: 6,
                                                   height: 6,
-                                                  decoration:
-                                                      const BoxDecoration(
-                                                        color: Color(
-                                                          0xFF94A3B8,
-                                                        ),
-                                                        shape: BoxShape.circle,
-                                                      ),
+                                                  decoration: const BoxDecoration(
+                                                    color: Color(0xFF94A3B8),
+                                                    shape: BoxShape.circle,
+                                                  ),
                                                 ),
                                                 const SizedBox(width: 6),
                                                 const Text(
@@ -872,13 +948,14 @@ class _SessionDetailScreenState extends State<SessionDetailScreen> {
                                                 student.attention = 100;
                                               }
                                             });
-                                            setState(() {});
+                                            setState(() {
+                                              _hasChanges = true;
+                                            });
                                           }
                                         },
                                       ),
                                     ),
                                   ),
-
                                   if (student.distracted) ...[
                                     const SizedBox(width: 8),
                                     Container(
@@ -920,7 +997,6 @@ class _SessionDetailScreenState extends State<SessionDetailScreen> {
 
                     const SizedBox(height: 24),
 
-                    // --- Thông tin cá nhân ---
                     Container(
                       width: double.infinity,
                       padding: const EdgeInsets.all(16),
@@ -983,7 +1059,6 @@ class _SessionDetailScreenState extends State<SessionDetailScreen> {
 
                     const SizedBox(height: 24),
 
-                    // --- Mức độ tập trung hiện tại & Lịch sử ---
                     if (student.attention != null &&
                         widget.status != 'Sắp diễn ra') ...[
                       Row(
@@ -1053,7 +1128,6 @@ class _SessionDetailScreenState extends State<SessionDetailScreen> {
                           ],
                         ),
                       ],
-
                       const SizedBox(height: 24),
                     ] else if (widget.status != 'Sắp diễn ra') ...[
                       Container(
@@ -1068,16 +1142,12 @@ class _SessionDetailScreenState extends State<SessionDetailScreen> {
                         ),
                         child: const Text(
                           'Học sinh vắng mặt — không có dữ liệu tập trung.',
-                          style: TextStyle(
-                            fontSize: 13,
-                            color: AppColors.muted,
-                          ),
+                          style: TextStyle(fontSize: 13, color: AppColors.muted),
                         ),
                       ),
                       const SizedBox(height: 24),
                     ],
 
-                    // --- Khu vực Ghi chú (Note) ---
                     const Align(
                       alignment: Alignment.centerLeft,
                       child: Text(
@@ -1095,13 +1165,11 @@ class _SessionDetailScreenState extends State<SessionDetailScreen> {
                       maxLines: 3,
                       onChanged: (val) {
                         student.note = val;
+                        _hasChanges = true;
                       },
                       decoration: InputDecoration(
-                        hintText: 'Nhập lý do vắng mặt, hoặc lý do mất tập trung (VD: Học sinh sốt cao xin nằm gục tại bàn)...',
-                        hintStyle: const TextStyle(
-                          fontSize: 13,
-                          color: Colors.black38,
-                        ),
+                        hintText: 'Nhập lý do vắng mặt, hoặc lý do mất tập trung...',
+                        hintStyle: const TextStyle(fontSize: 13, color: Colors.black38),
                         filled: true,
                         fillColor: AppColors.appBg,
                         border: OutlineInputBorder(
@@ -1110,15 +1178,11 @@ class _SessionDetailScreenState extends State<SessionDetailScreen> {
                         ),
                         contentPadding: const EdgeInsets.all(16),
                       ),
-                      style: const TextStyle(
-                        fontSize: 14,
-                        color: AppColors.navy,
-                      ),
+                      style: const TextStyle(fontSize: 14, color: AppColors.navy),
                     ),
 
                     const SizedBox(height: 24),
 
-                    // --- Nút Đóng ---
                     SizedBox(
                       width: double.infinity,
                       height: 48,
@@ -1161,10 +1225,7 @@ class _SessionDetailScreenState extends State<SessionDetailScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            label,
-            style: const TextStyle(fontSize: 12, color: AppColors.muted),
-          ),
+          Text(label, style: const TextStyle(fontSize: 12, color: AppColors.muted)),
           const SizedBox(height: 4),
           Row(
             crossAxisAlignment: CrossAxisAlignment.end,

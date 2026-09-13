@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../../../../core/constants/app_colors.dart';
 
-// 1. Thẻ hiển thị Sĩ số / Đã xếp chỗ
+// 1. Thẻ hiển thị Sĩ số / Đã xếp chỗ (Dùng ở cả chế độ View và Edit)
 class CountCard extends StatelessWidget {
   final int assignedCount;
   final int totalSize;
@@ -68,106 +68,7 @@ class CountCard extends StatelessWidget {
   }
 }
 
-// 2. Nút Tăng/Giảm kích thước (Stepper)
-class MatrixStepper extends StatelessWidget {
-  final String label;
-  final int value;
-  final Function(int) onChanged;
-
-  const MatrixStepper({
-    super.key,
-    required this.label,
-    required this.value,
-    required this.onChanged,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Card(
-      elevation: 0,
-      margin: EdgeInsets.zero,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(16),
-        side: const BorderSide(color: AppColors.hair),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  label,
-                  style: const TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.bold,
-                    color: AppColors.navy,
-                  ),
-                ),
-                const Text(
-                  'Từ 1 đến 10',
-                  style: TextStyle(fontSize: 12, color: AppColors.muted),
-                ),
-              ],
-            ),
-            Row(
-              children: [
-                InkWell(
-                  onTap: () => onChanged(value > 1 ? value - 1 : 1),
-                  child: Container(
-                    width: 40,
-                    height: 40,
-                    decoration: BoxDecoration(
-                      border: Border.all(color: AppColors.hair),
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: const Icon(
-                      Icons.remove,
-                      size: 20,
-                      color: AppColors.navy,
-                    ),
-                  ),
-                ),
-                SizedBox(
-                  width: 40,
-                  child: Text(
-                    value.toString(),
-                    textAlign: TextAlign.center,
-                    style: const TextStyle(
-                      fontSize: 22,
-                      fontWeight: FontWeight.w800,
-                      color: AppColors.navy,
-                    ),
-                  ),
-                ),
-                InkWell(
-                  onTap: () => onChanged(value < 10 ? value + 1 : 10),
-                  child: Container(
-                    width: 40,
-                    height: 40,
-                    decoration: BoxDecoration(
-                      border: Border.all(color: AppColors.hair),
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: const Icon(
-                      Icons.add,
-                      size: 20,
-                      color: AppColors.navy,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-// 3. Thẻ Thông tin Lớp học (Dùng ở chế độ View)
+// 2. Thẻ Thông tin Lớp học (Dùng ở chế độ View)
 class HomeroomInfoCard extends StatelessWidget {
   final Map<String, Object> info;
 

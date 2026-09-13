@@ -6,6 +6,10 @@ class StudentModel {
   const StudentModel({
     required this.id,
     required this.name,
-    required this.short,
+    required this.short, required int row, required int column,
   });
+
+  get row => null;
+
+  get column => null;
 }
