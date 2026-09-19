@@ -2,63 +2,50 @@ import 'package:flutter/material.dart';
 import '../utils/app_colors.dart';
 import '../utils/app_text_styles.dart';
 import '../widgets/common_widgets.dart';
-import '../models/subject_focus_model.dart';
-import '../models/attendance_summary_model.dart';
-import '../services/subject_focus_service.dart';
-import '../services/session_service.dart';
+import '../models/supervised_student_model.dart';
+import '../services/student_service.dart';
+import '../services/monitoring_session_service.dart';
 
 class DailyOverviewScreen extends StatefulWidget {
   const DailyOverviewScreen({super.key});
 
   @override
-  State<DailyOverviewScreen> createState() => _DailyOverviewScreenState();
+  State<DailyOverviewScreen> createState() =>
+      _DailyOverviewScreenState();
 }
 
 class _DailyOverviewScreenState extends State<DailyOverviewScreen> {
-  // TODO: thay bằng studentId thật từ auth sau
-  static const String _studentId = 'student_minh_anh';
+  static const String _parentId = 'MfKMuHu5NreYs1A9IO4YJ5AuZao2';
 
-  final _focusService = SubjectFocusService();
-  final _sessionService = SessionService();
-
-  String _selectedPeriod = 'Tuần này';
-  final List<String> _periods = ['Hôm nay', 'Tuần này', 'Tháng này'];
-
-  // Map UI label → Firestore period value
-  static const Map<String, String> _periodMap = {
-    'Hôm nay': 'today',
-    'Tuần này': 'week',
-    'Tháng này': 'month',
-  };
+  final _studentService = StudentService();
+  final _monitoringService = MonitoringSessionService();
 
   late Future<_DailyData> _dataFuture;
 
   @override
   void initState() {
     super.initState();
-    _dataFuture = _loadData(_selectedPeriod);
+    _dataFuture = _loadData();
   }
 
-  Future<_DailyData> _loadData(String periodLabel) async {
-    final period = _periodMap[periodLabel] ?? 'week';
+  Future<_DailyData> _loadData() async {
+    final students =
+        await _studentService.getStudentsByParent(_parentId);
+    if (students.isEmpty) {
+      return _DailyData(supervised: [], stats: null);
+    }
+    final student = students.first;
     final results = await Future.wait([
-      _focusService.getSubjectFocus(studentId: _studentId, period: period),
-      _sessionService.getAttendanceSummary(_studentId),
+      _monitoringService.getSupervisedDataByStudent(student.id),
+      _monitoringService.getStudentStats(student.id),
     ]);
     return _DailyData(
-      subjects: results[0] as List<SubjectFocusModel>,
-      summary: results[1] as AttendanceSummaryModel,
+      supervised: results[0] as List<SupervisedStudentModel>,
+      stats: results[1] as StudentStats,
     );
   }
 
-  void _onPeriodChanged(String label) {
-    setState(() {
-      _selectedPeriod = label;
-      _dataFuture = _loadData(label);
-    });
-  }
-
-  void _reload() => setState(() => _dataFuture = _loadData(_selectedPeriod));
+  void _reload() => setState(() => _dataFuture = _loadData());
 
   @override
   Widget build(BuildContext context) {
@@ -72,27 +59,24 @@ class _DailyOverviewScreenState extends State<DailyOverviewScreen> {
               color: AppColors.textPrimary, size: 20),
           onPressed: () => Navigator.pop(context),
         ),
-        title: const Text('Tổng quan', style: AppTextStyles.heading2),
+        title: const Text('Tổng quan tập trung',
+            style: AppTextStyles.heading2),
         actions: [
           IconButton(
             icon: const Icon(Icons.refresh_rounded,
                 color: AppColors.textSecondary, size: 22),
             onPressed: _reload,
-            tooltip: 'Tải lại',
           ),
         ],
       ),
       body: FutureBuilder<_DailyData>(
         future: _dataFuture,
         builder: (context, snapshot) {
-          // ── Loading ────────────────────────────────────────────────
           if (snapshot.connectionState == ConnectionState.waiting) {
             return const Center(
-              child: CircularProgressIndicator(color: AppColors.primary),
-            );
+                child: CircularProgressIndicator(
+                    color: AppColors.primary));
           }
-
-          // ── Error ──────────────────────────────────────────────────
           if (snapshot.hasError) {
             return Center(
               child: Padding(
@@ -113,7 +97,8 @@ class _DailyOverviewScreenState extends State<DailyOverviewScreen> {
                     const SizedBox(height: 16),
                     ElevatedButton.icon(
                       onPressed: _reload,
-                      icon: const Icon(Icons.refresh_rounded, size: 18),
+                      icon: const Icon(Icons.refresh_rounded,
+                          size: 18),
                       label: const Text('Thử lại'),
                       style: ElevatedButton.styleFrom(
                         backgroundColor: AppColors.primary,
@@ -129,8 +114,32 @@ class _DailyOverviewScreenState extends State<DailyOverviewScreen> {
           }
 
           final data = snapshot.data!;
-          final subjects = data.subjects;
-          final summary = data.summary;
+          final stats = data.stats;
+          final supervised = data.supervised;
+
+          if (stats == null || stats.totalSessions == 0) {
+            return Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(20),
+                    decoration: const BoxDecoration(
+                        color: AppColors.accentLight,
+                        shape: BoxShape.circle),
+                    child: const Icon(Icons.bar_chart_rounded,
+                        size: 44, color: AppColors.primary),
+                  ),
+                  const SizedBox(height: 14),
+                  const Text('Chưa có dữ liệu',
+                      style: AppTextStyles.heading3),
+                  const SizedBox(height: 6),
+                  const Text('Chưa có buổi học nào được ghi nhận',
+                      style: AppTextStyles.caption),
+                ],
+              ),
+            );
+          }
 
           return SingleChildScrollView(
             padding: const EdgeInsets.all(16),
@@ -138,72 +147,137 @@ class _DailyOverviewScreenState extends State<DailyOverviewScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // ── Period selector ──────────────────────────────────
-                Container(
-                  padding: const EdgeInsets.all(4),
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(10),
-                    border: Border.all(color: AppColors.divider),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: _periods.map((p) {
-                      final selected = p == _selectedPeriod;
-                      return GestureDetector(
-                        onTap: () => _onPeriodChanged(p),
-                        child: AnimatedContainer(
-                          duration: const Duration(milliseconds: 200),
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 16, vertical: 7),
-                          decoration: BoxDecoration(
-                            color: selected
-                                ? AppColors.primary
-                                : Colors.transparent,
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          child: AnimatedDefaultTextStyle(
-                            duration: const Duration(milliseconds: 200),
-                            style: TextStyle(
-                              fontSize: 13,
-                              fontWeight: FontWeight.w500,
-                              color: selected
-                                  ? Colors.white
-                                  : AppColors.textSecondary,
-                            ),
-                            child: Text(p),
-                          ),
-                        ),
-                      );
-                    }).toList(),
-                  ),
-                ),
-                const SizedBox(height: 16),
-
-                // ── Focus section ────────────────────────────────────
+                // ── Overview stats ──────────────────────────────────
                 AppCard(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Text('Mức độ tập trung theo môn',
+                      const Text('Tổng quan',
                           style: AppTextStyles.heading3),
                       const SizedBox(height: 14),
-                      if (subjects.isEmpty)
+                      Row(
+                        children: [
+                          Expanded(
+                            child: _StatCard(
+                              icon: Icons.psychology_rounded,
+                              color: AppColors.primary,
+                              bgColor: AppColors.accentLight,
+                              label: 'Tập trung TB',
+                              value:
+                                  '${stats.avgAttentionPercent}%',
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: _StatCard(
+                              icon: Icons.fact_check_rounded,
+                              color: AppColors.green,
+                              bgColor: AppColors.greenLight,
+                              label: 'Điểm danh',
+                              value: stats.attendanceLabel,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 10),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: _StatCard(
+                              icon: Icons.visibility_rounded,
+                              color: AppColors.orange,
+                              bgColor: AppColors.orangeLight,
+                              label: 'Buổi tập trung',
+                              value:
+                                  '${stats.attentionSessions}/${stats.totalSessions}',
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: _StatCard(
+                              icon: Icons.cancel_rounded,
+                              color: AppColors.red,
+                              bgColor: AppColors.redLight,
+                              label: 'Buổi vắng',
+                              value: '${stats.absentSessions}',
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 14),
+
+                // ── Attention progress ──────────────────────────────
+                AppCard(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text('Tập trung các buổi học',
+                          style: AppTextStyles.heading3),
+                      const SizedBox(height: 14),
+                      if (supervised.isEmpty)
                         const Center(
                           child: Padding(
-                            padding: EdgeInsets.symmetric(vertical: 16),
+                            padding: EdgeInsets.all(16),
                             child: Text('Chưa có dữ liệu',
                                 style: AppTextStyles.caption),
                           ),
                         )
                       else
-                        ...subjects.asMap().entries.map((entry) {
+                        ...supervised
+                            .asMap()
+                            .entries
+                            .map((entry) {
                           final i = entry.key;
                           final s = entry.value;
-                          return SubjectProgressBar(
-                            subject: s.subject,
-                            percent: s.percent,
-                            color: SubjectFocusModel.colorForIndex(i),
+                          final color =
+                              _percentColor(s.attentionScore);
+                          return Padding(
+                            padding:
+                                const EdgeInsets.symmetric(
+                                    vertical: 5),
+                            child: Row(
+                              children: [
+                                SizedBox(
+                                  width: 60,
+                                  child: Text(
+                                    'Buổi ${i + 1}',
+                                    style: AppTextStyles.body2,
+                                  ),
+                                ),
+                                Expanded(
+                                  child: ClipRRect(
+                                    borderRadius:
+                                        BorderRadius.circular(4),
+                                    child: LinearProgressIndicator(
+                                      value:
+                                          s.attentionScore / 100,
+                                      minHeight: 8,
+                                      backgroundColor:
+                                          AppColors.divider,
+                                      valueColor:
+                                          AlwaysStoppedAnimation<
+                                              Color>(color),
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                SizedBox(
+                                  width: 38,
+                                  child: Text(
+                                    '${s.attentionPercent}%',
+                                    style: TextStyle(
+                                        fontSize: 12,
+                                        fontWeight:
+                                            FontWeight.w600,
+                                        color: color),
+                                    textAlign: TextAlign.right,
+                                  ),
+                                ),
+                              ],
+                            ),
                           );
                         }),
                     ],
@@ -211,25 +285,27 @@ class _DailyOverviewScreenState extends State<DailyOverviewScreen> {
                 ),
                 const SizedBox(height: 14),
 
-                // ── Attendance section ───────────────────────────────
+                // ── Attendance detail ───────────────────────────────
                 AppCard(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Text('Điểm danh', style: AppTextStyles.heading3),
+                      const Text('Điểm danh',
+                          style: AppTextStyles.heading3),
                       const SizedBox(height: 14),
                       Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        mainAxisAlignment:
+                            MainAxisAlignment.spaceBetween,
                         children: [
                           _AttendanceBox(
                             label: 'Tổng số buổi',
-                            value: '${summary.totalSessions}',
+                            value: '${stats.totalSessions}',
                             unit: 'buổi',
                             color: AppColors.textPrimary,
                           ),
                           _AttendanceBox(
-                            label: 'Đã tham gia',
-                            value: '${summary.presentSessions}',
+                            label: 'Đã có mặt',
+                            value: '${stats.presentSessions}',
                             unit: 'buổi',
                             color: AppColors.green,
                             highlight: true,
@@ -238,56 +314,22 @@ class _DailyOverviewScreenState extends State<DailyOverviewScreen> {
                       ),
                       const SizedBox(height: 12),
                       Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        mainAxisAlignment:
+                            MainAxisAlignment.spaceBetween,
                         children: [
                           _AttendanceBox(
-                            label: 'Vắng có phép',
-                            value: '${summary.excusedSessions}',
-                            unit: 'buổi',
-                            color: AppColors.orange,
-                          ),
-                          _AttendanceBox(
-                            label: 'Vắng không phép',
-                            value: '${summary.absentSessions}',
+                            label: 'Vắng mặt',
+                            value: '${stats.absentSessions}',
                             unit: 'buổi',
                             color: AppColors.red,
                           ),
+                          _AttendanceBox(
+                            label: 'Buổi tập trung',
+                            value: '${stats.attentionSessions}',
+                            unit: 'buổi',
+                            color: AppColors.orange,
+                          ),
                         ],
-                      ),
-                      const SizedBox(height: 12),
-                      // Đi muộn
-                      Container(
-                        width: double.infinity,
-                        padding: const EdgeInsets.all(12),
-                        decoration: BoxDecoration(
-                          color: AppColors.backgroundGrey,
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const Text('Đi muộn', style: AppTextStyles.caption),
-                            const SizedBox(height: 4),
-                            RichText(
-                              text: TextSpan(
-                                children: [
-                                  TextSpan(
-                                    text: '${summary.lateSessions}',
-                                    style: const TextStyle(
-                                      fontSize: 22,
-                                      fontWeight: FontWeight.bold,
-                                      color: AppColors.orange,
-                                    ),
-                                  ),
-                                  const TextSpan(
-                                    text: ' buổi',
-                                    style: AppTextStyles.body2,
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ],
-                        ),
                       ),
                     ],
                   ),
@@ -299,30 +341,74 @@ class _DailyOverviewScreenState extends State<DailyOverviewScreen> {
       ),
     );
   }
+
+  Color _percentColor(double p) {
+    if (p >= 70) return AppColors.green;
+    if (p >= 40) return AppColors.orange;
+    return AppColors.red;
+  }
 }
 
-// ─── Data holder ───────────────────────────────────────────────────────────────
 class _DailyData {
-  final List<SubjectFocusModel> subjects;
-  final AttendanceSummaryModel summary;
-  _DailyData({required this.subjects, required this.summary});
+  final List<SupervisedStudentModel> supervised;
+  final StudentStats? stats;
+  _DailyData({required this.supervised, required this.stats});
 }
 
-// ─── Attendance box ────────────────────────────────────────────────────────────
+class _StatCard extends StatelessWidget {
+  final IconData icon;
+  final Color color;
+  final Color bgColor;
+  final String label;
+  final String value;
+  const _StatCard(
+      {required this.icon,
+      required this.color,
+      required this.bgColor,
+      required this.label,
+      required this.value});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+          color: bgColor, borderRadius: BorderRadius.circular(10)),
+      child: Row(
+        children: [
+          Icon(icon, color: color, size: 22),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(value,
+                    style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                        color: color)),
+                Text(label, style: AppTextStyles.small),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _AttendanceBox extends StatelessWidget {
   final String label;
   final String value;
   final String unit;
   final Color color;
   final bool highlight;
-
-  const _AttendanceBox({
-    required this.label,
-    required this.value,
-    required this.unit,
-    required this.color,
-    this.highlight = false,
-  });
+  const _AttendanceBox(
+      {required this.label,
+      required this.value,
+      required this.unit,
+      required this.color,
+      this.highlight = false});
 
   @override
   Widget build(BuildContext context) {
@@ -330,7 +416,9 @@ class _AttendanceBox extends StatelessWidget {
       width: (MediaQuery.of(context).size.width - 64) / 2,
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: highlight ? AppColors.greenLight : AppColors.backgroundGrey,
+        color: highlight
+            ? AppColors.greenLight
+            : AppColors.backgroundGrey,
         borderRadius: BorderRadius.circular(10),
       ),
       child: Column(
@@ -342,17 +430,14 @@ class _AttendanceBox extends StatelessWidget {
             text: TextSpan(
               children: [
                 TextSpan(
-                  text: value,
-                  style: TextStyle(
-                    fontSize: 22,
-                    fontWeight: FontWeight.bold,
-                    color: color,
-                  ),
-                ),
+                    text: value,
+                    style: TextStyle(
+                        fontSize: 22,
+                        fontWeight: FontWeight.bold,
+                        color: color)),
                 TextSpan(
-                  text: ' $unit',
-                  style: AppTextStyles.body2,
-                ),
+                    text: ' $unit',
+                    style: AppTextStyles.body2),
               ],
             ),
           ),

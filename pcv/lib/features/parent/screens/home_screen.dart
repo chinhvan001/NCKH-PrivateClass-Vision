@@ -4,20 +4,20 @@ import '../utils/app_text_styles.dart';
 import '../widgets/bottom_nav_bar.dart';
 import '../widgets/common_widgets.dart';
 import '../models/student_model.dart';
-import '../models/attendance_summary_model.dart';
 import '../services/student_service.dart';
-import '../services/session_service.dart';
-import '../services/notification_service.dart';
-import '../services/subject_focus_service.dart';
-import '../services/schedule_service.dart';
-import '../services/child_service.dart';
-import '../services/attendance_detail_service.dart';
+import '../services/monitoring_session_service.dart';
 import 'session_history_screen.dart';
 import 'notification_screen.dart';
 import 'profile_screen.dart';
 import 'daily_overview_screen.dart';
 import 'switch_account_screen.dart';
 import 'upcoming_schedule_screen.dart';
+import 'attention_chart_screen.dart';
+import 'attention_heatmap_screen.dart';
+import 'class_ranking_screen.dart';
+import 'class_comparison_screen.dart';
+import 'seat_map_screen.dart';
+import '../services/smart_alert_service.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -28,40 +28,6 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   int _currentIndex = 0;
-
-  static const String _studentId = 'student_minh_anh';
-
-  // ── Seed tất cả data mẫu 1 lần ──────────────────────────────────────────
-  Future<void> _seedAll() async {
-    try {
-      await Future.wait([
-        StudentService().seedSampleData(),
-        SessionService().seedSampleData(_studentId),
-        NotificationService().seedSampleData(_studentId),
-        SubjectFocusService().seedSampleData(_studentId),
-        ScheduleService().seedSampleData(_studentId),
-        ChildService().seedSampleData('parent_001'),
-        AttendanceDetailService().seedSampleData(_studentId),
-      ]);
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('✅ Seed data thành công!'),
-            backgroundColor: AppColors.green,
-          ),
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('❌ Lỗi seed: $e'),
-            backgroundColor: AppColors.red,
-          ),
-        );
-      }
-    }
-  }
 
   final List<Widget> _screens = const [
     _HomeContent(),
@@ -83,14 +49,6 @@ class _HomeScreenState extends State<HomeScreen> {
           child: _screens[_currentIndex],
         ),
       ),
-      // TODO: xóa floatingActionButton sau khi seed xong
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: _seedAll,
-        backgroundColor: AppColors.primary,
-        icon: const Icon(Icons.cloud_upload_rounded, color: Colors.white),
-        label: const Text('Seed Data',
-            style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600)),
-      ),
       bottomNavigationBar: AppBottomNavBar(
         currentIndex: _currentIndex,
         onTap: (i) => setState(() => _currentIndex = i),
@@ -108,11 +66,11 @@ class _HomeContent extends StatefulWidget {
 }
 
 class _HomeContentState extends State<_HomeContent> {
-  // TODO: thay bằng studentId thật từ auth sau
-  static const String _studentId = 'student_minh_anh';
+  // TODO: thay bằng parentId thật từ Firebase Auth sau khi login
+  static const String _parentId = 'MfKMuHu5NreYs1A9IO4YJ5AuZao2';
 
   final _studentService = StudentService();
-  final _sessionService = SessionService();
+  final _monitoringService = MonitoringSessionService();
 
   late Future<_HomeData> _dataFuture;
 
@@ -123,14 +81,18 @@ class _HomeContentState extends State<_HomeContent> {
   }
 
   Future<_HomeData> _loadData() async {
-    final results = await Future.wait([
-      _studentService.getStudentById(_studentId),
-      _sessionService.getAttendanceSummary(_studentId),
-    ]);
+    // Lấy danh sách con của parent
+    final students =
+        await _studentService.getStudentsByParent(_parentId);
+    if (students.isEmpty) {
+      return _HomeData(students: [], selectedStudent: null, stats: null);
+    }
+    // Lấy stats của con đầu tiên
+    final selected = students.first;
+    final stats =
+        await _monitoringService.getStudentStats(selected.id);
     return _HomeData(
-      student: results[0] as StudentModel?,
-      summary: results[1] as AttendanceSummaryModel,
-    );
+        students: students, selectedStudent: selected, stats: stats);
   }
 
   void _reload() => setState(() => _dataFuture = _loadData());
@@ -146,41 +108,15 @@ class _HomeContentState extends State<_HomeContent> {
           );
         }
         if (snapshot.hasError) {
-          return Center(
-            child: Padding(
-              padding: const EdgeInsets.all(24),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const Icon(Icons.cloud_off_rounded,
-                      size: 48, color: AppColors.red),
-                  const SizedBox(height: 12),
-                  Text(
-                    snapshot.error.toString().replaceFirst('Exception: ', ''),
-                    style: AppTextStyles.caption,
-                    textAlign: TextAlign.center,
-                  ),
-                  const SizedBox(height: 16),
-                  ElevatedButton.icon(
-                    onPressed: _reload,
-                    icon: const Icon(Icons.refresh_rounded, size: 18),
-                    label: const Text('Thử lại'),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: AppColors.primary,
-                      foregroundColor: Colors.white,
-                      shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(10)),
-                    ),
-                  ),
-                ],
-              ),
-            ),
+          return _ErrorView(
+            message: snapshot.error.toString(),
+            onRetry: _reload,
           );
         }
 
         final data = snapshot.data!;
-        final student = data.student;
-        final summary = data.summary;
+        final student = data.selectedStudent;
+        final stats = data.stats;
 
         return SafeArea(
           child: SingleChildScrollView(
@@ -188,25 +124,20 @@ class _HomeContentState extends State<_HomeContent> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // ── Header bar ──────────────────────────────────────────────
+                // ── Header ────────────────────────────────────────────
                 Container(
                   color: Colors.white,
                   padding: const EdgeInsets.fromLTRB(16, 14, 8, 14),
                   child: Row(
                     children: [
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: const [
-                            Text('Lớp học của con',
-                                style: AppTextStyles.heading2),
-                          ],
-                        ),
+                      const Expanded(
+                        child: Text('Lớp học của con',
+                            style: AppTextStyles.heading2),
                       ),
                       _IconBadgeButton(
                         icon: Icons.notifications_none_rounded,
                         activeIcon: Icons.notifications_rounded,
-                        count: 3,
+                        count: 0,
                         onTap: () {},
                       ),
                     ],
@@ -214,357 +145,465 @@ class _HomeContentState extends State<_HomeContent> {
                 ),
                 const SizedBox(height: 12),
 
-                // ── Student card ─────────────────────────────────────────────
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16),
-                  child: AppCard(
-                    padding: const EdgeInsets.all(16),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        // Student info + switch account
-                        Row(
-                          children: [
-                            AvatarWidget(
-                                name: student?.name ?? '?', size: 46),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    student?.name ?? '---',
-                                    style: AppTextStyles.heading3,
+                if (student == null)
+                  const Center(
+                    child: Padding(
+                      padding: EdgeInsets.all(32),
+                      child: Text('Chưa có học sinh nào',
+                          style: AppTextStyles.caption),
+                    ),
+                  )
+                else ...[
+                  // ── Student card ─────────────────────────────────────
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    child: AppCard(
+                      padding: const EdgeInsets.all(16),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          // Student info + switch
+                          Row(
+                            children: [
+                              AvatarWidget(name: student.name, size: 46),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment:
+                                      CrossAxisAlignment.start,
+                                  children: [
+                                    Text(student.name,
+                                        style: AppTextStyles.heading3),
+                                    const SizedBox(height: 2),
+                                    Text(
+                                      student.genderLabel,
+                                      style: AppTextStyles.caption,
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              if (data.students.length > 1)
+                                _TapScaleWidget(
+                                  onTap: () {
+                                    showModalBottomSheet(
+                                      context: context,
+                                      isScrollControlled: true,
+                                      backgroundColor: Colors.transparent,
+                                      builder: (_) =>
+                                          const SwitchAccountScreen(),
+                                    );
+                                  },
+                                  child: Container(
+                                    padding: const EdgeInsets.symmetric(
+                                        horizontal: 10, vertical: 6),
+                                    decoration: BoxDecoration(
+                                      color: AppColors.accentLight,
+                                      borderRadius:
+                                          BorderRadius.circular(20),
+                                    ),
+                                    child: Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: const [
+                                        Text('Đổi',
+                                            style: TextStyle(
+                                              fontSize: 12,
+                                              fontWeight: FontWeight.w600,
+                                              color: AppColors.primary,
+                                            )),
+                                        SizedBox(width: 2),
+                                        Icon(Icons.swap_horiz_rounded,
+                                            color: AppColors.primary,
+                                            size: 16),
+                                      ],
+                                    ),
                                   ),
-                                  const SizedBox(height: 2),
-                                  Text(
-                                    student != null
-                                        ? '${student.className} · ${student.schoolName}'
-                                        : '---',
-                                    style: AppTextStyles.caption,
+                                ),
+                            ],
+                          ),
+
+                          const SizedBox(height: 12),
+
+                          // Info banner
+                          if (stats != null)
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 12, vertical: 9),
+                              decoration: BoxDecoration(
+                                color: AppColors.accentLight,
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                              child: Row(
+                                children: [
+                                  const Icon(Icons.trending_up_rounded,
+                                      color: AppColors.primary, size: 18),
+                                  const SizedBox(width: 8),
+                                  Expanded(
+                                    child: Text(
+                                      'Mức độ tập trung trung bình: ${stats.avgAttentionPercent}%',
+                                      style: AppTextStyles.caption
+                                          .copyWith(
+                                              color: AppColors.primary),
+                                    ),
                                   ),
                                 ],
                               ),
                             ),
-                            _TapScaleWidget(
-                              onTap: () {
-                                showModalBottomSheet(
-                                  context: context,
-                                  isScrollControlled: true,
-                                  backgroundColor: Colors.transparent,
-                                  builder: (_) => const SwitchAccountScreen(),
-                                );
-                              },
-                              child: Container(
-                                padding: const EdgeInsets.symmetric(
-                                    horizontal: 10, vertical: 6),
-                                decoration: BoxDecoration(
-                                  color: AppColors.accentLight,
-                                  borderRadius: BorderRadius.circular(20),
+
+                          const SizedBox(height: 16),
+                          const Divider(
+                              height: 1, color: AppColors.divider),
+                          const SizedBox(height: 16),
+
+                          // ── Stats row ──────────────────────────────
+                          if (stats != null)
+                            IntrinsicHeight(
+                              child: Row(
+                                children: [
+                                  _StatBlock(
+                                    icon: Icons.psychology_rounded,
+                                    iconColor: AppColors.primary,
+                                    value:
+                                        '${stats.avgAttentionPercent}%',
+                                    label: 'Tập trung TB',
+                                    valueColor: AppColors.primary,
+                                  ),
+                                  const _VertDivider(),
+                                  _StatBlock(
+                                    icon: Icons.fact_check_rounded,
+                                    iconColor: AppColors.green,
+                                    value: stats.attendanceLabel,
+                                    label: 'Điểm danh',
+                                    valueColor: AppColors.green,
+                                  ),
+                                  const _VertDivider(),
+                                  _StatBlock(
+                                    icon: Icons.event_note_rounded,
+                                    iconColor: AppColors.textSecondary,
+                                    value:
+                                        '${stats.totalSessions}',
+                                    label: 'Tổng buổi',
+                                  ),
+                                ],
+                              ),
+                            ),
+
+                          const SizedBox(height: 16),
+
+                          // ── Progress circles ───────────────────────
+                          if (stats != null)
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: _FocusCard(
+                                    icon: Icons.psychology_rounded,
+                                    iconColor: AppColors.primary,
+                                    bgColor: AppColors.accentLight,
+                                    label: 'Tập trung',
+                                    percent: stats.avgAttentionPercent,
+                                    color: AppColors.primary,
+                                  ),
                                 ),
-                                child: Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: const [
-                                    Text('Đổi',
-                                        style: TextStyle(
-                                          fontSize: 12,
-                                          fontWeight: FontWeight.w600,
-                                          color: AppColors.primary,
-                                        )),
-                                    SizedBox(width: 2),
-                                    Icon(Icons.swap_horiz_rounded,
-                                        color: AppColors.primary, size: 16),
-                                  ],
+                                const SizedBox(width: 10),
+                                Expanded(
+                                  child: _FocusCard(
+                                    icon: Icons.how_to_reg_rounded,
+                                    iconColor: AppColors.green,
+                                    bgColor: AppColors.greenLight,
+                                    label: 'Điểm danh',
+                                    percent: (stats.attendanceRate * 100)
+                                        .round(),
+                                    color: AppColors.green,
+                                    centerText: stats.attendanceLabel,
+                                  ),
                                 ),
-                              ),
+                              ],
                             ),
-                          ],
-                        ),
 
-                        const SizedBox(height: 12),
+                          const SizedBox(height: 14),
 
-                        // Info banner
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 12, vertical: 9),
-                          decoration: BoxDecoration(
-                            color: AppColors.accentLight,
-                            borderRadius: BorderRadius.circular(10),
-                          ),
-                          child: Row(
-                            children: [
-                              const Icon(Icons.trending_up_rounded,
-                                  color: AppColors.primary, size: 18),
-                              const SizedBox(width: 8),
-                              Expanded(
-                                child: Text(
-                                  student != null
-                                      ? 'Mức độ tập trung trung bình: ${student.avgFocusPercent}%'
-                                      : 'Đang tải...',
-                                  style: AppTextStyles.caption
-                                      .copyWith(color: AppColors.primary),
+                          // ── Attendance badges ──────────────────────
+                          if (stats != null)
+                            Row(
+                              children: [
+                                _AttendanceBadge(
+                                  icon: Icons.check_circle_rounded,
+                                  color: AppColors.green,
+                                  bgColor: AppColors.greenLight,
+                                  label: 'Có mặt',
+                                  value:
+                                      '${stats.presentSessions} buổi',
                                 ),
-                              ),
-                            ],
+                                const SizedBox(width: 8),
+                                _AttendanceBadge(
+                                  icon: Icons.cancel_rounded,
+                                  color: AppColors.red,
+                                  bgColor: AppColors.redLight,
+                                  label: 'Vắng',
+                                  value:
+                                      '${stats.absentSessions} buổi',
+                                ),
+                                const SizedBox(width: 8),
+                                _AttendanceBadge(
+                                  icon: Icons.remove_red_eye_rounded,
+                                  color: AppColors.orange,
+                                  bgColor: AppColors.orangeLight,
+                                  label: 'Tập trung',
+                                  value:
+                                      '${stats.attentionSessions} buổi',
+                                ),
+                              ],
+                            ),
+
+                          const SizedBox(height: 14),
+
+                          // ── View history button ────────────────────
+                          _AnimatedButton(
+                            label: 'Xem lịch sử các buổi học',
+                            icon: Icons.history_rounded,
+                            onTap: () => Navigator.push(
+                              context,
+                              _slideRoute(const SessionHistoryScreen()),
+                            ),
                           ),
-                        ),
-
-                        const SizedBox(height: 16),
-                        const Divider(height: 1, color: AppColors.divider),
-                        const SizedBox(height: 16),
-
-                        // ── Stats row ────────────────────────────────────────
-                        IntrinsicHeight(
-                          child: Row(
-                            children: [
-                              _StatBlock(
-                                icon: Icons.access_time_rounded,
-                                iconColor: AppColors.primary,
-                                value: student?.nextSessionTime ?? '--:--',
-                                label: 'Lịch buổi tới',
-                              ),
-                              const _VertDivider(),
-                              _StatBlock(
-                                icon: Icons.psychology_rounded,
-                                iconColor: AppColors.primary,
-                                value: '${summary.avgFocusPercent}%',
-                                label: 'Tập trung TB',
-                                valueColor: AppColors.primary,
-                              ),
-                              const _VertDivider(),
-                              _StatBlock(
-                                icon: Icons.fact_check_rounded,
-                                iconColor: AppColors.green,
-                                value: summary.attendanceLabel,
-                                label: 'Điểm danh',
-                                valueColor: AppColors.green,
-                              ),
-                            ],
-                          ),
-                        ),
-
-                        const SizedBox(height: 16),
-
-                        // ── Progress circles ─────────────────────────────────
-                        Row(
-                          children: [
-                            Expanded(
-                              child: _FocusCard(
-                                icon: Icons.psychology_rounded,
-                                iconColor: AppColors.primary,
-                                bgColor: AppColors.accentLight,
-                                label: 'Tập trung',
-                                percent: summary.avgFocusPercent,
-                                color: AppColors.primary,
-                              ),
-                            ),
-                            const SizedBox(width: 10),
-                            Expanded(
-                              child: _FocusCard(
-                                icon: Icons.how_to_reg_rounded,
-                                iconColor: AppColors.green,
-                                bgColor: AppColors.greenLight,
-                                label: 'Điểm danh',
-                                percent:
-                                    (summary.attendanceRate * 100).round(),
-                                color: AppColors.green,
-                                centerText: summary.attendanceLabel,
-                              ),
-                            ),
-                          ],
-                        ),
-
-                        const SizedBox(height: 14),
-
-                        // ── Attendance badges ────────────────────────────────
-                        Row(
-                          children: [
-                            _AttendanceBadge(
-                              icon: Icons.check_circle_rounded,
-                              color: AppColors.green,
-                              bgColor: AppColors.greenLight,
-                              label: 'Có phép',
-                              value: '${summary.excusedSessions} buổi',
-                            ),
-                            const SizedBox(width: 8),
-                            _AttendanceBadge(
-                              icon: Icons.cancel_rounded,
-                              color: AppColors.red,
-                              bgColor: AppColors.redLight,
-                              label: 'Không phép',
-                              value: '${summary.absentSessions} buổi',
-                            ),
-                            const SizedBox(width: 8),
-                            _AttendanceBadge(
-                              icon: Icons.watch_later_rounded,
-                              color: AppColors.orange,
-                              bgColor: AppColors.orangeLight,
-                              label: 'Đi muộn',
-                              value: '${summary.lateSessions} buổi',
-                            ),
-                          ],
-                        ),
-
-                        const SizedBox(height: 14),
-
-                        // ── View history button ──────────────────────────────
-                        _AnimatedButton(
-                          label: 'Xem lịch sử các buổi học',
-                          icon: Icons.history_rounded,
-                          onTap: () => Navigator.push(
-                            context,
-                            _slideRoute(const SessionHistoryScreen()),
-                          ),
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
                   ),
-                ),
+
+                  const SizedBox(height: 12),
+
+                  // ── Daily overview card ──────────────────────────────
+                  Padding(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 16),
+                    child: _TapScaleWidget(
+                      onTap: () => Navigator.push(
+                        context,
+                        _slideRoute(const DailyOverviewScreen()),
+                      ),
+                      child: Container(
+                        padding: const EdgeInsets.all(14),
+                        decoration: BoxDecoration(
+                          gradient: const LinearGradient(
+                            colors: [
+                              AppColors.primary,
+                              AppColors.primaryLight
+                            ],
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight,
+                          ),
+                          borderRadius: BorderRadius.circular(14),
+                          boxShadow: [
+                            BoxShadow(
+                              color: AppColors.primary
+                                  .withValues(alpha: 0.28),
+                              blurRadius: 12,
+                              offset: const Offset(0, 4),
+                            ),
+                          ],
+                        ),
+                        child: Row(
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.all(10),
+                              decoration: BoxDecoration(
+                                color:
+                                    Colors.white.withValues(alpha: 0.18),
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                              child: const Icon(
+                                  Icons.bar_chart_rounded,
+                                  color: Colors.white,
+                                  size: 26),
+                            ),
+                            const SizedBox(width: 14),
+                            const Expanded(
+                              child: Column(
+                                crossAxisAlignment:
+                                    CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    'Tổng quan tập trung',
+                                    style: TextStyle(
+                                      fontSize: 15,
+                                      fontWeight: FontWeight.bold,
+                                      color: Colors.white,
+                                    ),
+                                  ),
+                                  SizedBox(height: 3),
+                                  Text(
+                                    'Xem chi tiết từng buổi học',
+                                    style: TextStyle(
+                                        fontSize: 12,
+                                        color: Colors.white70),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            Container(
+                              padding: const EdgeInsets.all(6),
+                              decoration: BoxDecoration(
+                                color:
+                                    Colors.white.withValues(alpha: 0.18),
+                                shape: BoxShape.circle,
+                              ),
+                              child: const Icon(
+                                  Icons.arrow_forward_rounded,
+                                  color: Colors.white,
+                                  size: 18),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+
+                  const SizedBox(height: 12),
+
+                  // ── Schedule card ────────────────────────────────────
+                  Padding(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 16),
+                    child: _TapScaleWidget(
+                      onTap: () => Navigator.push(
+                        context,
+                        _slideRoute(const UpcomingScheduleScreen()),
+                      ),
+                      child: Container(
+                        padding: const EdgeInsets.all(14),
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(14),
+                          boxShadow: const [
+                            BoxShadow(
+                              color: Color(0x0F000000),
+                              blurRadius: 8,
+                              offset: Offset(0, 2),
+                            ),
+                          ],
+                        ),
+                        child: Row(
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.all(10),
+                              decoration: BoxDecoration(
+                                color: AppColors.greenLight,
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                              child: const Icon(
+                                  Icons.calendar_month_rounded,
+                                  color: AppColors.green,
+                                  size: 26),
+                            ),
+                            const SizedBox(width: 14),
+                            const Expanded(
+                              child: Column(
+                                crossAxisAlignment:
+                                    CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    'Lịch học sắp tới',
+                                    style: TextStyle(
+                                      fontSize: 15,
+                                      fontWeight: FontWeight.bold,
+                                      color: AppColors.textPrimary,
+                                    ),
+                                  ),
+                                  SizedBox(height: 3),
+                                  Text(
+                                    'Xem các buổi học sắp diễn ra',
+                                    style: TextStyle(
+                                        fontSize: 12,
+                                        color: AppColors.textSecondary),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            Container(
+                              padding: const EdgeInsets.all(6),
+                              decoration: const BoxDecoration(
+                                color: AppColors.greenLight,
+                                shape: BoxShape.circle,
+                              ),
+                              child: const Icon(
+                                  Icons.arrow_forward_rounded,
+                                  color: AppColors.green,
+                                  size: 18),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
 
                 const SizedBox(height: 12),
 
-                // ── Daily overview card ──────────────────────────────────────
+                // ── Smart alerts ─────────────────────────────────────
+                _SmartAlertSection(parentId: _parentId),
+
+                const SizedBox(height: 12),
+
+                // ── Chức năng nâng cao ───────────────────────────────
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 16),
-                  child: _TapScaleWidget(
-                    onTap: () => Navigator.push(
-                      context,
-                      _slideRoute(const DailyOverviewScreen()),
-                    ),
-                    child: Container(
-                      padding: const EdgeInsets.all(14),
-                      decoration: BoxDecoration(
-                        gradient: const LinearGradient(
-                          colors: [AppColors.primary, AppColors.primaryLight],
-                          begin: Alignment.topLeft,
-                          end: Alignment.bottomRight,
-                        ),
-                        borderRadius: BorderRadius.circular(14),
-                        boxShadow: [
-                          BoxShadow(
-                            color: AppColors.primary.withValues(alpha: 0.28),
-                            blurRadius: 12,
-                            offset: const Offset(0, 4),
-                          ),
-                        ],
-                      ),
-                      child: Row(
-                        children: [
-                          Container(
-                            padding: const EdgeInsets.all(10),
-                            decoration: BoxDecoration(
-                              color: Colors.white.withValues(alpha: 0.18),
-                              borderRadius: BorderRadius.circular(10),
-                            ),
-                            child: const Icon(Icons.bar_chart_rounded,
-                                color: Colors.white, size: 26),
-                          ),
-                          const SizedBox(width: 14),
-                          const Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  'Tổng quan trong ngày',
-                                  style: TextStyle(
-                                    fontSize: 15,
-                                    fontWeight: FontWeight.bold,
-                                    color: Colors.white,
-                                  ),
-                                ),
-                                SizedBox(height: 3),
-                                Text(
-                                  'Tập trung & điểm danh chi tiết',
-                                  style: TextStyle(
-                                      fontSize: 12, color: Colors.white70),
-                                ),
-                              ],
-                            ),
-                          ),
-                          Container(
-                            padding: const EdgeInsets.all(6),
-                            decoration: BoxDecoration(
-                              color: Colors.white.withValues(alpha: 0.18),
-                              shape: BoxShape.circle,
-                            ),
-                            child: const Icon(Icons.arrow_forward_rounded,
-                                color: Colors.white, size: 18),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
+                  child: const Text('Phân tích nâng cao',
+                      style: AppTextStyles.heading3),
                 ),
+                const SizedBox(height: 10),
 
-                const SizedBox(height: 20),
-
-                // ── Lịch học sắp tới card ────────────────────────────────────
+                // Grid 2x2 các chức năng nâng cao
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 16),
-                  child: _TapScaleWidget(
-                    onTap: () => Navigator.push(
-                      context,
-                      _slideRoute(const UpcomingScheduleScreen()),
-                    ),
-                    child: Container(
-                      padding: const EdgeInsets.all(14),
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.circular(14),
-                        boxShadow: const [
-                          BoxShadow(
-                            color: Color(0x0F000000),
-                            blurRadius: 8,
-                            offset: Offset(0, 2),
-                          ),
-                        ],
+                  child: GridView.count(
+                    crossAxisCount: 2,
+                    shrinkWrap: true,
+                    physics: const NeverScrollableScrollPhysics(),
+                    crossAxisSpacing: 10,
+                    mainAxisSpacing: 10,
+                    childAspectRatio: 1.6,
+                    children: [
+                      _FeatureCard(
+                        icon: Icons.show_chart_rounded,
+                        iconColor: AppColors.primary,
+                        bgColor: AppColors.accentLight,
+                        title: 'Biểu đồ\ntập trung',
+                        onTap: () => Navigator.push(context,
+                            _slideRoute(const AttentionChartScreen())),
                       ),
-                      child: Row(
-                        children: [
-                          Container(
-                            padding: const EdgeInsets.all(10),
-                            decoration: BoxDecoration(
-                              color: AppColors.greenLight,
-                              borderRadius: BorderRadius.circular(10),
-                            ),
-                            child: const Icon(Icons.calendar_month_rounded,
-                                color: AppColors.green, size: 26),
-                          ),
-                          const SizedBox(width: 14),
-                          const Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  'Lịch học sắp tới',
-                                  style: TextStyle(
-                                    fontSize: 15,
-                                    fontWeight: FontWeight.bold,
-                                    color: AppColors.textPrimary,
-                                  ),
-                                ),
-                                SizedBox(height: 3),
-                                Text(
-                                  'Xem các buổi học sắp diễn ra',
-                                  style: TextStyle(
-                                      fontSize: 12,
-                                      color: AppColors.textSecondary),
-                                ),
-                              ],
-                            ),
-                          ),
-                          Container(
-                            padding: const EdgeInsets.all(6),
-                            decoration: BoxDecoration(
-                              color: AppColors.greenLight,
-                              shape: BoxShape.circle,
-                            ),
-                            child: const Icon(Icons.arrow_forward_rounded,
-                                color: AppColors.green, size: 18),
-                          ),
-                        ],
+                      _FeatureCard(
+                        icon: Icons.grid_view_rounded,
+                        iconColor: AppColors.orange,
+                        bgColor: AppColors.orangeLight,
+                        title: 'Bản đồ\nnhiệt',
+                        onTap: () => Navigator.push(context,
+                            _slideRoute(const AttentionHeatmapScreen())),
                       ),
-                    ),
+                      _FeatureCard(
+                        icon: Icons.leaderboard_rounded,
+                        iconColor: AppColors.green,
+                        bgColor: AppColors.greenLight,
+                        title: 'Xếp hạng\ntrong lớp',
+                        onTap: () => Navigator.push(context,
+                            _slideRoute(const ClassRankingScreen())),
+                      ),
+                      _FeatureCard(
+                        icon: Icons.compare_arrows_rounded,
+                        iconColor: AppColors.accent,
+                        bgColor: AppColors.accentLight,
+                        title: 'So sánh\nvới lớp',
+                        onTap: () => Navigator.push(context,
+                            _slideRoute(const ClassComparisonScreen())),
+                      ),
+                      _FeatureCard(
+                        icon: Icons.chair_rounded,
+                        iconColor: AppColors.red,
+                        bgColor: AppColors.redLight,
+                        title: 'Sơ đồ\nchỗ ngồi',
+                        onTap: () => Navigator.push(
+                            context, _slideRoute(const SeatMapScreen())),
+                      ),
+                    ],
                   ),
                 ),
 
@@ -580,12 +619,57 @@ class _HomeContentState extends State<_HomeContent> {
 
 // ─── Data holder ───────────────────────────────────────────────────────────────
 class _HomeData {
-  final StudentModel? student;
-  final AttendanceSummaryModel summary;
-  _HomeData({required this.student, required this.summary});
+  final List<StudentModel> students;
+  final StudentModel? selectedStudent;
+  final StudentStats? stats;
+  _HomeData(
+      {required this.students,
+      required this.selectedStudent,
+      required this.stats});
 }
 
-// ─── Slide page route helper ───────────────────────────────────────────────────
+// ─── Error view ────────────────────────────────────────────────────────────────
+class _ErrorView extends StatelessWidget {
+  final String message;
+  final VoidCallback onRetry;
+  const _ErrorView({required this.message, required this.onRetry});
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.cloud_off_rounded,
+                size: 48, color: AppColors.red),
+            const SizedBox(height: 12),
+            Text(
+              message.replaceFirst('Exception: ', ''),
+              style: AppTextStyles.caption,
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 16),
+            ElevatedButton.icon(
+              onPressed: onRetry,
+              icon: const Icon(Icons.refresh_rounded, size: 18),
+              label: const Text('Thử lại'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.primary,
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(10)),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ─── Slide route ───────────────────────────────────────────────────────────────
 Route<void> _slideRoute(Widget page) {
   return PageRouteBuilder(
     pageBuilder: (_, __, ___) => page,
@@ -604,7 +688,6 @@ Route<void> _slideRoute(Widget page) {
 class _TapScaleWidget extends StatefulWidget {
   final Widget child;
   final VoidCallback onTap;
-
   const _TapScaleWidget({required this.child, required this.onTap});
 
   @override
@@ -645,17 +728,13 @@ class _TapScaleWidgetState extends State<_TapScaleWidget>
   }
 }
 
-// ─── Animated primary button ───────────────────────────────────────────────────
+// ─── Animated button ───────────────────────────────────────────────────────────
 class _AnimatedButton extends StatefulWidget {
   final String label;
   final IconData icon;
   final VoidCallback onTap;
-
-  const _AnimatedButton({
-    required this.label,
-    required this.icon,
-    required this.onTap,
-  });
+  const _AnimatedButton(
+      {required this.label, required this.icon, required this.onTap});
 
   @override
   State<_AnimatedButton> createState() => _AnimatedButtonState();
@@ -714,14 +793,12 @@ class _AnimatedButtonState extends State<_AnimatedButton>
             children: [
               Icon(widget.icon, color: AppColors.primary, size: 18),
               const SizedBox(width: 8),
-              Text(
-                widget.label,
-                style: const TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.w600,
-                  color: AppColors.primary,
-                ),
-              ),
+              Text(widget.label,
+                  style: const TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                    color: AppColors.primary,
+                  )),
             ],
           ),
         ),
@@ -736,13 +813,11 @@ class _IconBadgeButton extends StatefulWidget {
   final IconData activeIcon;
   final int count;
   final VoidCallback onTap;
-
-  const _IconBadgeButton({
-    required this.icon,
-    required this.activeIcon,
-    required this.count,
-    required this.onTap,
-  });
+  const _IconBadgeButton(
+      {required this.icon,
+      required this.activeIcon,
+      required this.count,
+      required this.onTap});
 
   @override
   State<_IconBadgeButton> createState() => _IconBadgeButtonState();
@@ -786,9 +861,7 @@ class _IconBadgeButtonState extends State<_IconBadgeButton>
               width: 42,
               height: 42,
               decoration: const BoxDecoration(
-                color: AppColors.backgroundGrey,
-                shape: BoxShape.circle,
-              ),
+                  color: AppColors.backgroundGrey, shape: BoxShape.circle),
               child: Icon(widget.icon,
                   color: AppColors.textPrimary, size: 24),
             ),
@@ -800,18 +873,13 @@ class _IconBadgeButtonState extends State<_IconBadgeButton>
                   width: 17,
                   height: 17,
                   decoration: const BoxDecoration(
-                    color: AppColors.red,
-                    shape: BoxShape.circle,
-                  ),
+                      color: AppColors.red, shape: BoxShape.circle),
                   child: Center(
-                    child: Text(
-                      '${widget.count}',
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 9,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
+                    child: Text('${widget.count}',
+                        style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 9,
+                            fontWeight: FontWeight.bold)),
                   ),
                 ),
               ),
@@ -829,14 +897,12 @@ class _StatBlock extends StatelessWidget {
   final String value;
   final String label;
   final Color? valueColor;
-
-  const _StatBlock({
-    required this.icon,
-    required this.iconColor,
-    required this.value,
-    required this.label,
-    this.valueColor,
-  });
+  const _StatBlock(
+      {required this.icon,
+      required this.iconColor,
+      required this.value,
+      required this.label,
+      this.valueColor});
 
   @override
   Widget build(BuildContext context) {
@@ -846,14 +912,11 @@ class _StatBlock extends StatelessWidget {
         children: [
           Icon(icon, color: iconColor, size: 20),
           const SizedBox(height: 4),
-          Text(
-            value,
-            style: TextStyle(
-              fontSize: 17,
-              fontWeight: FontWeight.bold,
-              color: valueColor ?? AppColors.textPrimary,
-            ),
-          ),
+          Text(value,
+              style: TextStyle(
+                  fontSize: 17,
+                  fontWeight: FontWeight.bold,
+                  color: valueColor ?? AppColors.textPrimary)),
           const SizedBox(height: 2),
           Text(label, style: AppTextStyles.small),
         ],
@@ -866,16 +929,11 @@ class _VertDivider extends StatelessWidget {
   const _VertDivider();
 
   @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: 1,
-      height: 44,
-      color: AppColors.divider,
-    );
-  }
+  Widget build(BuildContext context) =>
+      Container(width: 1, height: 44, color: AppColors.divider);
 }
 
-// ─── Focus mini-card ───────────────────────────────────────────────────────────
+// ─── Focus card ────────────────────────────────────────────────────────────────
 class _FocusCard extends StatelessWidget {
   final IconData icon;
   final Color iconColor;
@@ -884,25 +942,21 @@ class _FocusCard extends StatelessWidget {
   final int percent;
   final Color color;
   final String? centerText;
-
-  const _FocusCard({
-    required this.icon,
-    required this.iconColor,
-    required this.bgColor,
-    required this.label,
-    required this.percent,
-    required this.color,
-    this.centerText,
-  });
+  const _FocusCard(
+      {required this.icon,
+      required this.iconColor,
+      required this.bgColor,
+      required this.label,
+      required this.percent,
+      required this.color,
+      this.centerText});
 
   @override
   Widget build(BuildContext context) {
     return Container(
       padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 12),
       decoration: BoxDecoration(
-        color: bgColor,
-        borderRadius: BorderRadius.circular(12),
-      ),
+          color: bgColor, borderRadius: BorderRadius.circular(12)),
       child: Row(
         children: [
           SizedBox(
@@ -918,14 +972,11 @@ class _FocusCard extends StatelessWidget {
                   backgroundColor: Colors.white.withValues(alpha: 0.6),
                   valueColor: AlwaysStoppedAnimation<Color>(color),
                 ),
-                Text(
-                  centerText ?? '$percent%',
-                  style: TextStyle(
-                    fontSize: 10,
-                    fontWeight: FontWeight.bold,
-                    color: color,
-                  ),
-                ),
+                Text(centerText ?? '$percent%',
+                    style: TextStyle(
+                        fontSize: 10,
+                        fontWeight: FontWeight.bold,
+                        color: color)),
               ],
             ),
           ),
@@ -937,10 +988,9 @@ class _FocusCard extends StatelessWidget {
               const SizedBox(height: 3),
               Text(label,
                   style: TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
-                    color: iconColor,
-                  )),
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      color: iconColor)),
             ],
           ),
         ],
@@ -956,14 +1006,12 @@ class _AttendanceBadge extends StatelessWidget {
   final Color bgColor;
   final String label;
   final String value;
-
-  const _AttendanceBadge({
-    required this.icon,
-    required this.color,
-    required this.bgColor,
-    required this.label,
-    required this.value,
-  });
+  const _AttendanceBadge(
+      {required this.icon,
+      required this.color,
+      required this.bgColor,
+      required this.label,
+      required this.value});
 
   @override
   Widget build(BuildContext context) {
@@ -971,25 +1019,184 @@ class _AttendanceBadge extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 8),
         decoration: BoxDecoration(
-          color: bgColor,
-          borderRadius: BorderRadius.circular(10),
-        ),
+            color: bgColor, borderRadius: BorderRadius.circular(10)),
         child: Column(
           children: [
             Icon(icon, color: color, size: 20),
             const SizedBox(height: 4),
-            Text(
-              value,
-              style: TextStyle(
-                fontSize: 13,
-                fontWeight: FontWeight.bold,
-                color: color,
-              ),
-            ),
+            Text(value,
+                style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.bold,
+                    color: color)),
             const SizedBox(height: 2),
             Text(label,
                 style: AppTextStyles.small,
                 textAlign: TextAlign.center),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ─── Smart alert section ───────────────────────────────────────────────────────
+class _SmartAlertSection extends StatefulWidget {
+  final String parentId;
+  const _SmartAlertSection({required this.parentId});
+
+  @override
+  State<_SmartAlertSection> createState() => _SmartAlertSectionState();
+}
+
+class _SmartAlertSectionState extends State<_SmartAlertSection> {
+  final _alertService = SmartAlertService();
+  late Future<List<SmartAlert>> _alertsFuture;
+
+  @override
+  void initState() {
+    super.initState();
+    _alertsFuture = _alertService.getAlerts(widget.parentId);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<List<SmartAlert>>(
+      future: _alertsFuture,
+      builder: (context, snapshot) {
+        if (!snapshot.hasData || snapshot.data!.isEmpty) {
+          return const SizedBox();
+        }
+        final alerts = snapshot.data!;
+        return Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text('Cảnh báo thông minh',
+                  style: AppTextStyles.heading3),
+              const SizedBox(height: 10),
+              ...alerts.map((a) => _AlertCard(alert: a)),
+              const SizedBox(height: 2),
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _AlertCard extends StatelessWidget {
+  final SmartAlert alert;
+  const _AlertCard({required this.alert});
+
+  Color _bgColor() {
+    switch (alert.type) {
+      case AlertType.success:
+        return AppColors.greenLight;
+      case AlertType.warning:
+        return AppColors.orangeLight;
+      case AlertType.danger:
+        return AppColors.redLight;
+      default:
+        return AppColors.accentLight;
+    }
+  }
+
+  Color _borderColor() {
+    switch (alert.type) {
+      case AlertType.success:
+        return AppColors.green;
+      case AlertType.warning:
+        return AppColors.orange;
+      case AlertType.danger:
+        return AppColors.red;
+      default:
+        return AppColors.primary;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: _bgColor(),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: _borderColor().withValues(alpha: 0.4)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(alert.icon, style: const TextStyle(fontSize: 20)),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(alert.title,
+                    style: AppTextStyles.body2.copyWith(
+                        fontWeight: FontWeight.w600,
+                        color: _borderColor())),
+                const SizedBox(height: 3),
+                Text(alert.message, style: AppTextStyles.small),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ─── Feature card ──────────────────────────────────────────────────────────────
+class _FeatureCard extends StatelessWidget {
+  final IconData icon;
+  final Color iconColor;
+  final Color bgColor;
+  final String title;
+  final VoidCallback onTap;
+  const _FeatureCard({
+    required this.icon,
+    required this.iconColor,
+    required this.bgColor,
+    required this.title,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(12),
+          boxShadow: const [
+            BoxShadow(
+                color: Color(0x0F000000), blurRadius: 6, offset: Offset(0, 2))
+          ],
+        ),
+        child: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                  color: bgColor, borderRadius: BorderRadius.circular(8)),
+              child: Icon(icon, color: iconColor, size: 20),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                title,
+                style: const TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                    color: AppColors.textPrimary),
+              ),
+            ),
           ],
         ),
       ),
