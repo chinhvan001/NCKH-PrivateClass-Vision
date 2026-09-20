@@ -4,16 +4,13 @@ const LoginForm = ({ onLogin }) => {
   return (
     <div className="login-form-wrapper">
       <div className="login-card">
-        {/* Heading */}
         <div className="login-heading">
           <h2>Chào mừng trở lại</h2>
           <p>Đăng nhập vào cổng quản trị PrivateClass Vision</p>
         </div>
 
-        {/* Login Form */}
         <GoogleLoginForm onLogin={onLogin} />
 
-        {/* Security */}
         <div className="security-message">
           <svg
             viewBox="0 0 24 24"

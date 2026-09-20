@@ -63,7 +63,11 @@ const AccountManagement = () => {
         throw new Error("Không tìm thấy phiên đăng nhập");
       }
 
-      const uid = updatedUser.uid || updatedUser.id;
+      const teacherId = updatedUser.id || updatedUser.uid;
+
+      if (!teacherId) {
+        throw new Error("Không xác định được ID giáo viên");
+      }
 
       if (!uid) {
         throw new Error("Không xác định được UID của giáo viên");
@@ -129,7 +133,11 @@ const AccountManagement = () => {
         throw new Error("Không tìm thấy phiên đăng nhập");
       }
 
-      const uid = teacher.uid || teacher.id;
+      const teacherId = updatedUser.id || updatedUser.uid;
+
+      if (!teacherId) {
+        throw new Error("Không xác định được ID giáo viên");
+      }
 
       if (!uid) {
         throw new Error("Không xác định được UID của giáo viên");

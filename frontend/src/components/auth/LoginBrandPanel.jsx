@@ -3,12 +3,10 @@ import logo from "../../assets/logo.png";
 const LoginBrandPanel = () => {
   return (
     <div className="brand-panel">
-      {/* Decorative circles */}
       <div className="brand-circle brand-circle-top"></div>
       <div className="brand-circle brand-circle-bottom"></div>
 
       <div className="brand-content">
-        {/* Logo */}
         <div className="brand-logo">
           <img
             src={logo}
@@ -22,7 +20,6 @@ const LoginBrandPanel = () => {
           </div>
         </div>
 
-        {/* Introduction */}
         <div className="brand-intro">
           <h2>
             Truy cập an toàn, đơn giản
@@ -36,7 +33,6 @@ const LoginBrandPanel = () => {
           </p>
         </div>
 
-        {/* Features */}
         <div className="brand-features">
           <div className="brand-feature">
             <div className="feature-icon">
@@ -92,7 +88,6 @@ const LoginBrandPanel = () => {
           </div>
         </div>
 
-        {/* System status */}
         <div className="system-status">
           <div className="status-title">
             <span className="status-dot"></span>

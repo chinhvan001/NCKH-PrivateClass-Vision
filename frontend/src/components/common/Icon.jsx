@@ -8,6 +8,15 @@ const Icon = ({ name, size = 20, strokeWidth = 1.8, className = "" }) => {
         <rect x="14" y="14" width="6" height="6" rx="1" />
       </>
     ),
+    seatGrid: (
+      <>
+        <rect x="4" y="4" width="5" height="5" rx="1" />
+        <rect x="15" y="4" width="5" height="5" rx="1" />
+        <rect x="4" y="15" width="5" height="5" rx="1" />
+        <rect x="15" y="15" width="5" height="5" rx="1" />
+        <path d="M11 4v16M4 11h16" />
+      </>
+    ),
     user: (
       <>
         <circle cx="12" cy="8" r="3" />
@@ -110,6 +119,13 @@ const Icon = ({ name, size = 20, strokeWidth = 1.8, className = "" }) => {
         <path d="M8 6V4h8v2" />
         <path d="M19 6l-1 15H6L5 6" />
         <path d="M10 11v6M14 11v6" />
+      </>
+    ),
+    building: (
+      <>
+        <path d="M4 21V5a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v16" />
+        <path d="M2 21h20" />
+        <path d="M8 7h2M14 7h2M8 11h2M14 11h2M8 15h2M14 15h2" />
       </>
     ),
     arrowLeft: (

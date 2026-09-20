@@ -4,6 +4,9 @@ from flask_cors import CORS
 from routes.auth_routes import auth_bp
 from routes.admin_routes import admin_bp
 from routes.camera_routes import camera_bp
+from routes.class_routes import class_bp
+from routes.session_routes import session_bp
+from routes.classroom_routes import classroom_bp
 
 
 app = Flask(__name__)
@@ -14,7 +17,9 @@ CORS(app)
 app.register_blueprint(auth_bp)
 app.register_blueprint(admin_bp)
 app.register_blueprint(camera_bp)
-
+app.register_blueprint(class_bp)
+app.register_blueprint(session_bp)
+app.register_blueprint(classroom_bp)
 
 @app.route("/", methods=["GET"])
 def home():

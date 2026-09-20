@@ -6,6 +6,8 @@ import AccountManagement from "./pages/AccountManagement";
 import SessionManagement from "./pages/SessionManagement";
 import SessionDetail from "./pages/SessionDetail";
 import CameraManagement from "./pages/CameraManagement";
+import ClassManagement from "./pages/ClassManagement";
+import EvaluationManagement from "./pages/EvaluationManagement";
 
 import { getAdminSession, clearAdminSession } from "./utils/AuthSession";
 
@@ -66,6 +68,24 @@ function App() {
         element={
           <ProtectedRoute>
             <CameraManagement />
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/class-management"
+        element={
+          <ProtectedRoute>
+            <ClassManagement />
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/evaluation-management"
+        element={
+          <ProtectedRoute>
+            <EvaluationManagement />
           </ProtectedRoute>
         }
       />

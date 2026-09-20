@@ -2,10 +2,11 @@ import { useNavigate } from "react-router-dom";
 
 import AdminHeader from "../components/admin/AdminHeader";
 import AdminSidebar from "../components/admin/AdminSidebar";
-import ClassManagementPanel from "../components/admin/class/ClassManagementPanel";
+import EvaluationManagementPanel from "../components/admin/evaluation/EvaluationManagementPanel";
+
 import { logoutAdmin } from "../utils/AuthSession";
 
-const ClassManagement = () => {
+const EvaluationManagement = () => {
     const navigate = useNavigate();
 
     const handleLogout = async () => {
@@ -18,10 +19,11 @@ const ClassManagement = () => {
 
             <section className="admin-main-content">
                 <AdminHeader />
-                <ClassManagementPanel />
+
+                <EvaluationManagementPanel />
             </section>
         </main>
     );
 };
 
-export default ClassManagement;
+export default EvaluationManagement;

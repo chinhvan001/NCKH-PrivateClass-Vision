@@ -1,19 +1,24 @@
 const API_BASE_URL = "http://127.0.0.1:5000";
 
-export const getCameras = async () => {
+
+const getAuthHeaders = () => {
     const idToken = localStorage.getItem("idToken");
 
     if (!idToken) {
         throw new Error("Không tìm thấy ID Token.");
     }
 
+    return {
+        Authorization: `Bearer ${idToken}`,
+    };
+};
+
+export const getCameras = async () => {
     const response = await fetch(
         `${API_BASE_URL}/api/admin/cameras`,
         {
             method: "GET",
-            headers: {
-                Authorization: `Bearer ${idToken}`,
-            },
+            headers: getAuthHeaders(),
         }
     );
 
@@ -29,19 +34,34 @@ export const getCameras = async () => {
     return data.cameras || [];
 };
 
-export const testCameraConnection = async (rtspUrl) => {
-    const idToken = localStorage.getItem("idToken");
+export const getClassrooms = async () => {
+    const response = await fetch(
+        `${API_BASE_URL}/api/admin/classrooms`,
+        {
+            method: "GET",
+            headers: getAuthHeaders(),
+        }
+    );
 
-    if (!idToken) {
-        throw new Error("Không tìm thấy ID Token.");
+    const data = await response.json();
+
+    if (!response.ok || !data.success) {
+        throw new Error(
+            data.message ||
+            "Không thể lấy danh sách phòng học."
+        );
     }
 
+    return data.classrooms || [];
+};
+
+export const testCameraConnection = async (rtspUrl) => {
     const response = await fetch(
         `${API_BASE_URL}/api/admin/cameras/test-connection`,
         {
             method: "POST",
             headers: {
-                Authorization: `Bearer ${idToken}`,
+                ...getAuthHeaders(),
                 "Content-Type": "application/json",
             },
             body: JSON.stringify({
@@ -63,18 +83,12 @@ export const testCameraConnection = async (rtspUrl) => {
 };
 
 export const createCamera = async (cameraData) => {
-    const idToken = localStorage.getItem("idToken");
-
-    if (!idToken) {
-        throw new Error("Không tìm thấy ID Token.");
-    }
-
     const response = await fetch(
         `${API_BASE_URL}/api/admin/cameras`,
         {
             method: "POST",
             headers: {
-                Authorization: `Bearer ${idToken}`,
+                ...getAuthHeaders(),
                 "Content-Type": "application/json",
             },
             body: JSON.stringify(cameraData),
@@ -94,19 +108,11 @@ export const createCamera = async (cameraData) => {
 };
 
 export const configureCamera = async (cameraId) => {
-    const idToken = localStorage.getItem("idToken");
-
-    if (!idToken) {
-        throw new Error("Không tìm thấy ID Token.");
-    }
-
     const response = await fetch(
         `${API_BASE_URL}/api/admin/cameras/${cameraId}/configure`,
         {
             method: "PUT",
-            headers: {
-                Authorization: `Bearer ${idToken}`,
-            },
+            headers: getAuthHeaders(),
         }
     );
 
@@ -115,7 +121,7 @@ export const configureCamera = async (cameraId) => {
     if (!response.ok || !data.success) {
         throw new Error(
             data.message ||
-            "Không thể cấu hình camera."
+            "Không thể kiểm tra camera."
         );
     }
 
@@ -123,19 +129,11 @@ export const configureCamera = async (cameraId) => {
 };
 
 export const deleteCamera = async (cameraId) => {
-    const idToken = localStorage.getItem("idToken");
-
-    if (!idToken) {
-        throw new Error("Không tìm thấy ID Token.");
-    }
-
     const response = await fetch(
         `${API_BASE_URL}/api/admin/cameras/${cameraId}`,
         {
             method: "DELETE",
-            headers: {
-                Authorization: `Bearer ${idToken}`,
-            },
+            headers: getAuthHeaders(),
         }
     );
 

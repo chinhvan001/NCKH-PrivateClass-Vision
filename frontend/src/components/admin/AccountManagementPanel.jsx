@@ -1,7 +1,9 @@
 import { useMemo, useState } from "react";
+
 import Icon from "../common/Icon";
 import EditTeacherForm from "./EditTeacherForm";
 import AddTeacherForm from "./AddTeacherForm";
+import ConfirmModal from "../common/ConfirmModal";
 
 const AccountManagementPanel = ({
   users = [],
@@ -17,6 +19,16 @@ const AccountManagementPanel = ({
   const [detailTeacher, setDetailTeacher] = useState(null);
   const [showAddTeacher, setShowAddTeacher] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
+
+  const [confirmModal, setConfirmModal] = useState({
+    open: false,
+    title: "",
+    message: "",
+    confirmText: "Xác nhận",
+    cancelText: "Hủy",
+    onConfirm: null,
+  });
+
   const TEACHERS_PER_PAGE = 10;
 
   const SUBJECT_OPTIONS = [
@@ -37,28 +49,18 @@ const AccountManagementPanel = ({
   ];
 
   const teachers = useMemo(() => {
-    return users
-      .filter((user) => {
-        if (Array.isArray(user.role)) {
-          return user.role.includes("teacher");
-        }
-        return user.role === "teacher";
-      })
-      .map((user) => ({
-        uid: user.uid || user.id,
-        email: user.email || "Chưa có email",
-        name: user.name || "Chưa cập nhật",
-        phone_number: user.phone_number || "",
-        subject: user.subject || "",
-        create_date: user.create_date || null,
-        role: Array.isArray(user.role)
-          ? user.role
-          : user.role
-            ? [user.role]
-            : [],
-        is_active: user.is_active !== false,
-        linkedStudent: user.linkedStudent || null,
-      }));
+    return users.map((user) => ({
+      id: user.id,
+      uid: user.uid || null,
+      email: user.email || "Chưa có email",
+      name: user.name || "Chưa cập nhật",
+      phone_number: user.phone_number || "",
+      subject: user.subject || "",
+      create_date: user.create_date || null,
+      is_active: user.is_active !== false,
+      auth_provider: user.auth_provider || "google",
+      auth_status: user.auth_status || "pending",
+    }));
   }, [users]);
 
   const subjects = SUBJECT_OPTIONS;
@@ -87,20 +89,29 @@ const AccountManagementPanel = ({
 
   const totalTeachers = teachers.length;
 
-  const activeTeachers = teachers.filter((teacher) => teacher.is_active).length;
+  const activeTeachers = teachers.filter(
+    (teacher) => teacher.is_active,
+  ).length;
 
   const inactiveTeachers = totalTeachers - activeTeachers;
 
-  const totalPages = Math.ceil(filteredTeachers.length / TEACHERS_PER_PAGE);
+  const totalPages = Math.ceil(
+    filteredTeachers.length / TEACHERS_PER_PAGE,
+  );
 
-  const startIndex = (currentPage - 1) * TEACHERS_PER_PAGE;
+  const safeCurrentPage =
+    totalPages === 0 ? 1 : Math.min(currentPage, totalPages);
+
+  const startIndex =
+    (safeCurrentPage - 1) * TEACHERS_PER_PAGE;
 
   const currentTeachers = filteredTeachers.slice(
     startIndex,
     startIndex + TEACHERS_PER_PAGE,
   );
 
-  const displayStart = filteredTeachers.length === 0 ? 0 : startIndex + 1;
+  const displayStart =
+    filteredTeachers.length === 0 ? 0 : startIndex + 1;
 
   const displayEnd = Math.min(
     startIndex + TEACHERS_PER_PAGE,
@@ -120,36 +131,70 @@ const AccountManagementPanel = ({
   const handleSaveTeacher = async (updatedTeacher) => {
     try {
       if (!onUpdateUser) {
-        throw new Error("Không tìm thấy chức năng cập nhật tài khoản.");
+        throw new Error(
+          "Không tìm thấy chức năng cập nhật tài khoản.",
+        );
       }
 
       await onUpdateUser(updatedTeacher);
       setSelectedTeacher(null);
+
+      if (onRefresh) {
+        await onRefresh();
+      }
     } catch (error) {
       console.error("Update teacher error:", error);
+      throw error;
     }
   };
 
-  const handleDeleteTeacher = async (teacher) => {
-    const confirmed = window.confirm(
-      `Bạn có chắc muốn xóa giáo viên "${teacher.name}" không?`,
-    );
+  const handleDeleteTeacher = (teacher) => {
+    setConfirmModal({
+      open: true,
+      title: "Xóa giáo viên",
+      message: `Bạn có chắc muốn xóa giáo viên "${teacher.name}" không?`,
+      confirmText: "Xóa",
+      cancelText: "Hủy",
+      onConfirm: async () => {
+        try {
+          if (!onDeleteTeacher) {
+            throw new Error(
+              "Không tìm thấy chức năng xóa giáo viên.",
+            );
+          }
 
-    if (!confirmed) {
-      return;
-    }
+          await onDeleteTeacher(teacher);
 
-    try {
-      if (!onDeleteTeacher) {
-        throw new Error("Không tìm thấy chức năng xóa giáo viên.");
-      }
+          setConfirmModal({
+            open: false,
+            title: "",
+            message: "",
+            confirmText: "Xác nhận",
+            cancelText: "Hủy",
+            onConfirm: null,
+          });
 
-      await onDeleteTeacher(teacher);
-    } catch (error) {
-      console.error("Delete teacher error:", error);
+          if (onRefresh) {
+            await onRefresh();
+          }
+        } catch (error) {
+          console.error("Delete teacher error:", error);
 
-      window.alert(error.message || "Không thể xóa giáo viên.");
-    }
+          setConfirmModal({
+            open: false,
+            title: "",
+            message: "",
+            confirmText: "Xác nhận",
+            cancelText: "Hủy",
+            onConfirm: null,
+          });
+
+          window.alert(
+            error.message || "Không thể xóa giáo viên.",
+          );
+        }
+      },
+    });
   };
 
   const handleAddTeacher = async (newTeacher) => {
@@ -160,19 +205,24 @@ const AccountManagementPanel = ({
         throw new Error("Không tìm thấy ID Token.");
       }
 
-      const response = await fetch("http://127.0.0.1:5000/api/admin/teachers", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${idToken}`,
+      const response = await fetch(
+        "http://127.0.0.1:5000/api/admin/teachers",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${idToken}`,
+          },
+          body: JSON.stringify(newTeacher),
         },
-        body: JSON.stringify(newTeacher),
-      });
+      );
 
       const data = await response.json();
 
       if (!response.ok || !data.success) {
-        throw new Error(data.message || "Không thể thêm giáo viên.");
+        throw new Error(
+          data.message || "Không thể thêm giáo viên.",
+        );
       }
 
       console.log("Add teacher success:", data);
@@ -188,10 +238,55 @@ const AccountManagementPanel = ({
     }
   };
 
-  const hasParentRole =
-    Array.isArray(detailTeacher?.role) && detailTeacher.role.includes("parent");
+  const resetConfirmModal = () => {
+    setConfirmModal({
+      open: false,
+      title: "",
+      message: "",
+      confirmText: "Xác nhận",
+      cancelText: "Hủy",
+      onConfirm: null,
+    });
+  };
 
-  const hasLinkedStudent = hasParentRole && !!detailTeacher?.linkedStudent;
+  const formatCreateDate = (createDate) => {
+    if (!createDate) {
+      return "Chưa có thông tin";
+    }
+
+    try {
+      let dateValue = createDate;
+
+      if (
+        typeof createDate === "object" &&
+        createDate !== null &&
+        "seconds" in createDate
+      ) {
+        dateValue = createDate.seconds * 1000;
+      }
+
+      const date = new Date(dateValue);
+
+      if (Number.isNaN(date.getTime())) {
+        return "Chưa có thông tin";
+      }
+
+      return date.toLocaleString("vi-VN");
+    } catch {
+      return "Chưa có thông tin";
+    }
+  };
+
+  const getAuthStatusText = (status) => {
+    switch (status) {
+      case "linked":
+        return "Đã liên kết Firebase";
+      case "pending":
+        return "Chưa liên kết Firebase";
+      default:
+        return status || "Chưa xác định";
+    }
+  };
 
   return (
     <>
@@ -368,7 +463,7 @@ const AccountManagementPanel = ({
                 </tr>
               ) : (
                 currentTeachers.map((teacher) => (
-                  <tr key={teacher.uid || teacher.email}>
+                  <tr key={teacher.id}>
                     <td>
                       <div className="account-cell">
                         <div className="table-avatar">
@@ -383,7 +478,9 @@ const AccountManagementPanel = ({
                     </td>
 
                     <td>
-                      <span className="account-email">{teacher.email}</span>
+                      <span className="account-email">
+                        {teacher.email}
+                      </span>
                     </td>
 
                     <td>
@@ -413,7 +510,6 @@ const AccountManagementPanel = ({
                         }`}
                       >
                         <i />
-
                         {teacher.is_active
                           ? "Đang hoạt động"
                           : "Đã vô hiệu hóa"}
@@ -459,14 +555,14 @@ const AccountManagementPanel = ({
 
         <div className="account-pagination">
           <span>
-            Hiển thị {displayStart}-{displayEnd} trên {filteredTeachers.length}{" "}
-            giáo viên
+            Hiển thị {displayStart}-{displayEnd} trên{" "}
+            {filteredTeachers.length} giáo viên
           </span>
 
           <div>
             <button
               type="button"
-              disabled={currentPage === 1}
+              disabled={safeCurrentPage === 1}
               onClick={() => setCurrentPage(1)}
             >
               <Icon name="first" size={15} />
@@ -474,30 +570,40 @@ const AccountManagementPanel = ({
 
             <button
               type="button"
-              disabled={currentPage === 1}
-              onClick={() => setCurrentPage((page) => Math.max(1, page - 1))}
+              disabled={safeCurrentPage === 1}
+              onClick={() =>
+                setCurrentPage((page) => Math.max(1, page - 1))
+              }
             >
               <Icon name="arrowLeft" size={15} />
             </button>
 
-            {Array.from({ length: totalPages }, (_, index) => index + 1).map(
-              (page) => (
-                <button
-                  key={page}
-                  type="button"
-                  className={currentPage === page ? "current-page" : ""}
-                  onClick={() => setCurrentPage(page)}
-                >
-                  {page}
-                </button>
-              ),
-            )}
+            {Array.from(
+              { length: totalPages },
+              (_, index) => index + 1,
+            ).map((page) => (
+              <button
+                key={page}
+                type="button"
+                className={
+                  safeCurrentPage === page ? "current-page" : ""
+                }
+                onClick={() => setCurrentPage(page)}
+              >
+                {page}
+              </button>
+            ))}
 
             <button
               type="button"
-              disabled={currentPage === totalPages || totalPages === 0}
+              disabled={
+                totalPages === 0 ||
+                safeCurrentPage === totalPages
+              }
               onClick={() =>
-                setCurrentPage((page) => Math.min(totalPages, page + 1))
+                setCurrentPage((page) =>
+                  Math.min(totalPages, page + 1),
+                )
               }
             >
               <Icon name="arrowRight" size={15} />
@@ -505,7 +611,10 @@ const AccountManagementPanel = ({
 
             <button
               type="button"
-              disabled={currentPage === totalPages || totalPages === 0}
+              disabled={
+                totalPages === 0 ||
+                safeCurrentPage === totalPages
+              }
               onClick={() => setCurrentPage(totalPages)}
             >
               <Icon name="last" size={15} />
@@ -579,7 +688,9 @@ const AccountManagementPanel = ({
 
                 <div className="teacher-detail-item">
                   <span>Bộ môn</span>
-                  <strong>{detailTeacher.subject || "Chưa cập nhật"}</strong>
+                  <strong>
+                    {detailTeacher.subject || "Chưa cập nhật"}
+                  </strong>
                 </div>
 
                 <div className="teacher-detail-item">
@@ -592,63 +703,37 @@ const AccountManagementPanel = ({
                 </div>
 
                 <div className="teacher-detail-item">
-                  <span>Ngày tạo tài khoản</span>
+                  <span>Trạng thái liên kết</span>
                   <strong>
-                    {detailTeacher.create_date
-                      ? new Date(detailTeacher.create_date).toLocaleString(
-                          "vi-VN",
-                        )
-                      : "Chưa có thông tin"}
+                    {getAuthStatusText(detailTeacher.auth_status)}
                   </strong>
                 </div>
 
                 <div className="teacher-detail-item">
-                  <span>Vai trò phụ huynh</span>
+                  <span>Nhà cung cấp đăng nhập</span>
                   <strong>
-                    {hasParentRole ? "Có con học tại trường" : "Không có"}
+                    {detailTeacher.auth_provider || "Chưa có thông tin"}
                   </strong>
                 </div>
 
-                {hasParentRole && (
-                  <div className="teacher-parent-link">
-                    <div className="teacher-parent-link-header">
-                      <span>Liên kết học sinh</span>
-                    </div>
+                <div className="teacher-detail-item">
+                  <span>Firebase UID</span>
+                  <strong>
+                    {detailTeacher.uid || "Chưa liên kết"}
+                  </strong>
+                </div>
 
-                    {hasLinkedStudent ? (
-                      <div className="teacher-parent-link-student">
-                        <div className="teacher-parent-link-student-icon">
-                          <Icon name="school" size={20} />
-                        </div>
+                <div className="teacher-detail-item">
+                  <span>Firestore Document ID</span>
+                  <strong>{detailTeacher.id || "Chưa có thông tin"}</strong>
+                </div>
 
-                        <div>
-                          <strong>
-                            {detailTeacher.linkedStudent.name ||
-                              "Chưa có tên học sinh"}
-                          </strong>
-
-                          <span>
-                            Mã học sinh:{" "}
-                            {detailTeacher.linkedStudent.studentId || "--"}
-                          </span>
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="teacher-parent-link-empty">
-                        <Icon name="school" size={20} />
-
-                        <div>
-                          <strong>Chưa có liên kết học sinh</strong>
-
-                          <span>
-                            Tài khoản có vai trò phụ huynh nhưng chưa có thông
-                            tin học sinh được liên kết.
-                          </span>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                )}
+                <div className="teacher-detail-item">
+                  <span>Ngày tạo tài khoản</span>
+                  <strong>
+                    {formatCreateDate(detailTeacher.create_date)}
+                  </strong>
+                </div>
               </div>
             </div>
 
@@ -663,6 +748,17 @@ const AccountManagementPanel = ({
             </div>
           </div>
         </div>
+      )}
+
+      {confirmModal.open && (
+        <ConfirmModal
+          title={confirmModal.title}
+          message={confirmModal.message}
+          confirmText={confirmModal.confirmText}
+          cancelText={confirmModal.cancelText}
+          onConfirm={confirmModal.onConfirm}
+          onCancel={resetConfirmModal}
+        />
       )}
     </>
   );

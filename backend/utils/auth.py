@@ -4,11 +4,8 @@ from firebase_admin import auth
 from firebase_config import db
 
 
-ADMIN_ROLES = {"admin", "super_admin"}
-TEACHER_ROLE = "teacher"
-
-
 def verify_request_token():
+
     authorization = request.headers.get("Authorization", "")
 
     if not authorization.startswith("Bearer "):
@@ -28,38 +25,55 @@ def verify_request_token():
         return None
 
 
-def get_current_user(decoded_token):
-    if not decoded_token:
-        return None, None
-
-    uid = decoded_token.get("uid")
+def find_admin_by_uid(uid):
 
     if not uid:
         return None, None
 
-    user_ref = db.collection("users").document(uid)
-    user_doc = user_ref.get()
+    uid = str(uid).strip()
 
-    if not user_doc.exists:
+    if not uid:
         return None, None
 
-    return user_ref, user_doc.to_dict()
+    try:
+        admin_ref = db.collection("admins").document(uid)
+        admin_doc = admin_ref.get()
+
+        if not admin_doc.exists:
+            return None, None
+
+        return admin_ref, admin_doc.to_dict()
+
+    except Exception as error:
+        print("Find admin by UID error:", error)
+        return None, None
+
+
+def get_current_user(decoded_token):
+
+    if not decoded_token:
+        return None, None
+
+    uid = decoded_token.get("uid", "")
+
+    if not uid:
+        return None, None
+
+    return find_admin_by_uid(uid)
 
 
 def is_admin_user(user_data):
+
     if not user_data:
         return False
 
-    role = user_data.get("role")
     is_active = user_data.get("is_active", True)
 
-    return (
-        role in ADMIN_ROLES
-        and is_active is not False
-    )
+    return is_active is not False
 
 
 def get_json_body():
+
     return request.get_json(silent=True) or {}
 
 
