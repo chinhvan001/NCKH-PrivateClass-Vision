@@ -1,8 +1,6 @@
 import 'package:flutter/material.dart';
-
 import '../../../../../core/constants/app_colors.dart';
 
-// Đã thêm trường "status" vào dữ liệu để phân biệt trạng thái phiên
 class HistItem {
   final String id, classId, className, room, date, start, end, status;
   final int size;
@@ -31,7 +29,6 @@ class SessionListCard extends StatelessWidget {
     Color statusColor;
     Color statusBgColor;
 
-    // Thiết lập màu sắc theo trạng thái
     switch (item.status) {
       case 'Đang diễn ra':
         statusColor = const Color(0xFF137A41);
@@ -39,7 +36,7 @@ class SessionListCard extends StatelessWidget {
         break;
       case 'Sắp diễn ra':
         statusColor = AppColors.brand;
-        statusBgColor = AppColors.lightBlue.withOpacity(0.5);
+        statusBgColor = AppColors.lightBlue.withValues(alpha: 0.5);
         break;
       default: // Đã kết thúc
         statusColor = AppColors.muted;
@@ -47,7 +44,7 @@ class SessionListCard extends StatelessWidget {
     }
 
     return Padding(
-      padding: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.only(bottom: 10),
       child: Card(
         elevation: 0,
         margin: EdgeInsets.zero,
@@ -60,13 +57,14 @@ class SessionListCard extends StatelessWidget {
         child: InkWell(
           onTap: onTap,
           child: Padding(
-            padding: const EdgeInsets.all(16),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
             child: Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
               children: [
-                // Khung Gradient chứa mã lớp
+                // 1. Icon / Mã lớp
                 Container(
-                  width: 44,
-                  height: 44,
+                  width: 40,
+                  height: 40,
                   alignment: Alignment.center,
                   decoration: BoxDecoration(
                     gradient: item.status == 'Đã kết thúc'
@@ -78,93 +76,82 @@ class SessionListCard extends StatelessWidget {
                             begin: Alignment.topLeft,
                             end: Alignment.bottomRight,
                           ),
-                    borderRadius: BorderRadius.circular(12),
+                    borderRadius: BorderRadius.circular(10),
                   ),
                   child: Text(
-                    item.classId,
+                    item.className.length > 4 
+                        ? item.className.substring(0, 4) 
+                        : item.className,
                     style: const TextStyle(
-                      fontSize: 13,
+                      fontSize: 11,
                       fontWeight: FontWeight.w800,
                       color: Colors.white,
                     ),
+                    textAlign: TextAlign.center,
                   ),
                 ),
-                const SizedBox(width: 14),
-                // Cột nội dung
+                const SizedBox(width: 10),
+
+                // 2. Nội dung chính (Sử dụng Wrap linh hoạt tự điều chỉnh vị trí)
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
                     children: [
+                      // Tên lớp học
                       Text(
-                        '${item.className} · Phòng ${item.room}',
+                        item.className,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
                         style: TextStyle(
-                          fontSize: 15,
+                          fontSize: 14,
                           fontWeight: FontWeight.bold,
                           color: item.status == 'Đã kết thúc'
                               ? AppColors.muted
                               : AppColors.navy,
                         ),
                       ),
-                      const SizedBox(height: 6),
+                      const SizedBox(height: 4),
+
+                      // Thông tin chi tiết: Phòng - Giờ - Sĩ số (Dùng Wrap thay vì SingleChildScrollView)
                       Wrap(
-                        spacing: 14,
-                        runSpacing: 4,
+                        spacing: 6,
+                        runSpacing: 2,
+                        crossAxisAlignment: WrapCrossAlignment.center,
                         children: [
-                          Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              const Icon(
-                                Icons.schedule,
-                                size: 13,
-                                color: AppColors.muted,
-                              ),
-                              const SizedBox(width: 4),
-                              Text(
-                                '${item.start}–${item.end}',
-                                style: const TextStyle(
-                                  fontSize: 12,
-                                  color: AppColors.muted,
-                                ),
-                              ),
-                            ],
+                          _buildInfoBadge(
+                            Icons.meeting_room_outlined,
+                            item.room,
                           ),
-                          Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              const Icon(
-                                Icons.people_alt_outlined,
-                                size: 13,
-                                color: AppColors.muted,
-                              ),
-                              const SizedBox(width: 4),
-                              Text(
-                                '${item.size} HS',
-                                style: const TextStyle(
-                                  fontSize: 12,
-                                  color: AppColors.muted,
-                                ),
-                              ),
-                            ],
+                          _buildInfoBadge(
+                            Icons.schedule,
+                            '${item.start}–${item.end}',
+                          ),
+                          _buildInfoBadge(
+                            Icons.people_alt_outlined,
+                            '${item.size}',
                           ),
                         ],
                       ),
                     ],
                   ),
                 ),
-                // Badge Trạng thái thay cho icon mũi tên
+                const SizedBox(width: 6),
+
+                // 3. Badge Trạng thái
                 Container(
                   padding: const EdgeInsets.symmetric(
-                    horizontal: 10,
+                    horizontal: 6,
                     vertical: 4,
                   ),
                   decoration: BoxDecoration(
                     color: statusBgColor,
-                    borderRadius: BorderRadius.circular(8),
+                    borderRadius: BorderRadius.circular(6),
                   ),
                   child: Text(
                     item.status,
                     style: TextStyle(
-                      fontSize: 11,
+                      fontSize: 9.5,
                       fontWeight: FontWeight.bold,
                       color: statusColor,
                     ),
@@ -175,6 +162,24 @@ class SessionListCard extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+
+  // Widget con hiển thị từng thông tin gọn gàng
+  Widget _buildInfoBadge(IconData icon, String text) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(icon, size: 11, color: AppColors.muted),
+        const SizedBox(width: 2),
+        Text(
+          text,
+          style: const TextStyle(
+            fontSize: 10.5,
+            color: AppColors.muted,
+          ),
+        ),
+      ],
     );
   }
 }

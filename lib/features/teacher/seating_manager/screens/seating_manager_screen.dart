@@ -1,7 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter_privateclass_vision/features/teacher/seating_manager/widgets/classroom_matrix_service.dart';
+import 'package:flutter_privateclass_vision/features/teacher/seating_manager/widgets/student_service.dart';
 
+// Import 3 Service đã tách
 import '../../../../core/services/student_service.dart';
+
 import '../../../../../core/constants/app_colors.dart';
 import '../../../../../core/models/student_model.dart';
 import '../widgets/seating_components.dart';
@@ -22,14 +27,19 @@ class _SeatingManagerScreenState extends State<SeatingManagerScreen> {
   bool _isSaving = false;
   bool _isInitialized = false;
 
-  final int _rows = 5;
-  final int _cols = 8;
+  // Khởi tạo các Service
+  final StudentService _studentService = StudentService();
+  final ClassService _classService = ClassService();
+  final ClassroomMatrixService _matrixService = ClassroomMatrixService();
+
+  late String _targetClassId;
+  
+  // Biến lưu kích thước ma trận phòng học (Sẽ được cập nhật từ ClassroomMatrixService)
+  int _rows = 5;
+  int _cols = 8;
 
   late List<String?> _savedSeats;
   late List<String?> _draftSeats;
-
-  final StudentService _studentService = StudentService();
-  late final String _targetClassId;
 
   @override
   void initState() {
@@ -37,6 +47,17 @@ class _SeatingManagerScreenState extends State<SeatingManagerScreen> {
     _targetClassId = widget.classId ?? 'EqRTu5xAcl5vdPVNy5IW';
     _savedSeats = List.filled(_rows * _cols, null);
     _draftSeats = List.filled(_rows * _cols, null);
+  }
+
+  // Cập nhật lại kích thước ma trận và làm mới mảng ghế ngồi khi đổi ma trận phòng
+  void _updateMatrixDimensions(int newRows, int newCols) {
+    if (_rows != newRows || _cols != newCols) {
+      _rows = newRows;
+      _cols = newCols;
+      _savedSeats = List.filled(_rows * _cols, null);
+      _draftSeats = List.filled(_rows * _cols, null);
+      _isInitialized = false;
+    }
   }
 
   // Khởi tạo sơ đồ từ tọa độ row/column lấy về từ enrollments
@@ -97,14 +118,12 @@ class _SeatingManagerScreenState extends State<SeatingManagerScreen> {
 
       final batch = FirebaseFirestore.instance.batch();
 
-      // Duyệt qua từng document enrollment của lớp để cập nhật row/column
       for (final doc in querySnap.docs) {
         final studentId = doc.data()['student_id'] as String?;
         if (studentId == null) continue;
 
         final seatIndex = _draftSeats.indexOf(studentId);
         if (seatIndex != -1) {
-          // Tính toán row và col (1-based index)
           final newRow = (seatIndex ~/ _cols) + 1;
           final newCol = (seatIndex % _cols) + 1;
           batch.update(doc.reference, {
@@ -112,7 +131,6 @@ class _SeatingManagerScreenState extends State<SeatingManagerScreen> {
             'column': newCol,
           });
         } else {
-          // Học sinh không còn trên sơ đồ (đưa về 0)
           batch.update(doc.reference, {
             'row': 0,
             'column': 0,
@@ -144,102 +162,109 @@ class _SeatingManagerScreenState extends State<SeatingManagerScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return StreamBuilder<DocumentSnapshot>(
-      stream: FirebaseFirestore.instance
-          .collection('classes')
-          .doc(_targetClassId)
-          .snapshots(),
-      builder: (context, classSnapshot) {
-        String className = 'Lớp 12A1';
-        String roomName = 'P201';
+    final currentTeacherId = FirebaseAuth.instance.currentUser?.uid ?? '';
 
-        if (classSnapshot.hasData && classSnapshot.data!.exists) {
-          final classData = classSnapshot.data!.data() as Map<String, dynamic>?;
-          if (classData != null) {
-            className = classData['class_name'] ?? 'Lớp học';
-            roomName = classData['classroom_id'] ?? classData['classroom_name'] ?? 'Chưa cập nhật';
+    return Scaffold(
+      backgroundColor: AppColors.appBg,
+      body: FutureBuilder<Map<String, dynamic>?>(
+        // 1. Sử dụng ClassService để lấy chi tiết lớp học hiện tại
+        future: _classService.getClassDetail(_targetClassId),
+        builder: (context, classSnapshot) {
+          if (classSnapshot.connectionState == ConnectionState.waiting) {
+            return const Center(child: CircularProgressIndicator());
           }
-        }
 
-        return StreamBuilder<List<StudentModel>>(
-          stream: _studentService.getStudentsStream(_targetClassId),
-          builder: (context, studentSnapshot) {
-            if (studentSnapshot.connectionState == ConnectionState.waiting && !_isInitialized) {
-              return Scaffold(
-                backgroundColor: AppColors.appBg,
-                body: Column(
-                  children: [
-                    _buildHeader(className, roomName),
-                    const Expanded(
-                      child: Center(child: CircularProgressIndicator()),
-                    ),
-                  ],
-                ),
-              );
-            }
+          final classData = classSnapshot.data ?? {};
+          final String className = classData['class_name'] ?? 'Lớp học';
+          final String classroomId = classData['classroom_id'] ?? '';
 
-            if (studentSnapshot.hasError) {
-              return Scaffold(
-                backgroundColor: AppColors.appBg,
-                body: Column(
-                  children: [
-                    _buildHeader(className, roomName),
-                    Expanded(
-                      child: Center(
-                        child: Text(
-                          'Lỗi tải dữ liệu: ${studentSnapshot.error}',
-                          style: const TextStyle(color: Colors.red),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              );
-            }
+          // 2. Sử dụng ClassroomMatrixService để lấy cấu hình phòng học (số hàng, số cột)
+          return FutureBuilder<Map<String, dynamic>?>(
+            future: _matrixService.getClassroomMatrixInfo(classroomId),
+            builder: (context, matrixSnapshot) {
+              if (matrixSnapshot.connectionState == ConnectionState.waiting) {
+                return const Center(child: CircularProgressIndicator());
+              }
 
-            final List<StudentModel> homeroomRoster = studentSnapshot.data ?? [];
+              final matrixInfo = matrixSnapshot.data ?? {};
+              final int roomRows = matrixInfo['rows'] ?? 5;
+              final int roomCols = matrixInfo['cols'] ?? 8;
+              final String roomName = matrixInfo['classroom_name'] ?? classroomId;
 
-            // Khởi tạo sơ đồ ban đầu khi stream có data lần đầu
-            if (!_isInitialized && homeroomRoster.isNotEmpty) {
-              _populateInitialSeats(homeroomRoster);
-            }
+              // Cập nhật lại kích thước lưới phòng học nếu có thay đổi từ DB
+              _updateMatrixDimensions(roomRows, roomCols);
 
-            final Map<String, Object> homeroomInfo = {
-              'id': _targetClassId,
-              'name': className,
-              'room': roomName,
-              'size': homeroomRoster.length,
-            };
+              // 3. Sử dụng StudentService để lấy danh sách học sinh theo lớp
+              return StreamBuilder<List<StudentModel>>(
+                stream: _studentService.getStudentsStream(_targetClassId),
+                builder: (context, studentSnapshot) {
+                  if (studentSnapshot.connectionState == ConnectionState.waiting && !_isInitialized) {
+                    return Column(
+                      children: [
+                        _buildHeader(className, roomName),
+                        const Expanded(child: Center(child: CircularProgressIndicator())),
+                      ],
+                    );
+                  }
 
-            return Scaffold(
-              backgroundColor: AppColors.appBg,
-              body: Column(
-                children: [
-                  _buildHeader(className, roomName),
-                  Expanded(
-                    child: Transform.translate(
-                      offset: const Offset(0, -16),
-                      child: Container(
-                        width: double.infinity,
-                        decoration: const BoxDecoration(
-                          color: AppColors.appBg,
-                          borderRadius: BorderRadius.only(
-                            topLeft: Radius.circular(24),
-                            topRight: Radius.circular(24),
+                  if (studentSnapshot.hasError) {
+                    return Column(
+                      children: [
+                        _buildHeader(className, roomName),
+                        Expanded(
+                          child: Center(
+                            child: Text(
+                              'Lỗi tải dữ liệu: ${studentSnapshot.error}',
+                              style: const TextStyle(color: Colors.red),
+                            ),
                           ),
                         ),
-                        child: _mode == ManagerMode.edit
-                            ? _buildEditMode(homeroomRoster)
-                            : _buildViewMode(homeroomRoster, homeroomInfo),
+                      ],
+                    );
+                  }
+
+                  final List<StudentModel> homeroomRoster = studentSnapshot.data ?? [];
+
+                  if (!_isInitialized && homeroomRoster.isNotEmpty) {
+                    _populateInitialSeats(homeroomRoster);
+                  }
+
+                  final Map<String, Object> homeroomInfo = {
+                    'id': className,
+                    'name': className,
+                    'room': roomName,
+                    'size': homeroomRoster.length,
+                  };
+
+                  return Column(
+                    children: [
+                      _buildHeader(className, roomName),
+                      Expanded(
+                        child: Transform.translate(
+                          offset: const Offset(0, -16),
+                          child: Container(
+                            width: double.infinity,
+                            decoration: const BoxDecoration(
+                              color: AppColors.appBg,
+                              borderRadius: BorderRadius.only(
+                                topLeft: Radius.circular(24),
+                                topRight: Radius.circular(24),
+                              ),
+                            ),
+                            child: _mode == ManagerMode.edit
+                                ? _buildEditMode(homeroomRoster)
+                                : _buildViewMode(homeroomRoster, homeroomInfo),
+                          ),
+                        ),
                       ),
-                    ),
-                  ),
-                ],
-              ),
-            );
-          },
-        );
-      },
+                    ],
+                  );
+                },
+              );
+            },
+          );
+        },
+      ),
     );
   }
 
@@ -264,7 +289,7 @@ class _SeatingManagerScreenState extends State<SeatingManagerScreen> {
           if (_mode == ManagerMode.edit)
             InkWell(
               onTap: () => setState(() {
-                _draftSeats = List.from(_savedSeats); // Hoàn tác các thay đổi chưa lưu
+                _draftSeats = List.from(_savedSeats);
                 _mode = ManagerMode.view;
               }),
               child: Container(

@@ -4,9 +4,9 @@ import '../../../../core/constants/app_colors.dart';
 import '../../../../core/models/teacher_model.dart';
 
 class ProfileCard extends StatelessWidget {
-  final TeacherModel teacher;
+  final TeacherModel user;
 
-  const ProfileCard({super.key, required this.teacher});
+  const ProfileCard({super.key, required this.user});
 
   @override
   Widget build(BuildContext context) {
@@ -41,7 +41,7 @@ class ProfileCard extends StatelessWidget {
             ),
             const SizedBox(height: 12),
             Text(
-              teacher.name,
+              user.name,
               style: const TextStyle(
                 fontSize: 19,
                 fontWeight: FontWeight.w800,
@@ -50,7 +50,7 @@ class ProfileCard extends StatelessWidget {
             ),
             const SizedBox(height: 4),
             Text(
-              teacher.role,
+              user.roleDisplay,
               style: const TextStyle(
                 fontSize: 13,
                 fontWeight: FontWeight.w500,

@@ -1,9 +1,11 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_privateclass_vision/features/teacher/classes/screens/classroom_service.dart';
 
 import '../../../../core/constants/app_colors.dart';
 import '../../../../core/models/class_model.dart';
 import '../../../../core/models/student_model.dart';
+
 import '../../../../core/services/student_service.dart';
 import '../widgets/seating_chart_widget.dart';
 
@@ -21,6 +23,7 @@ class _ClassDetailScreenState extends State<ClassDetailScreen> {
   final List<String> _tabs = ['Lịch dạy', 'Danh sách lớp', 'Sơ đồ lớp'];
 
   final StudentService _studentService = StudentService();
+  final ClassroomService _classroomService = ClassroomService();
 
   @override
   Widget build(BuildContext context) {
@@ -37,7 +40,9 @@ class _ClassDetailScreenState extends State<ClassDetailScreen> {
           );
         }
 
-        if (classSnapshot.hasError || !classSnapshot.hasData || !classSnapshot.data!.exists) {
+        if (classSnapshot.hasError ||
+            !classSnapshot.hasData ||
+            !classSnapshot.data!.exists) {
           return Scaffold(
             backgroundColor: AppColors.appBg,
             body: Center(
@@ -57,109 +62,140 @@ class _ClassDetailScreenState extends State<ClassDetailScreen> {
         }
 
         final classData = classSnapshot.data!.data() as Map<String, dynamic>;
-        final cls = ClassModel(
-          id: widget.classId,
-          name: classData['class_name'] ?? 'Lớp học',
-          room: classData['classroom_id'] ?? classData['classroom_name'] ?? 'Chưa cập nhật',
-          schedule: '',
-          students: (classData['class_size'] as num?)?.toInt() ?? 0,
-          grade: (classData['grade'] ?? '12').toString(),
-        );
+        final String roomId = (classData['classroom_id'] ?? '').toString();
 
-        return Scaffold(
-          backgroundColor: AppColors.appBg,
-          body: Column(
-            children: [
-              _buildScreenHeader(context, cls),
-              Expanded(
-                child: Transform.translate(
-                  offset: const Offset(0, -16),
-                  child: Container(
-                    width: double.infinity,
-                    decoration: const BoxDecoration(
-                      color: AppColors.appBg,
-                      borderRadius: BorderRadius.only(
-                        topLeft: Radius.circular(24),
-                        topRight: Radius.circular(24),
-                      ),
-                    ),
-                    child: Column(
-                      children: [
-                        const SizedBox(height: 16),
-                        // 3 Tab điều hướng
-                        Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 16),
-                          child: Container(
-                            height: 44,
-                            padding: const EdgeInsets.all(4),
-                            decoration: BoxDecoration(
-                              color: Colors.white,
-                              borderRadius: BorderRadius.circular(14),
-                              border: Border.all(color: AppColors.hair),
-                            ),
-                            child: Row(
-                              children: List.generate(_tabs.length, (index) {
-                                final isSelected = _selectedTabIndex == index;
-                                return Expanded(
-                                  child: GestureDetector(
-                                    onTap: () => setState(() => _selectedTabIndex = index),
-                                    child: AnimatedContainer(
-                                      duration: const Duration(milliseconds: 200),
-                                      alignment: Alignment.center,
-                                      decoration: BoxDecoration(
-                                        color: isSelected ? AppColors.navy : Colors.transparent,
-                                        borderRadius: BorderRadius.circular(10),
-                                      ),
-                                      child: Text(
-                                        _tabs[index],
-                                        style: TextStyle(
-                                          fontSize: 13,
-                                          fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
-                                          color: isSelected ? Colors.white : AppColors.muted,
-                                        ),
-                                      ),
-                                    ),
-                                  ),
-                                );
-                              }),
-                            ),
+        return FutureBuilder<String>(
+          future: _classroomService.getClassroomName(roomId),
+          builder: (context, roomSnapshot) {
+            final displayRoom = roomSnapshot.data ?? roomId;
+
+            final cls = ClassModel(
+              id: widget.classId,
+              name: classData['class_name'] ?? 'Lớp học',
+              room: displayRoom,
+              schedule: '',
+              students: (classData['class_size'] as num?)?.toInt() ?? 0,
+              grade: (classData['grade'] ?? '12').toString(),
+            );
+
+            return Scaffold(
+              backgroundColor: AppColors.appBg,
+              body: Column(
+                children: [
+                  _buildScreenHeader(context, cls),
+                  Expanded(
+                    child: Transform.translate(
+                      offset: const Offset(0, -16),
+                      child: Container(
+                        width: double.infinity,
+                        decoration: const BoxDecoration(
+                          color: AppColors.appBg,
+                          borderRadius: BorderRadius.only(
+                            topLeft: Radius.circular(24),
+                            topRight: Radius.circular(24),
                           ),
                         ),
-                        const SizedBox(height: 14),
-                        Expanded(
-                          child: _buildTabContent(cls),
+                        child: Column(
+                          children: [
+                            const SizedBox(height: 16),
+                            // Tab Bar nền xám dịu mắt, tránh màu trắng tinh gây lóa
+                            Padding(
+                              padding:
+                                  const EdgeInsets.symmetric(horizontal: 16),
+                              child: Container(
+                                height: 46,
+                                padding: const EdgeInsets.all(4),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFFE2E8F0), // Nền xám nhạt dịu mắt
+                                  borderRadius: BorderRadius.circular(14),
+                                ),
+                                child: Row(
+                                  children:
+                                      List.generate(_tabs.length, (index) {
+                                    final isSelected =
+                                        _selectedTabIndex == index;
+                                    return Expanded(
+                                      child: GestureDetector(
+                                        onTap: () {
+                                          if (_selectedTabIndex != index) {
+                                            setState(() =>
+                                                _selectedTabIndex = index);
+                                          }
+                                        },
+                                        child: AnimatedContainer(
+                                          duration:
+                                              const Duration(milliseconds: 180),
+                                          alignment: Alignment.center,
+                                          decoration: BoxDecoration(
+                                            color: isSelected
+                                                ? AppColors.navy
+                                                : Colors.transparent,
+                                            borderRadius:
+                                                BorderRadius.circular(10),
+                                            boxShadow: isSelected
+                                                ? [
+                                                    BoxShadow(
+                                                      color: Colors.black
+                                                          .withOpacity(0.06),
+                                                      blurRadius: 4,
+                                                      offset: const Offset(0, 2),
+                                                    )
+                                                  ]
+                                                : [],
+                                          ),
+                                          child: Text(
+                                            _tabs[index],
+                                            style: TextStyle(
+                                              fontSize: 13,
+                                              fontWeight: isSelected
+                                                  ? FontWeight.w700
+                                                  : FontWeight.w600,
+                                              color: isSelected
+                                                  ? Colors.white
+                                                  : const Color(0xFF64748B),
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                    );
+                                  }),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(height: 14),
+                            // IndexedStack giữ nguyên State của các Tab, không load lại gây nhấp nháy/lóa
+                            Expanded(
+                              child: IndexedStack(
+                                index: _selectedTabIndex,
+                                children: [
+                                  _buildSchedulesTab(),
+                                  _buildStudentListTab(cls),
+                                  SingleChildScrollView(
+                                    padding: const EdgeInsets.fromLTRB(
+                                        16, 0, 16, 24),
+                                    child: SeatingChartWidget(
+                                      classId: cls.id,
+                                      totalStudents: cls.students,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
                         ),
-                      ],
+                      ),
                     ),
                   ),
-                ),
+                ],
               ),
-            ],
-          ),
+            );
+          },
         );
       },
     );
   }
 
-  Widget _buildTabContent(ClassModel cls) {
-    switch (_selectedTabIndex) {
-      case 0:
-        return _buildSchedulesTab();
-      case 1:
-        return _buildStudentListTab(cls);
-      case 2:
-      default:
-        return SingleChildScrollView(
-          padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
-          child: SeatingChartWidget(
-            classId: cls.id,
-            totalStudents: cls.students,
-          ),
-        );
-    }
-  }
-
-  // TAB 0: LỊCH HỌC (LẤY TỪ SCHEDULES THEO LỚP)
+  // TAB 0: LỊCH HỌC
   Widget _buildSchedulesTab() {
     return StreamBuilder<QuerySnapshot>(
       stream: FirebaseFirestore.instance
@@ -197,13 +233,15 @@ class _ClassDetailScreenState extends State<ClassDetailScreen> {
               child: ListTile(
                 title: Text(
                   data['subject_name'] ?? data['title'] ?? 'Tiết học',
-                  style: const TextStyle(fontWeight: FontWeight.bold, color: AppColors.navy),
+                  style: const TextStyle(
+                      fontWeight: FontWeight.bold, color: AppColors.navy),
                 ),
                 subtitle: Text(
                   '${data['day_of_week'] ?? ''} · ${data['start_time'] ?? ''} - ${data['end_time'] ?? ''}',
                   style: const TextStyle(fontSize: 13, color: AppColors.muted),
                 ),
-                trailing: const Icon(Icons.chevron_right, size: 18, color: Colors.black26),
+                trailing: const Icon(Icons.chevron_right,
+                    size: 18, color: Colors.black26),
               ),
             );
           },
@@ -212,7 +250,7 @@ class _ClassDetailScreenState extends State<ClassDetailScreen> {
     );
   }
 
-  // TAB 1: DANH SÁCH HỌC SINH TỪ ENROLLMENTS & STUDENTS
+  // TAB 1: DANH SÁCH HỌC SINH
   Widget _buildStudentListTab(ClassModel cls) {
     return StreamBuilder<List<StudentModel>>(
       stream: _studentService.getStudentsStream(cls.id),
@@ -246,7 +284,8 @@ class _ClassDetailScreenState extends State<ClassDetailScreen> {
           itemCount: students.length,
           itemBuilder: (context, index) {
             final student = students[index];
-            final hasSeat = (student.row ?? 0) > 0 && (student.column ?? 0) > 0;
+            final hasSeat =
+                (student.row ?? 0) > 0 && (student.column ?? 0) > 0;
 
             return Card(
               elevation: 0,
@@ -284,10 +323,12 @@ class _ClassDetailScreenState extends State<ClassDetailScreen> {
                   style: TextStyle(
                     fontSize: 12,
                     color: hasSeat ? AppColors.brand : AppColors.muted,
-                    fontWeight: hasSeat ? FontWeight.w600 : FontWeight.normal,
+                    fontWeight:
+                        hasSeat ? FontWeight.w600 : FontWeight.normal,
                   ),
                 ),
-                trailing: const Icon(Icons.chevron_right, size: 18, color: Colors.black26),
+                trailing: const Icon(Icons.chevron_right,
+                    size: 18, color: Colors.black26),
               ),
             );
           },
