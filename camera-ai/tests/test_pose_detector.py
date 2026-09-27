@@ -160,6 +160,26 @@ def test_get_keypoint_by_name():
     assert person.get_keypoint("khong_ton_tai") is None
 
 
+def test_tiled_detection_helpers_cover_right_and_bottom_edges():
+    assert PoseDetector._tile_starts(length=1920, tile_size=960, stride=768) == [0, 768, 960]
+    assert PoseDetector._tile_starts(length=720, tile_size=960, stride=768) == [0]
+
+
+def test_translate_and_deduplicate_overlapping_tile_results():
+    detector = PoseDetector(iou_threshold=0.5, max_detections=100)
+    first = PersonPose(keypoints=[(20.0, 30.0, 0.9)], bbox=(10.0, 10.0, 110.0, 210.0), confidence=0.8)
+    # Cung mot nguoi duoc phat hien o tile ke ben, confidence cao hon.
+    duplicate = PersonPose(keypoints=[(25.0, 30.0, 0.9)], bbox=(15.0, 10.0, 115.0, 210.0), confidence=0.9)
+    other = PersonPose(keypoints=[(300.0, 30.0, 0.9)], bbox=(290.0, 10.0, 390.0, 210.0), confidence=0.7)
+
+    translated = PoseDetector._translate_pose(first, 100, 50)
+    assert translated.bbox == (110.0, 60.0, 210.0, 260.0)
+    assert translated.keypoints == [(120.0, 80.0, 0.9)]
+
+    result = detector._deduplicate([first, duplicate, other])
+    assert result == [duplicate, other]
+
+
 def test_open_raises_clear_error_when_ultralytics_missing(monkeypatch):
     """Gia lap truong hop chua cai 'ultralytics' -- phai nem PoseDetectorError
     ro rang, khong phai ImportError tho."""

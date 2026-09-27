@@ -1,12 +1,8 @@
-"""
-detection_test.py -- Script kiem tra truc quan tich hop capture/ + detection/
+"""Script preview pose da an danh: capture/ + PoseDetector.
 
-Muc dich: xac nhan FaceDetector hoat dong dung tren luong camera thuc (qua
-CaptureWorker + FrameBuffer), ve bounding box + keypoint len man hinh de kiem
-tra bang mat.
-
-QUAN TRONG: can tai file model MediaPipe truoc khi chay -- xem
-src/detection/README.md.
+Khong su dung face detector, facial landmark hay embedding. Preview da duoc
+pixelate truoc khi hien thi va frame goc chi ton tai trong RAM trong luc
+inference.
 
 Cach chay (tu thu muc camera-ai/, da activate venv):
     python detection_test.py
@@ -20,30 +16,28 @@ import sys
 import cv2
 
 from src.capture import CameraOpenError, CaptureConfig, CaptureWorker
-from src.detection import DetectionConfig, FaceDetector, FaceDetectorError
+from src.detection import PoseDetector, PoseDetectorError
 from src.logging_config import setup_logging
+from src.privacy import anonymize_preview, wipe_image
 
 setup_logging()
 logger = logging.getLogger("camera_ai.detection_test")
 
 
-def draw_face(image, face) -> None:
+def draw_person(image, person) -> None:
+    x1, y1, x2, y2 = (round(value) for value in person.bbox)
     cv2.rectangle(
-        image, (face.x, face.y), (face.x + face.width, face.y + face.height),
+        image, (x1, y1), (x2, y2),
         (0, 255, 0), 2,
     )
     cv2.putText(
-        image, f"{face.confidence:.2f}", (face.x, max(face.y - 8, 0)),
+        image, f"{person.confidence:.2f}", (x1, max(y1 - 8, 0)),
         cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1,
     )
-    for kp in face.keypoints:
-        cv2.circle(image, kp, 3, (0, 0, 255), -1)
 
 
 def main():
     capture_config = CaptureConfig.from_env()
-    detection_config = DetectionConfig.from_env()
-
     worker = CaptureWorker(capture_config)
     try:
         worker.start()
@@ -52,9 +46,9 @@ def main():
         sys.exit(1)
 
     try:
-        detector = FaceDetector(detection_config)
+        detector = PoseDetector()
         detector.open()
-    except FaceDetectorError as e:
+    except PoseDetectorError as e:
         logger.error(str(e))
         worker.stop()
         sys.exit(1)
@@ -75,13 +69,15 @@ def main():
                     display_fps = 0.9 * display_fps + 0.1 * (1.0 / elapsed)
             prev_timestamp = frame.timestamp
 
-            faces = detector.detect(frame.image, frame.timestamp)
-            image = frame.image
-            for face in faces:
-                draw_face(image, face)
+            people = detector.detect(frame.image)
+            # Inference dung frame goc; chi tao ban sao da an danh cho preview.
+            image = frame.image.copy()
+            anonymize_preview(image, people)
+            for person in people:
+                draw_person(image, person)
 
             overlay = (
-                f"Faces: {len(faces)}  |  FPS: {display_fps:.1f}  |  "
+                f"People: {len(people)}  |  FPS: {display_fps:.1f}  |  "
                 f"Dropped: {worker.buffer.dropped_count}  |  q/ESC de thoat"
             )
             cv2.putText(
@@ -91,6 +87,8 @@ def main():
             cv2.imshow("camera-ai - Test detection/ (Sprint 2)", image)
 
             key = cv2.waitKey(1) & 0xFF
+            wipe_image(image)
+            wipe_image(frame.image)
             if key == ord("q") or key == 27:
                 logger.info("Nguoi dung yeu cau thoat.")
                 break
@@ -99,6 +97,10 @@ def main():
         logger.info("Da nhan Ctrl+C, dang thoat...")
 
     finally:
+        if "image" in locals():
+            wipe_image(image)
+        if "frame" in locals():
+            wipe_image(frame.image)
         detector.close()
         worker.stop()
         cv2.destroyAllWindows()

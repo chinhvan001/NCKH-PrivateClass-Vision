@@ -28,6 +28,7 @@ import sys
 import cv2
 
 from src.capture import CameraCapture, CameraOpenError, CaptureConfig
+from src.privacy import anonymize_preview, wipe_image
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger("camera_test")
@@ -64,7 +65,10 @@ def main():
                     display_fps = 0.9 * display_fps + 0.1 * (1.0 / elapsed)
             prev_timestamp = frame.timestamp
 
-            image = frame.image
+            # Camera test khong chay detector; pixelate toan khung la fallback
+            # de preview khong bao gio hien khuon mat goc.
+            image = frame.image.copy()
+            anonymize_preview(image)
             overlay = (
                 f"Frame #{frame.frame_index}  |  FPS thuc te: {display_fps:.1f}"
                 f" (target: {config.target_fps:.1f})  |  q/ESC de thoat"
@@ -77,6 +81,8 @@ def main():
             cv2.imshow("camera-ai - Test module capture/ (Sprint 2)", image)
 
             key = cv2.waitKey(1) & 0xFF
+            wipe_image(image)
+            wipe_image(frame.image)
             if key == ord("q") or key == 27:  # 27 = phim ESC
                 logger.info("Nguoi dung yeu cau thoat.")
                 break
@@ -85,6 +91,10 @@ def main():
         logger.info("Da nhan Ctrl+C, dang thoat...")
 
     finally:
+        if "image" in locals():
+            wipe_image(image)
+        if "frame" in locals():
+            wipe_image(frame.image)
         cam.close()
         cv2.destroyAllWindows()
         logger.info("Da dong module capture/ va cua so hien thi.")

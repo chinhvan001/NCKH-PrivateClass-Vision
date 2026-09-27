@@ -9,8 +9,16 @@ from src.engagement import RollingSeatEngagementTracker, SeatEngagementTracker
 
 
 def run_sequence(tracker, segments, start=0.0):
-    """Chay 1 chuoi (duration, is_drop, is_slump) qua tracker, tra ve
-    timestamp cuoi cung.
+    """Chay 1 chuoi (duration, is_drop, is_slump[, hand_activity]) qua
+    tracker, tra ve timestamp cuoi cung.
+
+    hand_activity (phan tu thu 4, tuy chon): mac dinh False khi khong cung
+    cap -- vi cac test trong file nay muon mo phong head_drop CHAC CHAN
+    (head_down_disengaged), khong phai truong hop ambiguous. Ke tu ban cap
+    nhat tich hop HandActivityMonitor (13/09/2026), neu khong truyen
+    hand_activity vao update() that, mac dinh la None (ambiguous) chu khong
+    phai False -- cac test can hanh vi head_drop CHAC CHAN phai tu truyen
+    ro rang, khong dua vao mac dinh cua tracker.
 
     Luu y: cac ham dung ham nay de test PRUNING/WINDOWING (khong phai test
     rieng cho gap-handling) deu can tracker duoc tao voi max_gap_sec du lon
@@ -20,9 +28,11 @@ def run_sequence(tracker, segments, start=0.0):
     max_gap_sec, xem cac test rieng ben duoi danh cho no)."""
     t = start
     tracker.update(t, False, False)
-    for duration, is_drop, is_slump in segments:
+    for segment in segments:
+        duration, is_drop, is_slump = segment[0], segment[1], segment[2]
+        hand_activity = segment[3] if len(segment) > 3 else False
         t += duration
-        tracker.update(t, is_drop, is_slump)
+        tracker.update(t, is_drop, is_slump, hand_activity=hand_activity)
     return t
 
 
@@ -59,10 +69,10 @@ def test_rolling_score_reflects_recent_behavior_not_whole_session():
     cumulative.update(t, False, False)
     rolling.update(t, False, False)
 
-    # 10 phut cuoi: cui dau lien tuc
+    # 10 phut cuoi: cui dau lien tuc, tay tinh (xac nhan disengaged that su)
     t += 600.0
-    cumulative.update(t, True, False)
-    rolling.update(t, True, False)
+    cumulative.update(t, True, False, hand_activity=False)
+    rolling.update(t, True, False, hand_activity=False)
 
     cumulative_result = cumulative.compute_score()
     rolling_result = rolling.compute_score()
@@ -105,7 +115,7 @@ def test_gap_larger_than_max_gap_excluded_from_score():
     tracker.update(10.0, False, False)  # 10s binh thuong
 
     # Khoang trong 200s (hoc sinh roi cho) -- vuot xa max_gap_sec=30
-    tracker.update(210.0, True, False)  # xuat hien lai, dang cui dau
+    tracker.update(210.0, True, False, hand_activity=False)  # xuat hien lai, dang cui dau, tay tinh
 
     result = tracker.compute_score()
 
@@ -122,7 +132,7 @@ def test_gap_smaller_than_max_gap_still_counted_normally():
     tracker = RollingSeatEngagementTracker(seat_id="A1", window_sec=1000.0, max_gap_sec=30.0)
 
     tracker.update(0.0, False, False)
-    tracker.update(20.0, True, False)  # khoang cach 20s < max_gap_sec=30 -- van tinh binh thuong
+    tracker.update(20.0, True, False, hand_activity=False)  # khoang cach 20s < max_gap_sec=30 -- van tinh binh thuong
 
     result = tracker.compute_score()
 
@@ -135,8 +145,8 @@ def test_multiple_gaps_only_large_ones_excluded():
 
     tracker.update(0.0, False, False)
     tracker.update(10.0, False, False)      # +10s normal (gap 10s, binh thuong)
-    tracker.update(200.0, True, False)      # gap 190s -- qua lon, loai bo
-    tracker.update(210.0, True, False)      # +10s head_drop (gap 10s, binh thuong)
+    tracker.update(200.0, True, False, hand_activity=False)      # gap 190s -- qua lon, loai bo
+    tracker.update(210.0, True, False, hand_activity=False)      # +10s head_drop (gap 10s, binh thuong)
 
     result = tracker.compute_score()
 
@@ -157,10 +167,10 @@ def test_count_only_reflects_episodes_within_window():
     tracker = RollingSeatEngagementTracker(seat_id="A1", window_sec=50.0, max_gap_sec=1000.0)
 
     tracker.update(0.0, False, False)
-    tracker.update(10.0, True, False)   # episode 1: head_drop (se bi prune sau)
+    tracker.update(10.0, True, False, hand_activity=False)   # episode 1: head_drop (se bi prune sau)
     tracker.update(20.0, False, False)  # het episode 1
     tracker.update(80.0, False, False)  # troi qua nhieu thoi gian -- episode 1 gio ngoai window (cutoff=80-50=30)
-    tracker.update(90.0, True, False)   # episode 2: head_drop moi, con trong window
+    tracker.update(90.0, True, False, hand_activity=False)   # episode 2: head_drop moi, con trong window
 
     result = tracker.compute_score()
 

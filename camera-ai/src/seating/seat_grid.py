@@ -86,8 +86,13 @@ class SeatGrid:
         except json.JSONDecodeError as e:
             raise SeatGridError(f"File '{file_path}' khong phai JSON hop le: {e}") from e
 
-        if "seats" not in raw or not isinstance(raw["seats"], list):
-            raise SeatGridError(f"File '{file_path}' thieu truong 'seats' (danh sach).")
+        return cls.from_dict(raw, source=f"File '{file_path}'")
+
+    @classmethod
+    def from_dict(cls, raw: object, *, source: str = "SeatGrid") -> "SeatGrid":
+        """Tao grid tu payload da duoc nap trong RAM (vi du Firestore)."""
+        if not isinstance(raw, dict) or "seats" not in raw or not isinstance(raw["seats"], list):
+            raise SeatGridError(f"{source} thieu truong 'seats' (danh sach).")
 
         seats = []
         for i, item in enumerate(raw["seats"]):

@@ -6,10 +6,12 @@ THAY THE cho head_pose.py + EAR (huong facial cu, da ngung dung sau pivot).
 Xem Algorithm-Pivot-Proposal.docx, muc 5 (Tin hieu Posture cho Engagement).
 
 ============================================================================
-PHAM VI TASK NAY (3.5, phan 1/2): CHI cac ham tinh toan hinh hoc THUAN cho
-MOT khung hinh don le. Ap dung nguong thoi gian (>5s), lam muot (rolling
-window), va tu dong xac lap baseline "ngoi thang" la task 3.6 (phan 2/2),
-CHUA co trong file nay.
+CAP NHAT 13/09/2026 (Head-Drop-Redesign.docx, Giai phap 1): bo sung
+compute_face_visibility_score() va select_head_down_signal() de ho tro
+camera goc TOP-DOWN, phat hien tu test thuc te tren video cho thay
+compute_head_drop_ratio() (cong thuc goc, chi dung cho camera FRONTAL) cho
+ket qua sai lech nghiem trong voi camera nhin thang tu tren xuong. Xem Muc
+cuoi file de biet chi tiet.
 ============================================================================
 
 ============================================================================
@@ -29,11 +31,16 @@ compute_shoulder_tilt() -- do nghieng duong noi 2 vai, chi can 2 keypoint vai
 phat hien hip qua thap, can chuyen huong dung shoulder_tilt lam tin hieu
 slumping chinh (hoac ket hop voi head_drop_ratio, vi ca hai deu tuong quan
 voi tu the cui nguoi ve truoc khi nhin tu camera phia truoc).
+
+Ghi chu thuc te (13/09/2026): test tren video top-down cho thay co the HIP
+lai QUAN SAT DUOC TOT HON tu goc tren xuong (khong bi ban che theo huong
+nhin nay) -- neu dung, slumping co the tro thanh tin hieu DANG TIN CAY HON
+head-down cho dung loai camera nay. Con can kiem chung bang du lieu that.
 """
 
 import math
 from dataclasses import dataclass
-from typing import Optional, Tuple
+from typing import Literal, Optional, Tuple
 
 from src.detection.pose_detector import PersonPose
 
@@ -43,6 +50,18 @@ MIN_KEYPOINT_CONFIDENCE = 0.3
 # Do rong vai toi thieu (pixel) de tranh chia cho so gan 0 gay ket qua vo
 # nghia (vi du nguoi qua nho/qua xa camera, hoac phat hien loi).
 MIN_SHOULDER_WIDTH_PIXELS = 5.0
+
+# Loai goc camera -- khai bao THU CONG tai buoc calibration (cung luc voi
+# seat_grid.json, module seating/), KHONG tu dong phat hien. Xem Muc 2.1,
+# Head-Drop-Redesign.docx: goc lap camera la gia tri tinh, khong doi trong
+# suot vong doi lap dat, nen khong can suy luan lai moi khung hinh.
+CameraAngleType = Literal["frontal", "top_down"]
+
+# GIA TRI KHOI DIEM cho nguong face_visibility (camera top_down) -- CHUA
+# kiem chung bang du lieu that, can thuc nghiem rieng (xem Head-Drop-Redesign.docx
+# Muc 2.3). KHONG dung chung thang do voi head_drop_ratio_threshold (frontal)
+# vi day la 2 don vi khac nhau (ty le hinh hoc chuan hoa vs. confidence trung binh 0-1).
+DEFAULT_FACE_VISIBILITY_THRESHOLD = 0.3
 
 
 def _midpoint(a: Tuple[float, float, float], b: Tuple[float, float, float]) -> Tuple[float, float]:
@@ -54,26 +73,26 @@ def _keypoints_confident(*keypoints: Optional[Tuple[float, float, float]]) -> bo
 
 
 # ----------------------------------------------------------------------
-# Head Drop
+# Head Drop -- camera FRONTAL (cong thuc hinh hoc goc, task 3.5)
 # ----------------------------------------------------------------------
 
 
 def compute_head_drop_ratio(person: PersonPose) -> Optional[float]:
     """Tinh ty le khoang cach (mui -> duong vai) theo truc Y, DA CHUAN HOA
     theo do rong vai (shoulder width) de bat bien tuong doi voi khoang cach
-    tu nguoi do toi camera (nguoi gan camera co pixel lon hon nguoi xa,
-    chuan hoa giup nguong phat hien ap dung nhat quan cho ca 30-40 hoc sinh
-    o cac vi tri khac nhau trong khung hinh).
+    tu nguoi do toi camera.
+
+    CHI DUNG CHO CAMERA FRONTAL/GOC NGHIENG NHE -- xem canh bao dau file va
+    select_head_down_signal() ben duoi de tu dong chon dung ham theo loai
+    camera. Voi camera top_down, dung compute_face_visibility_score() thay the.
 
     Quy uoc gia tri tra ve:
-        > 0 va cang lon: mui o CAO hon duong vai ro ret (tu the binh thuong,
-            ngoi thang, dau ngang hoac cao hon vai).
+        > 0 va cang lon: mui o CAO hon duong vai ro ret (tu the binh thuong).
         gan 0: mui GAN NGANG duong vai (dau da cui rat thap).
         < 0: mui o DUOI duong vai (truong hop cui gan nhu gap nguoi, hiem).
 
-    Tra ve None neu thieu bat ky keypoint can thiet nao (nose, left_shoulder,
-    right_shoulder), confidence qua thap, hoac shoulder_width qua nho
-    (< MIN_SHOULDER_WIDTH_PIXELS).
+    Tra ve None neu thieu bat ky keypoint can thiet nao, confidence qua
+    thap, hoac shoulder_width qua nho (< MIN_SHOULDER_WIDTH_PIXELS).
     """
     nose = person.get_keypoint("nose")
     left_shoulder = person.get_keypoint("left_shoulder")
@@ -89,11 +108,78 @@ def compute_head_drop_ratio(person: PersonPose) -> Optional[float]:
         return None
 
     shoulder_line_y = (left_shoulder[1] + right_shoulder[1]) / 2.0
-    # Luu y he toa do anh: truc Y tang xuong duoi -- mui o TREN vai (binh
-    # thuong) nghia la nose_y < shoulder_line_y, nen hieu nay la SO DUONG.
     vertical_distance = shoulder_line_y - nose[1]
 
     return vertical_distance / shoulder_width
+
+
+# ----------------------------------------------------------------------
+# Head Drop -- camera TOP-DOWN (tin hieu moi, 13/09/2026)
+# ----------------------------------------------------------------------
+
+
+def compute_face_visibility_score(person: PersonPose) -> Optional[float]:
+    """Tinh do "nhin thay mat" trung binh (nose, left_eye, right_eye) --
+    tin hieu THAY THE cho compute_head_drop_ratio() khi camera dat THANG TU
+    TREN XUONG (top-down/overhead).
+
+    Nguyen ly: tu camera nhin thang xuong, khi dau cui thap, MAT QUAY RA XA
+    ong kinh -- model phat hien pose (YOLOv8-pose) se tra ve CONFIDENCE THAP
+    cho cac keypoint vung mat, du vai van phat hien tot (vai nhin tu tren
+    xuong it bi anh huong boi viec cui dau). Day la tin hieu GIAN TIEP
+    (dua vao confidence, khong phai toa do hinh hoc truc tiep) va NHIEU HON
+    compute_head_drop_ratio() -- xem canh bao trong Head-Drop-Redesign.docx
+    Muc 2.3, can thuc nghiem rieng de chot nguong (xem DEFAULT_FACE_VISIBILITY_THRESHOLD).
+
+    Quy uoc gia tri tra ve (0.0 - 1.0), CUNG CHIEU voi compute_head_drop_ratio():
+        Cao (gan 1.0): mat huong ve phia camera ro rang (dang nhin len/thang).
+        Thap (gan 0.0): mat khong phat hien duoc ro (co the dang cui dau,
+            hoac cung co the do goc dau tu nhien/khuat tam thoi khac).
+
+    Tra ve None neu KHONG mot keypoint nao trong (nose, left_eye, right_eye)
+    duoc phat hien (kha nang do het bi che khuat/ra khoi khung hinh, khac
+    voi truong hop phat hien duoc nhung confidence thap do cui dau)."""
+    keypoints = [
+        person.get_keypoint("nose"),
+        person.get_keypoint("left_eye"),
+        person.get_keypoint("right_eye"),
+    ]
+    confidences = [kp[2] for kp in keypoints if kp is not None]
+
+    if not confidences:
+        return None
+
+    return sum(confidences) / len(confidences)
+
+
+def select_head_down_signal(
+    person: PersonPose, camera_angle_type: CameraAngleType
+) -> Optional[float]:
+    """Diem vao THONG NHAT: tu dong chon dung ham tinh tin hieu "cui dau"
+    theo loai goc camera da khai bao (xem CameraAngleType, khai bao thu
+    cong tai buoc calibration -- KHONG tu dong phat hien).
+
+    Ca 2 tin hieu tra ve deu CUNG QUY UOC CHIEU (gia tri THAP = dang cui
+    dau), nhung KHAC DON VI/THANG DO -- goi dung threshold tuong ung khi so
+    sanh:
+        camera_angle_type="frontal"  -> compute_head_drop_ratio(),
+            so sanh voi PostureThresholds.head_drop_ratio_threshold.
+        camera_angle_type="top_down" -> compute_face_visibility_score(),
+            so sanh voi DEFAULT_FACE_VISIBILITY_THRESHOLD (hoac gia tri
+            rieng da tinh chinh).
+
+    Nem ValueError neu camera_angle_type khong hop le (khong phai "frontal"
+    hay "top_down") -- day la loi cau hinh can phat hien ngay, khong nen
+    am tham tra ve None.
+    """
+    if camera_angle_type == "frontal":
+        return compute_head_drop_ratio(person)
+    if camera_angle_type == "top_down":
+        return compute_face_visibility_score(person)
+    raise ValueError(
+        f"camera_angle_type khong hop le: {camera_angle_type!r} "
+        '(chi chap nhan "frontal" hoac "top_down")'
+    )
 
 
 # ----------------------------------------------------------------------
@@ -106,15 +192,12 @@ def compute_torso_vector_angle(person: PersonPose) -> Optional[float]:
     diem 2 hong -- so voi truc doc (vertical) huong xuong duoi trong anh.
 
     0 do = than tren thang dung (vector song song truc doc, ngoi thang
-    chuan). Gia tri tuyet doi cang lon = nguoi cang nghieng/cui nhieu (khong
-    phan biet duoc nghieng trai/phai hay cui truoc/sau tu 1 camera 2D don,
-    chi biet MUC DO lech khoi phuong thang dung).
+    chuan). Gia tri tuyet doi cang lon = nguoi cang nghieng/cui nhieu.
 
-    CANH BAO: xem canh bao ve keypoint hong o dau file -- ham nay tra ve
-    None rat thuong xuyen neu hip bi ban hoc che khuat trong thuc te.
+    CANH BAO: xem canh bao ve keypoint hong o dau file.
 
-    Tra ve None neu thieu bat ky keypoint can thiet nao (left_shoulder,
-    right_shoulder, left_hip, right_hip) hoac confidence qua thap.
+    Tra ve None neu thieu bat ky keypoint can thiet nao hoac confidence qua
+    thap.
     """
     left_shoulder = person.get_keypoint("left_shoulder")
     right_shoulder = person.get_keypoint("right_shoulder")
@@ -130,22 +213,13 @@ def compute_torso_vector_angle(person: PersonPose) -> Optional[float]:
     dx = hip_mid[0] - shoulder_mid[0]
     dy = hip_mid[1] - shoulder_mid[1]
 
-    # Goc giua vector (dx, dy) va truc doc (0, 1) -- dung atan2(dx, dy) thay
-    # vi atan2(dy, dx) de 0 do ung voi vector thang dung (dx=0), khong phai
-    # vector nam ngang.
     return math.degrees(math.atan2(dx, dy))
 
 
 def compute_torso_deviation(person: PersonPose, baseline_angle: float) -> Optional[float]:
-    """Tinh do lech (do) giua goc than tren HIEN TAI va baseline_angle (goc
-    'ngoi thang chuan' da xac lap truoc do cho NGUOI/SEAT nay).
+    """Tinh do lech (do) giua goc than tren HIEN TAI va baseline_angle.
 
-    Viec TU DONG XAC LAP baseline_angle (vi du trung binh vai giay dau buoi
-    hoc) la task 3.6 (phan 2/2) -- ham nay chi nhan baseline_angle nhu mot
-    tham so co san, khong tu tinh.
-
-    Tra ve None neu khong tinh duoc goc hien tai (thieu keypoint/confidence
-    thap -- xem canh bao ve hip o dau file).
+    Tra ve None neu khong tinh duoc goc hien tai.
     """
     current_angle = compute_torso_vector_angle(person)
     if current_angle is None:
@@ -161,15 +235,8 @@ def compute_torso_deviation(person: PersonPose, baseline_angle: float) -> Option
 def compute_shoulder_tilt(person: PersonPose) -> Optional[float]:
     """Tinh do nghieng (do) cua duong noi 2 vai so voi phuong ngang.
 
-    0 do = 2 vai ngang bang nhau. Khac dau/khac 0 = mot ben vai cao hon ben
-    kia (nghieng nguoi sang 1 ben).
-
-    Tin hieu DU PHONG cho slumping, KHONG can keypoint hong -- de xuat dung
-    thay the hoac ket hop voi compute_torso_deviation() neu ty le phat hien
-    hip qua thap trong thuc nghiem (xem canh bao dau file). Khong bat duoc
-    truong hop cui ve truoc/sau doi xung (2 vai van ngang nhau du cui gap
-    nguoi), chi bat duoc nghieng sang 1 ben -- day la mot tin hieu bo sung,
-    khong thay the hoan toan cho torso-angle neu hip phat hien on dinh duoc.
+    0 do = 2 vai ngang bang nhau. Tin hieu DU PHONG cho slumping, KHONG can
+    keypoint hong.
 
     Tra ve None neu thieu left_shoulder/right_shoulder hoac confidence thap.
     """

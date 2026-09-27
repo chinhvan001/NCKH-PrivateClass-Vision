@@ -20,6 +20,7 @@ import threading
 from typing import Optional
 
 from .camera_capture import Frame
+from src.privacy import dispose_frame
 
 logger = logging.getLogger("camera_ai.capture.buffer")
 
@@ -44,7 +45,8 @@ class FrameBuffer:
             pass
 
         try:
-            self._queue.get_nowait()  # bo khung hinh cu nhat de lay cho
+            dropped_frame = self._queue.get_nowait()  # bo khung hinh cu nhat de lay cho
+            dispose_frame(dropped_frame)
             with self._lock:
                 self._dropped_count += 1
         except queue.Empty:
@@ -76,6 +78,20 @@ class FrameBuffer:
         thread khac dang thao tac dong thoi -- chi dung de giam sat, khong dung
         de dieu khien logic chinh xac)."""
         return self._queue.qsize()
+
+    def clear(self) -> None:
+        """Bo toan bo frame dang cho va xoa pixel cua chung trong RAM.
+
+        Goi khi dung worker de khung hinh cu khong con nam trong queue. Frame
+        da duoc consumer lay ra can consumer tu goi ``dispose_frame`` sau khi
+        inference xong.
+        """
+        while True:
+            try:
+                frame = self._queue.get_nowait()
+            except queue.Empty:
+                return
+            dispose_frame(frame)
 
     @property
     def dropped_count(self) -> int:
