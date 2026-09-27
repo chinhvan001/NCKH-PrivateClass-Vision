@@ -17,13 +17,53 @@ from typing import Optional
 DEFAULT_SLUMP_CREDIT = 0.5
 
 
-def classify_posture_state(is_head_drop_event: bool, is_slumping_event: bool) -> str:
-    """Phan loai 1 thoi diem vao DUNG MOT trong 3 trang thai, uu tien
-    head_drop cao hon slumping neu ca hai cung True (xem Muc 3, tai lieu
-    thiet ke task 4.1). Dung chung boi ca SeatEngagementTracker (cumulative,
-    task 4.2) va RollingSeatEngagementTracker (windowed, task 4.3)."""
+def classify_posture_state(
+    is_head_drop_event: bool,
+    is_slumping_event: bool,
+    hand_activity: Optional[bool] = None,
+) -> str:
+    """Phan loai 1 thoi diem vao DUNG MOT trong 3 trang thai TICH LUY
+    (normal/slumping/head_drop), dung chung boi ca SeatEngagementTracker
+    (cumulative, task 4.2) va RollingSeatEngagementTracker (windowed, task
+    4.3). Ke tu ban cap nhat nay (Head-Drop-Redesign.docx, 13/09/2026), khi
+    is_head_drop_event=True, ket qua duoc TINH CHINH THEM boi hand_activity
+    (tu HandActivityMonitor) truoc khi xep vao 1 trong 3 nhom tich luy:
+
+        is_head_drop_event=True, hand_activity=True  (tay dang hoat dong)
+            -> "normal" (head_down_engaged: co the dang chep bai/doc sach,
+               KHONG bi tinh la xao nhang -- day la thay doi CHINH so voi
+               phien ban cu, giai quyet van de bao sai phat hien tu test
+               thuc te tren video)
+        is_head_drop_event=True, hand_activity=False (tay tinh keo dai)
+            -> "head_drop" (head_down_disengaged: xac nhan cui dau tinh,
+               giu nguyen muc phat toan phan nhu truoc day)
+        is_head_drop_event=True, hand_activity=None (khong xac dinh duoc,
+               vi du wrist khong phat hien duoc)
+            -> "slumping" (head_down_ambiguous: khong chac chan, dung chung
+               "tin chi mot phan" (SLUMP_CREDIT) voi slumping thay vi phat
+               toan phan mot cach vo can cu)
+
+    Neu is_head_drop_event=False, hand_activity KHONG anh huong ket qua --
+    xu ly y het truoc day (kiem tra is_slumping_event, uu tien head_drop >
+    slumping > normal khi ca hai tin hieu tho cung True chi ap dung o buoc
+    truoc ham nay, trong PostureMonitor).
+
+    CANH BAO: day la THAY DOI HANH VI so voi phien ban truoc (khi khong
+    truyen hand_activity, tuc dung gia tri mac dinh None, mot khoang thoi
+    gian head_drop=True gio duoc tinh la "slumping" (tin chi mot phan) thay
+    vi "head_drop" (phat toan phan) nhu truoc -- day la lua chon co chu
+    dich: an toan hon (khong phat oan) khi chua co tin hieu tay ro rang,
+    dung tinh than thiet ke moi. Neu can giu dung hanh vi CU (luon phat toan
+    phan khi is_head_drop_event=True bat ke hand_activity), goi ham nay voi
+    is_head_drop_event=False va tu xu ly logic rieng thay vi dua vao mac
+    dinh cua tham so nay.
+    """
     if is_head_drop_event:
-        return "head_drop"
+        if hand_activity is True:
+            return "normal"
+        if hand_activity is False:
+            return "head_drop"
+        return "slumping"  # hand_activity is None -- khong chac chan, tin chi mot phan
     if is_slumping_event:
         return "slumping"
     return "normal"
@@ -110,9 +150,20 @@ class SeatEngagementTracker:
         self._last_timestamp: Optional[float] = None
         self._last_state: Optional[str] = None  # "normal" | "slumping" | "head_drop"
 
-    def update(self, timestamp: float, is_head_drop_event: bool, is_slumping_event: bool) -> None:
+    def update(
+        self,
+        timestamp: float,
+        is_head_drop_event: bool,
+        is_slumping_event: bool,
+        hand_activity: Optional[bool] = None,
+    ) -> None:
         """Goi MOT LAN moi khi PostureMonitor.update() tra ve ket qua moi
         cho seat nay.
+
+        hand_activity: ket qua tu HandActivityMonitor.update() cho CUNG
+            thoi diem nay (True/False/None) -- xem classify_posture_state()
+            de biet cach tham so nay tinh chinh lai is_head_drop_event.
+            Bo trong (None) neu chua tich hop HandActivityMonitor.
 
         Khoang thoi gian [lan goi truoc, lan goi nay] duoc tinh vao trang
         thai VUA DUOC XAC NHAN TAI LAN GOI NAY (khong phai trang thai cu):
@@ -120,7 +171,7 @@ class SeatEngagementTracker:
         dung suot tu lan quan sat truoc den gio -- day la cach dien giai tu
         nhien khi lay mau dinh ky (frame moi xac nhan "van dang o trang thai
         X" tuc la X dung suot khoang vua troi qua)."""
-        current_state = classify_posture_state(is_head_drop_event, is_slumping_event)
+        current_state = classify_posture_state(is_head_drop_event, is_slumping_event, hand_activity)
 
         if self._last_timestamp is not None:
             elapsed = timestamp - self._last_timestamp
@@ -139,10 +190,12 @@ class SeatEngagementTracker:
         self._last_state = current_state
 
     @staticmethod
-    def _classify(is_head_drop_event: bool, is_slumping_event: bool) -> str:
+    def _classify(
+        is_head_drop_event: bool, is_slumping_event: bool, hand_activity: Optional[bool] = None
+    ) -> str:
         """Giu lai de tuong thich nguoc -- logic that su nam o
         classify_posture_state(), dung chung voi RollingSeatEngagementTracker."""
-        return classify_posture_state(is_head_drop_event, is_slumping_event)
+        return classify_posture_state(is_head_drop_event, is_slumping_event, hand_activity)
 
     def _accumulate(self, state: str, elapsed: float) -> None:
         if state == "head_drop":

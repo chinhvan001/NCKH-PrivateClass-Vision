@@ -70,6 +70,47 @@ def test_dropped_count_starts_at_zero():
     assert buf.dropped_count == 0
 
 
+def test_clear_discards_every_queued_frame_and_wipes_writable_images():
+    class Image:
+        flags = type("Flags", (), {"writeable": True})()
+
+        def __init__(self):
+            self.wiped = False
+
+        def fill(self, value):
+            assert value == 0
+            self.wiped = True
+
+    first, second = Image(), Image()
+    buf = FrameBuffer(maxsize=2)
+    buf.put(Frame(first, 0.0, 1))
+    buf.put(Frame(second, 1.0, 2))
+    buf.clear()
+
+    assert buf.qsize() == 0
+    assert first.wiped is True
+    assert second.wiped is True
+
+
+def test_drop_oldest_wipes_its_writable_image():
+    class Image:
+        flags = type("Flags", (), {"writeable": True})()
+
+        def __init__(self):
+            self.wiped = False
+
+        def fill(self, value):
+            self.wiped = value == 0
+
+    old, new = Image(), Image()
+    buf = FrameBuffer(maxsize=1)
+    buf.put(Frame(old, 0.0, 1))
+    buf.put(Frame(new, 1.0, 2))
+
+    assert old.wiped is True
+    assert new.wiped is False
+
+
 def test_concurrent_put_does_not_crash_or_lose_count_consistency():
     """Nhieu thread cung put() dong thoi vao buffer nho -- khong duoc crash,
     va dropped_count + qsize cuoi cung phai khop voi tong so frame da put."""

@@ -21,7 +21,7 @@ class CaptureWorker:
     Cach dung:
 
         config = CaptureConfig.from_env()
-        worker = CaptureWorker(config, buffer_size=5)
+        worker = CaptureWorker(config)  # privacy default: chi giu 1 frame RAM
         worker.start()  # nem CameraOpenError ngay tai day neu khong mo duoc camera
         try:
             while True:
@@ -32,7 +32,7 @@ class CaptureWorker:
             worker.stop()
     """
 
-    def __init__(self, config: CaptureConfig, buffer_size: int = 5):
+    def __init__(self, config: CaptureConfig, buffer_size: int = 1):
         self._config = config
         self.buffer = FrameBuffer(maxsize=buffer_size)
         self._cam = CameraCapture(config)
@@ -61,6 +61,7 @@ class CaptureWorker:
                 )
             self._thread = None
         self._cam.close()
+        self.buffer.clear()
         logger.info(
             "Da dung capture worker. Tong so khung hinh bi drop do buffer day: %d",
             self.buffer.dropped_count,
@@ -83,4 +84,3 @@ class CaptureWorker:
                 "Capture worker gap loi khong mong doi, thread nen dang dung lai. "
                 "Kiem tra is_alive de phat hien truong hop nay."
             )
-            

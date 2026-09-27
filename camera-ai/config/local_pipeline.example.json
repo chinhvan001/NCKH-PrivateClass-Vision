@@ -1,0 +1,36 @@
+{
+  "schema_version": 1,
+  "camera": {
+    "camera_id": "CAM-ROOM-A-01",
+    "classroom_id": "ROOM-A-101",
+    "source_env": "CAMERA_ROOM_A_01_SOURCE",
+    "width": 1280,
+    "height": 720
+  },
+  "sampling": {
+    "capture_fps": 10,
+    "inference_every_n_frames": 2
+  },
+  "thresholds": {
+    "pose_confidence": 0.2,
+    "iou_threshold": 0.5,
+    "image_size": 960,
+    "tile_size": 960,
+    "tile_overlap": 0.2,
+    "max_detections": 100,
+    "conversation_duration_sec": 3,
+    "conversation_max_distance_px": 260,
+    "back_turn_duration_sec": 2,
+    "back_turn_max_face_visibility": 0.2
+  },
+  "schedule": {
+    "timezone": "Asia/Ho_Chi_Minh",
+    "windows": [
+      {"days": ["mon", "tue", "wed", "thu", "fri"], "start": "07:00", "end": "17:30"}
+    ]
+  },
+  "privacy": {
+    "frame_buffer_size": 1,
+    "allow_persistent_output": false
+  }
+}

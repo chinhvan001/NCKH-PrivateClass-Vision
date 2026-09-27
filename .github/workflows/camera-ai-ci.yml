@@ -1,0 +1,30 @@
+name: Camera AI CI
+
+on:
+  push:
+    paths:
+      - 'camera-ai/**'
+      - '.github/workflows/camera-ai-ci.yml'
+  pull_request:
+    paths:
+      - 'camera-ai/**'
+      - '.github/workflows/camera-ai-ci.yml'
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: camera-ai
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install CI test dependencies
+        run: python -m pip install --upgrade pip pytest numpy opencv-python-headless
+      - name: Run unit and integration tests
+        run: >-
+          python -m pytest tests -q
+          --ignore=tests/smoke_test.py
+          --ignore=tests/test_head_pose.py

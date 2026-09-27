@@ -92,11 +92,20 @@ class RollingSeatEngagementTracker:
         self._last_timestamp: Optional[float] = None
         self._last_state: Optional[str] = None
 
-    def update(self, timestamp: float, is_head_drop_event: bool, is_slumping_event: bool) -> None:
+    def update(
+        self,
+        timestamp: float,
+        is_head_drop_event: bool,
+        is_slumping_event: bool,
+        hand_activity: Optional[bool] = None,
+    ) -> None:
         """Goi MOT LAN moi khi PostureMonitor.update() tra ve ket qua moi
         cho seat nay. Cung dau vao voi SeatEngagementTracker.update() -- co
-        the goi ca 2 tracker voi cung 1 lan quan sat neu can ca 2 loai diem."""
-        current_state = classify_posture_state(is_head_drop_event, is_slumping_event)
+        the goi ca 2 tracker voi cung 1 lan quan sat neu can ca 2 loai diem.
+
+        hand_activity: xem classify_posture_state() (engagement_score.py)
+            -- ket qua tu HandActivityMonitor cho cung thoi diem nay."""
+        current_state = classify_posture_state(is_head_drop_event, is_slumping_event, hand_activity)
 
         if self._last_timestamp is not None:
             elapsed = timestamp - self._last_timestamp

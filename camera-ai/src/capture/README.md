@@ -29,7 +29,7 @@ Bỏ trống `CAMERA_WIDTH`/`CAMERA_HEIGHT` nếu muốn giữ độ phân giả
 ```python
 from src.capture import CaptureWorker, CaptureConfig, CameraOpenError
 
-worker = CaptureWorker(CaptureConfig.from_env(), buffer_size=5)
+worker = CaptureWorker(CaptureConfig.from_env())  # mac dinh 1 frame trong RAM
 
 try:
     worker.start()  # nem CameraOpenError ngay tai day neu camera khong mo duoc
@@ -47,6 +47,24 @@ try:
 finally:
     worker.stop()
 ```
+
+## Privacy: xử lý frame chỉ trong bộ nhớ
+
+`CaptureWorker` mặc định giữ tối đa **một** frame trong `FrameBuffer`. Khi một
+frame bị thay thế hoặc worker dừng, pixel của frame trong queue được ghi đè 0
+theo best-effort rồi reference được bỏ. Consumer phải gọi
+`src.privacy.dispose_frame(frame)` trong `finally` sau inference nếu dùng
+`CaptureWorker` trực tiếp. Không gọi `cv2.imwrite`, `VideoWriter`, hoặc lưu
+frame vào log/cache trong pipeline production.
+
+Lưu ý: Python/OpenCV không thể bảo đảm xoá tuyệt đối mọi bản sao trong RAM/GPU;
+cơ chế này bảo đảm không chủ động ghi frame ra đĩa và giảm thời gian sống của
+pixel trong RAM. Với yêu cầu mạnh hơn, chạy inference trong process riêng và
+kết thúc process sau phiên xử lý.
+
+Mọi preview/debug đi kèm dự án phải gọi `src.privacy.anonymize_preview()` trước
+`cv2.imshow` hoặc `VideoWriter.write`. Hàm này làm mờ vùng mặt từ pose, sau đó
+pixelate toàn frame để bảo vệ cả khuôn mặt mà detector bỏ sót.
 
 Chạy thử trực quan (có cửa sổ hiển thị, vẽ bounding box nếu model đã sẵn sàng):
 ```bash
