@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_privateclass_vision/features/parent/controllers/parent_session.dart';
 import 'package:flutter_privateclass_vision/features/parent/screens/widgets/bottom_nav_bar.dart';
 import 'package:flutter_privateclass_vision/features/parent/screens/widgets/common_widgets.dart';
 import 'package:flutter_privateclass_vision/features/parent/utils/app_colors.dart';
@@ -8,9 +9,13 @@ import 'notification_screen.dart';
 import 'profile_screen.dart';
 import 'daily_overview_screen.dart';
 import 'switch_account_screen.dart';
+import 'no_child_screen.dart';
 
 class HomeScreen extends StatefulWidget {
-  const HomeScreen({super.key});
+  final String uid;
+  final String? email;
+
+  const HomeScreen({super.key, required this.uid, this.email});
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
@@ -18,6 +23,20 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   int _currentIndex = 0;
+  final ParentSession _session = ParentSession.instance;
+
+  @override
+  void initState() {
+    super.initState();
+    // AuthWrapper chỉ mở HomeScreen khi đã đăng nhập và có document parents/{uid}
+    _session.attach(widget.uid, email: widget.email);
+  }
+
+  @override
+  void dispose() {
+    _session.detach();
+    super.dispose();
+  }
 
   Widget _buildBody() {
     switch (_currentIndex) {
@@ -31,13 +50,31 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: AppColors.backgroundGrey,
-      body: _buildBody(),
-      bottomNavigationBar: AppBottomNavBar(
-        currentIndex: _currentIndex,
-        onTap: (i) => setState(() => _currentIndex = i),
-      ),
+    return ListenableBuilder(
+      listenable: _session,
+      builder: (context, _) {
+        if (_session.isLoading) {
+          return const Scaffold(
+            body: Center(child: CircularProgressIndicator()),
+          );
+        }
+
+        if (!_session.hasChildren) {
+          return NoChildScreen(
+            errorMessage: _session.error,
+            onRetry: _session.reload,
+          );
+        }
+
+        return Scaffold(
+          backgroundColor: AppColors.backgroundGrey,
+          body: _buildBody(),
+          bottomNavigationBar: AppBottomNavBar(
+            currentIndex: _currentIndex,
+            onTap: (i) => setState(() => _currentIndex = i),
+          ),
+        );
+      },
     );
   }
 }
@@ -88,57 +125,66 @@ class _HomeContent extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    // Student info + switch account
-                    Row(
-                      children: [
-                        const AvatarWidget(name: 'Minh Anh', size: 46),
-                        const SizedBox(width: 12),
-                        const Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text('Minh Anh', style: AppTextStyles.heading3),
-                              SizedBox(height: 2),
-                              Text(
-                                'Lớp 5A · Trường Tiểu học ABC',
-                                style: AppTextStyles.caption,
+                    // Student info + switch account (theo con đang chọn)
+                    ListenableBuilder(
+                      listenable: ParentSession.instance,
+                      builder: (context, _) {
+                        final session = ParentSession.instance;
+                        final child = session.selectedChild;
+                        return Row(
+                          children: [
+                            AvatarWidget(name: child?.name ?? '', size: 46),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(child?.name ?? '', style: AppTextStyles.heading3),
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    child?.classDisplay ?? '',
+                                    style: AppTextStyles.caption,
+                                  ),
+                                ],
                               ),
-                            ],
-                          ),
-                        ),
-                        _TapScaleWidget(
-                          onTap: () {
-                            showModalBottomSheet(
-                              context: context,
-                              isScrollControlled: true,
-                              backgroundColor: Colors.transparent,
-                              builder: (_) => const SwitchAccountScreen(),
-                            );
-                          },
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 10, vertical: 6),
-                            decoration: BoxDecoration(
-                              color: AppColors.accentLight,
-                              borderRadius: BorderRadius.circular(20),
                             ),
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: const [
-                                Text('Đổi',
-                                    style: TextStyle(
-                                      fontSize: 12,
-                                      fontWeight: FontWeight.w600,
-                                      color: AppColors.primary,
-                                    )),
-                                SizedBox(width: 2),
-                                Icon(Icons.swap_horiz_rounded,
-                                    color: AppColors.primary, size: 16),
-                              ],
+                            // Chỉ hiện nút "Đổi" khi phụ huynh có từ 2 con trở lên
+                            if (session.children.length > 1)
+                            _TapScaleWidget(
+                              onTap: () {
+                                showModalBottomSheet(
+                                  context: context,
+                                  isScrollControlled: true,
+                                  backgroundColor: Colors.transparent,
+                                  builder: (_) => const SwitchAccountScreen(),
+                                );
+                              },
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 10, vertical: 6),
+                                decoration: BoxDecoration(
+                                  color: AppColors.accentLight,
+                                  borderRadius: BorderRadius.circular(20),
+                                ),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: const [
+                                    Text('Đổi',
+                                        style: TextStyle(
+                                          fontSize: 12,
+                                          fontWeight: FontWeight.w600,
+                                          color: AppColors.primary,
+                                        )),
+                                    SizedBox(width: 2),
+                                    Icon(Icons.swap_horiz_rounded,
+                                        color: AppColors.primary, size: 16),
+                                  ],
+                                ),
+                              ),
                             ),
-                          ),
-                        ),
-                      ],
+                          ],
+                        );
+                      },
                     ),
 
                     const SizedBox(height: 12),
@@ -157,10 +203,14 @@ class _HomeContent extends StatelessWidget {
                               color: AppColors.primary, size: 18),
                           const SizedBox(width: 8),
                           Expanded(
-                            child: Text(
-                              'Hôm nay Minh Anh tập trung tốt hơn 15% so với buổi trước.',
-                              style: AppTextStyles.caption
-                                  .copyWith(color: AppColors.primary),
+                            // TODO: số liệu tập trung sẽ nối Firestore ở tuần tích hợp buổi học
+                            child: ListenableBuilder(
+                              listenable: ParentSession.instance,
+                              builder: (context, _) => Text(
+                                'Hôm nay ${ParentSession.instance.selectedChild?.shortName ?? 'con'} tập trung tốt hơn 15% so với buổi trước.',
+                                style: AppTextStyles.caption
+                                    .copyWith(color: AppColors.primary),
+                              ),
                             ),
                           ),
                         ],

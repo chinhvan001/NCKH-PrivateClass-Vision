@@ -248,12 +248,14 @@ class AvatarWidget extends StatelessWidget {
   final String name;
   final double size;
   final Color bgColor;
+  final Color textColor;
 
   const AvatarWidget({
     super.key,
     required this.name,
     this.size = 40,
     this.bgColor = AppColors.accentLight,
+    this.textColor = AppColors.primary,
   });
 
   String get _initials {
@@ -279,7 +281,7 @@ class AvatarWidget extends StatelessWidget {
           style: TextStyle(
             fontSize: size * 0.35,
             fontWeight: FontWeight.bold,
-            color: AppColors.primary,
+            color: textColor,
           ),
         ),
       ),
