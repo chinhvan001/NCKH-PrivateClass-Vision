@@ -1,27 +1,11 @@
 import 'package:flutter/material.dart';
 
 import '../../../../../core/constants/app_colors.dart';
-
-// Đã thêm trường "status" vào dữ liệu để phân biệt trạng thái phiên
-class HistItem {
-  final String id, classId, className, room, date, start, end, status;
-  final int size;
-
-  const HistItem({
-    required this.id,
-    required this.classId,
-    required this.className,
-    required this.room,
-    required this.date,
-    required this.start,
-    required this.end,
-    required this.size,
-    required this.status,
-  });
-}
+// Thay đổi đường dẫn import này cho khớp với vị trí file SessionModel.dart của bạn nếu cần
+import '../../../../core/models/session_model.dart';
 
 class SessionListCard extends StatelessWidget {
-  final HistItem item;
+  final SessionModel item; // Đã đổi từ HistItem sang SessionModel
   final VoidCallback onTap;
 
   const SessionListCard({super.key, required this.item, required this.onTap});
@@ -32,6 +16,8 @@ class SessionListCard extends StatelessWidget {
     Color statusBgColor;
 
     // Thiết lập màu sắc theo trạng thái
+    // Lưu ý: Đảm bảo dữ liệu 'status' lưu trên Firebase khớp với các chuỗi này
+    // (ví dụ: 'Đang diễn ra', 'Sắp diễn ra', 'Đã kết thúc')
     switch (item.status) {
       case 'Đang diễn ra':
         statusColor = const Color(0xFF137A41);
@@ -69,15 +55,11 @@ class SessionListCard extends StatelessWidget {
                   height: 44,
                   alignment: Alignment.center,
                   decoration: BoxDecoration(
-                    gradient: item.status == 'Đã kết thúc'
-                        ? const LinearGradient(
-                            colors: [Colors.grey, Colors.black26],
-                          )
-                        : const LinearGradient(
-                            colors: [AppColors.brand, Color(0xFF1D4ED8)],
-                            begin: Alignment.topLeft,
-                            end: Alignment.bottomRight,
-                          ),
+                    gradient: const LinearGradient(
+                      colors: [AppColors.brand, Color(0xFF1D4ED8)],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                    ),
                     borderRadius: BorderRadius.circular(12),
                   ),
                   child: Text(
@@ -97,12 +79,10 @@ class SessionListCard extends StatelessWidget {
                     children: [
                       Text(
                         '${item.className} · Phòng ${item.room}',
-                        style: TextStyle(
+                        style: const TextStyle(
                           fontSize: 15,
                           fontWeight: FontWeight.bold,
-                          color: item.status == 'Đã kết thúc'
-                              ? AppColors.muted
-                              : AppColors.navy,
+                          color: AppColors.navy,
                         ),
                       ),
                       const SizedBox(height: 6),
@@ -151,7 +131,7 @@ class SessionListCard extends StatelessWidget {
                     ],
                   ),
                 ),
-                // Badge Trạng thái thay cho icon mũi tên
+                // Badge Trạng thái
                 Container(
                   padding: const EdgeInsets.symmetric(
                     horizontal: 10,

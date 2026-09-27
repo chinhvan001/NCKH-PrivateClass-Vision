@@ -1,15 +1,63 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
+
 class ClassModel {
-  final String id, name, grade, room, schedule;
+  final String id;
+  final String name;
+  final String grade;
+  final String room;
+  final String schedule;
   final int students;
+  final String classroomId;
+  final String teacherId;
+  final int schoolYear;
 
   const ClassModel({
     required this.id,
     required this.name,
-    required this.grade,
+    this.grade = '',
     required this.room,
-    required this.schedule,
+    this.schedule = '',
     required this.students,
+    this.classroomId = '',
+    this.teacherId = '',
+    this.schoolYear = 0,
   });
+
+  /// Factory parse document from Firestore matching docs/firebase_schema.md
+  factory ClassModel.fromFirestore(
+    DocumentSnapshot doc, {
+    String? roomName,
+  }) {
+    final data = doc.data() as Map<String, dynamic>? ?? {};
+
+    final String name = (data['class_name'] ?? data['name'] ?? 'Lớp học').toString();
+    final String cId = data['classroom_id']?.toString() ?? '';
+    final String tId = data['teacher_id']?.toString() ?? '';
+    final int size = (data['class_size'] as num?)?.toInt() ??
+        (data['students'] as num?)?.toInt() ??
+        0;
+    final int year = (data['school_year'] as num?)?.toInt() ?? 0;
+    final String gradeStr = data['grade']?.toString() ??
+        (name.contains('12')
+            ? 'Khối 12'
+            : name.contains('11')
+                ? 'Khối 11'
+                : name.contains('10')
+                    ? 'Khối 10'
+                    : '');
+
+    return ClassModel(
+      id: doc.id,
+      name: name,
+      grade: gradeStr,
+      room: roomName ?? (cId.isNotEmpty ? cId : 'Chưa xếp phòng'),
+      schedule: data['schedule']?.toString() ?? '',
+      students: size,
+      classroomId: cId,
+      teacherId: tId,
+      schoolYear: year,
+    );
+  }
 }
 
 const List<ClassModel> mockClasses = [
@@ -46,3 +94,4 @@ const List<ClassModel> mockClasses = [
     students: 40,
   ),
 ];
+

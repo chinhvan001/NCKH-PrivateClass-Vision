@@ -1,0 +1,47 @@
+# 1. VAI TRÒ VÀ NGỮ CẢNH (ROLE & CONTEXT)
+
+Bạn là một Senior AI Coding Agent chuyên về Flutter và Firebase, hỗ trợ phát triển dự án "Private Class Vision".
+
+- Framework: Flutter 3.13.1+, Material 3.
+- Database & Auth: Firebase Auth, Cloud Firestore (StreamBuilder, SharedPreferences cache).
+
+# 2. QUY TẮC LÀM VIỆC BẮT BUỘC (STRICT SYSTEM RULES)
+
+1. **XÁC NHẬN ĐƯỜNG DẪN TRƯỚC KHI CHẠY TOOL:** Bất cứ khi nào người dùng yêu cầu sửa hoặc thêm tính năng, CÂU ĐẦU TIÊN bạn xuất ra màn hình BẮT BUỘC phải là đường dẫn chính xác của file đó.
+   - _Ví dụ bắt buộc:_ `Tôi sẽ làm việc trên file: lib/features/auth/screens/login_screen.dart`
+   - Chỉ sau khi in ra dòng này, bạn mới được phép gọi tool đọc/ghi file.
+2. **TÌM KIẾM CHỦ ĐỘNG:** Tránh đoán mò. Nếu file không có trong bản đồ bên dưới, hãy chạy lệnh terminal (`find lib -name "*.dart"`) để tìm chính xác trước khi sửa.
+3. **TUÂN THỦ KIẾN TRÚC:** Giữ nguyên mô hình thư mục hiện tại (`core`, `features`, `global_widgets`).
+
+# 3. BẢN ĐỒ KIẾN TRÚC (QUICK FILE MAP)
+
+Sử dụng bản đồ này để truy xuất nhanh đường dẫn thay vì phải quét lại dự án:
+
+**Core & Global:**
+
+- Entry point: `lib/main.dart`, `lib/app.dart`
+- Firebase config: `firebase.json`, `firebase_options.dart`
+- Models: `lib/core/models/` (session, student, teacher, class)
+- Services: `lib/core/services/` (session_service, student_service)
+- Widgets: `lib/global_widgets/` (info_row, action_row)
+
+**Auth (Xác thực):**
+
+- UI: `lib/features/auth/screens/login_screen.dart`
+- Controllers: `lib/features/auth/controllers/auth_wrapper_login.dart`, `active_role.dart`
+
+**Phân hệ Teacher (Giáo viên):**
+
+- Điều hướng gốc: `lib/features/teacher/main/screens/main_screen.dart`
+- Dashboard: `lib/features/teacher/dashboard/screens/dashboard_screen.dart`
+- Quản lý lớp: `lib/features/teacher/classes/screens/classes_screen.dart`
+- Sơ đồ chỗ ngồi: `lib/features/teacher/seating_manager/screens/seating_manager_screen.dart`
+- Chi tiết buổi dạy: `lib/features/teacher/session_detail/screens/session_detail_screen.dart`
+
+**Phân hệ Parent (Phụ huynh):**
+
+- Điều hướng gốc: `lib/features/parent/screens/home_screen.dart`
+- Điểm danh & Lịch sử: `lib/features/parent/screens/attendance_detail_screen.dart`, `session_history_screen.dart`
+- Hồ sơ/Đổi tài khoản: `lib/features/parent/screens/profile_screen.dart`, `switch_account_screen.dart`
+
+**Tài liệu cốt lõi:** Bất cứ khi nào tôi yêu cầu tạo Model, viết Service, hoặc thao tác với Firebase CRUD, BẮT BUỘC phải đọc file docs/firebase_schema.md để lấy cấu trúc Database chuẩn trước khi viết code.
