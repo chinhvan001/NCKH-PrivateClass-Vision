@@ -14,6 +14,7 @@ FPS + tu ket noi lai. Buffer/queue giua capture va detection la task rieng
 """
 
 import logging
+import re
 import time
 from typing import Iterator, NamedTuple, Optional
 
@@ -22,6 +23,12 @@ import cv2
 from .config import CaptureConfig
 
 logger = logging.getLogger("camera_ai.capture")
+
+
+def redact_source(source) -> str:
+    """An user:password trong URL camera (rtsp://user:pass@host/...) truoc khi
+    dua vao log/thong bao loi -- log duoc ghi ra dia (logs/camera-ai.log)."""
+    return re.sub(r"(://)[^/@\s]+@", r"\1***@", str(source))
 
 
 class Frame(NamedTuple):
@@ -68,14 +75,14 @@ class CameraCapture:
 
         Nem CameraOpenError neu khong mo duoc camera ngay tu dau.
         """
-        logger.info("Dang mo camera voi source=%r", self._config.source)
+        logger.info("Dang mo camera voi source=%s", redact_source(self._config.source))
         self._cap = cv2.VideoCapture(self._config.source)
         self._apply_resolution()
 
         if not self._cap.isOpened():
             self._cap = None
             raise CameraOpenError(
-                f"Khong mo duoc camera voi source={self._config.source!r}. "
+                f"Khong mo duoc camera voi source={redact_source(self._config.source)}. "
                 "Kiem tra lai CAMERA_SOURCE, quyen truy cap camera, hoac camera "
                 "co dang bi ung dung khac chiem dung khong."
             )
