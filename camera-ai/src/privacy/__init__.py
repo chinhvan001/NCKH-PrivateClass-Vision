@@ -8,7 +8,7 @@ from .engagement_export import (
     append_anonymized_record,
 )
 from .cloud_payload import CloudEngagementPayload, CloudPayloadError, make_cloud_payload
-from .alert_event import ALERT_TYPES, AlertEvent, AlertEventError, make_alert_event
+from .alert_event import ALERT_TYPES, AlertEvent, AlertEventError, check_session_id, make_alert_event
 
 __all__ = [
     "ALERT_TYPES",
@@ -19,6 +19,7 @@ __all__ = [
     "append_anonymized_record",
     "AnonymizedEngagementRecord",
     "blur_regions",
+    "check_session_id",
     "CloudEngagementPayload",
     "CloudPayloadError",
     "dispose_frame",

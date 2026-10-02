@@ -140,21 +140,28 @@ def process_video(args: argparse.Namespace) -> None:
     fps = capture.get(cv2.CAP_PROP_FPS) or 25.0
     writer = None
     # Cung logic engagement voi pipeline headless (src/pipeline); demo chi ve.
-    engine = EngagementEngine(grid, max_seat_distance=args.max_distance) if grid.seats else None
-    conversation_detector = (
-        SideConversationDetector(
-            max_pair_distance=args.conversation_max_distance,
-            min_duration_sec=args.conversation_duration,
+    engine = (
+        EngagementEngine(
+            grid,
+            max_seat_distance=args.max_distance,
+            side_conversation_detector=(
+                SideConversationDetector(
+                    max_pair_distance=args.conversation_max_distance,
+                    min_duration_sec=args.conversation_duration,
+                )
+                if args.detect_side_conversation
+                else None
+            ),
+            back_turn_detector=(
+                BackTurnDetector(
+                    max_face_visibility=args.back_turn_max_face_visibility,
+                    min_duration_sec=args.back_turn_duration,
+                )
+                if args.detect_turning_back
+                else None
+            ),
         )
-        if args.detect_side_conversation and grid.seats
-        else None
-    )
-    back_turn_detector = (
-        BackTurnDetector(
-            max_face_visibility=args.back_turn_max_face_visibility,
-            min_duration_sec=args.back_turn_duration,
-        )
-        if args.detect_turning_back and grid.seats
+        if grid.seats
         else None
     )
     detector = PoseDetector(
@@ -205,12 +212,11 @@ def process_video(args: argparse.Namespace) -> None:
             # xong tren pixel goc trong RAM. An danh ca mat pose duoc va mat
             # pose bo sot (pixelate toan khung) truoc bat ky output nao.
             anonymize_preview(image, people)
-            observations = engine.process(timestamp, people) if engine is not None else []
+            result = engine.process(timestamp, people) if engine is not None else None
+            observations = result.observations if result is not None else []
+            conversation_events = result.side_conversation_events if result is not None else []
+            back_turn_events = result.back_turn_events if result is not None else []
             assigned = {observation.seat_id: observation.person for observation in observations}
-            conversation_events = (
-                conversation_detector.update(timestamp, assigned) if conversation_detector is not None else []
-            )
-            back_turn_events = back_turn_detector.update(timestamp, assigned) if back_turn_detector is not None else []
             if engine is None:
                 # Chua co --seats: chi ve skeleton, khong cham diem (khong co seat_id on dinh).
                 for person in people:
