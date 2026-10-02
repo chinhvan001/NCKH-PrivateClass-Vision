@@ -184,7 +184,18 @@ def _parse_sampling(value: Any) -> SamplingConfig:
 
 
 def _parse_thresholds(value: Any) -> ThresholdConfig:
-    keys = {"pose_confidence", "iou_threshold", "image_size", "tile_size", "tile_overlap", "max_detections", "conversation_duration_sec", "conversation_max_distance_px", "back_turn_duration_sec", "back_turn_max_face_visibility"}
+    keys = {
+        "pose_confidence",
+        "iou_threshold",
+        "image_size",
+        "tile_size",
+        "tile_overlap",
+        "max_detections",
+        "conversation_duration_sec",
+        "conversation_max_distance_px",
+        "back_turn_duration_sec",
+        "back_turn_max_face_visibility",
+    }
     data = _object(value, "thresholds", keys)
     for key in ("image_size", "max_detections"):
         if not isinstance(data[key], int) or data[key] <= 0:
@@ -194,7 +205,18 @@ def _parse_thresholds(value: Any) -> ThresholdConfig:
     for key in ("conversation_duration_sec", "conversation_max_distance_px", "back_turn_duration_sec"):
         if not isinstance(data[key], (int, float)) or data[key] <= 0:
             raise LocalConfigError(f"thresholds.{key} phai > 0.")
-    return ThresholdConfig(_unit(data["pose_confidence"], "thresholds.pose_confidence"), _unit(data["iou_threshold"], "thresholds.iou_threshold"), data["image_size"], data["tile_size"], _unit(data["tile_overlap"], "thresholds.tile_overlap", allow_zero=True), data["max_detections"], float(data["conversation_duration_sec"]), float(data["conversation_max_distance_px"]), float(data["back_turn_duration_sec"]), _unit(data["back_turn_max_face_visibility"], "thresholds.back_turn_max_face_visibility", allow_zero=True))
+    return ThresholdConfig(
+        _unit(data["pose_confidence"], "thresholds.pose_confidence"),
+        _unit(data["iou_threshold"], "thresholds.iou_threshold"),
+        data["image_size"],
+        data["tile_size"],
+        _unit(data["tile_overlap"], "thresholds.tile_overlap", allow_zero=True),
+        data["max_detections"],
+        float(data["conversation_duration_sec"]),
+        float(data["conversation_max_distance_px"]),
+        float(data["back_turn_duration_sec"]),
+        _unit(data["back_turn_max_face_visibility"], "thresholds.back_turn_max_face_visibility", allow_zero=True),
+    )
 
 
 def _parse_schedule(value: Any) -> ScheduleConfig:

@@ -79,9 +79,7 @@ class LandmarkerConfig:
         default = cls()
         return cls(
             model_path=os.getenv("FACE_LANDMARKER_MODEL_PATH", default.model_path),
-            max_num_faces=int(
-                os.getenv("FACE_LANDMARKER_MAX_FACES", str(default.max_num_faces))
-            ),
+            max_num_faces=int(os.getenv("FACE_LANDMARKER_MAX_FACES", str(default.max_num_faces))),
             min_detection_confidence=float(
                 os.getenv(
                     "FACE_LANDMARKER_MIN_DETECTION_CONFIDENCE",
@@ -100,8 +98,6 @@ class LandmarkerConfig:
                     str(default.min_tracking_confidence),
                 )
             ),
-            output_transformation_matrix=os.getenv(
-                "FACE_LANDMARKER_OUTPUT_MATRIX", "1"
-            ).lower()
+            output_transformation_matrix=os.getenv("FACE_LANDMARKER_OUTPUT_MATRIX", "1").lower()
             not in ("0", "false", ""),
         )

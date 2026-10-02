@@ -10,10 +10,30 @@ from src.config import LocalConfigError, LocalPipelineConfig
 def valid_config():
     return {
         "schema_version": 1,
-        "camera": {"camera_id": "CAM-1", "classroom_id": "ROOM-1", "source_env": "CAMERA_1_SOURCE", "width": 1280, "height": 720},
+        "camera": {
+            "camera_id": "CAM-1",
+            "classroom_id": "ROOM-1",
+            "source_env": "CAMERA_1_SOURCE",
+            "width": 1280,
+            "height": 720,
+        },
         "sampling": {"capture_fps": 10, "inference_every_n_frames": 2},
-        "thresholds": {"pose_confidence": 0.2, "iou_threshold": 0.5, "image_size": 960, "tile_size": 960, "tile_overlap": 0.2, "max_detections": 100, "conversation_duration_sec": 3, "conversation_max_distance_px": 260, "back_turn_duration_sec": 2, "back_turn_max_face_visibility": 0.2},
-        "schedule": {"timezone": "Asia/Ho_Chi_Minh", "windows": [{"days": ["mon", "tue"], "start": "07:00", "end": "17:00"}]},
+        "thresholds": {
+            "pose_confidence": 0.2,
+            "iou_threshold": 0.5,
+            "image_size": 960,
+            "tile_size": 960,
+            "tile_overlap": 0.2,
+            "max_detections": 100,
+            "conversation_duration_sec": 3,
+            "conversation_max_distance_px": 260,
+            "back_turn_duration_sec": 2,
+            "back_turn_max_face_visibility": 0.2,
+        },
+        "schedule": {
+            "timezone": "Asia/Ho_Chi_Minh",
+            "windows": [{"days": ["mon", "tue"], "start": "07:00", "end": "17:00"}],
+        },
         "privacy": {"frame_buffer_size": 1, "allow_persistent_output": False},
     }
 
@@ -27,11 +47,14 @@ def test_parses_valid_config_and_reads_camera_source_from_environment(monkeypatc
     assert capture.target_fps == 10
 
 
-@pytest.mark.parametrize("path, value", [
-    (("camera", "rtsp_url"), "rtsp://user:password@camera/stream"),
-    (("privacy", "allow_persistent_output"), True),
-    (("privacy", "frame_buffer_size"), 5),
-])
+@pytest.mark.parametrize(
+    "path, value",
+    [
+        (("camera", "rtsp_url"), "rtsp://user:password@camera/stream"),
+        (("privacy", "allow_persistent_output"), True),
+        (("privacy", "frame_buffer_size"), 5),
+    ],
+)
 def test_rejects_credentials_and_privacy_policy_violations(path, value):
     data = valid_config()
     data[path[0]][path[1]] = value

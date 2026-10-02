@@ -47,9 +47,20 @@ class RemoteSeatGrid:
         except SeatGridError as error:
             raise RemoteSeatGridError(str(error)) from error
         pose = payload.get("pose")
-        if pose is not None and (not isinstance(pose, dict) or set(pose) != {"min_confidence", "iou_threshold", "image_size", "max_detections", "tile_size", "tile_overlap"}):
+        if pose is not None and (
+            not isinstance(pose, dict)
+            or set(pose)
+            != {"min_confidence", "iou_threshold", "image_size", "max_detections", "tile_size", "tile_overlap"}
+        ):
             raise RemoteSeatGridError("pose phai co day du tham so runtime hop le.")
-        return cls(expected_camera_id, expected_classroom_id, payload["camera_angle_type"], payload["config_version"], grid, pose)
+        return cls(
+            expected_camera_id,
+            expected_classroom_id,
+            payload["camera_angle_type"],
+            payload["config_version"],
+            grid,
+            pose,
+        )
 
 
 class DocumentReader(Protocol):
@@ -74,6 +85,7 @@ class FirestoreSeatGridSource:
         try:
             import firebase_admin
             from firebase_admin import firestore
+
             if not firebase_admin._apps:
                 firebase_admin.initialize_app()
             snapshot = firestore.client().document(path).get()
@@ -85,7 +97,13 @@ class FirestoreSeatGridSource:
 class SeatGridResolver:
     """Chi thay config neu version moi hon; khong ghi cache xuong dia."""
 
-    def __init__(self, source: FirestoreSeatGridSource, camera_id: str, classroom_id: str, fallback_path: str | Path | None = None) -> None:
+    def __init__(
+        self,
+        source: FirestoreSeatGridSource,
+        camera_id: str,
+        classroom_id: str,
+        fallback_path: str | Path | None = None,
+    ) -> None:
         self.source, self.camera_id, self.classroom_id = source, camera_id, classroom_id
         self.fallback_path = Path(fallback_path) if fallback_path else None
         self.current: RemoteSeatGrid | None = None
@@ -100,12 +118,15 @@ class SeatGridResolver:
             if self.current is not None:
                 return self.current
             if self.fallback_path:
-                return RemoteSeatGrid(self.camera_id, self.classroom_id, "frontal", 0, SeatGrid.from_json_file(self.fallback_path))
+                return RemoteSeatGrid(
+                    self.camera_id, self.classroom_id, "frontal", 0, SeatGrid.from_json_file(self.fallback_path)
+                )
             raise
 
 
 class RuntimeConfigPoller:
     """Polling Firestore va ap dung config moi an toan giua cac frame."""
+
     def __init__(self, resolver: SeatGridResolver, pose_detector: Any, interval_sec: float = 30.0) -> None:
         if interval_sec <= 0:
             raise ValueError("interval_sec phai > 0.")

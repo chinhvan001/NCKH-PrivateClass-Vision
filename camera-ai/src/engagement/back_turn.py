@@ -42,9 +42,7 @@ class BackTurnDetector:
         self.max_gap_sec = max_gap_sec
         self._states: Dict[str, _SeatState] = {}
 
-    def update(
-        self, timestamp: float, people_by_seat: Mapping[str, PersonPose]
-    ) -> List[BackTurnEvent]:
+    def update(self, timestamp: float, people_by_seat: Mapping[str, PersonPose]) -> List[BackTurnEvent]:
         events = []
         active_seats = set()
         for seat_id, person in people_by_seat.items():

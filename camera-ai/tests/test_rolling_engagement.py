@@ -144,9 +144,9 @@ def test_multiple_gaps_only_large_ones_excluded():
     tracker = RollingSeatEngagementTracker(seat_id="A1", window_sec=1000.0, max_gap_sec=30.0)
 
     tracker.update(0.0, False, False)
-    tracker.update(10.0, False, False)      # +10s normal (gap 10s, binh thuong)
-    tracker.update(200.0, True, False, hand_activity=False)      # gap 190s -- qua lon, loai bo
-    tracker.update(210.0, True, False, hand_activity=False)      # +10s head_drop (gap 10s, binh thuong)
+    tracker.update(10.0, False, False)  # +10s normal (gap 10s, binh thuong)
+    tracker.update(200.0, True, False, hand_activity=False)  # gap 190s -- qua lon, loai bo
+    tracker.update(210.0, True, False, hand_activity=False)  # +10s head_drop (gap 10s, binh thuong)
 
     result = tracker.compute_score()
 
@@ -167,10 +167,10 @@ def test_count_only_reflects_episodes_within_window():
     tracker = RollingSeatEngagementTracker(seat_id="A1", window_sec=50.0, max_gap_sec=1000.0)
 
     tracker.update(0.0, False, False)
-    tracker.update(10.0, True, False, hand_activity=False)   # episode 1: head_drop (se bi prune sau)
+    tracker.update(10.0, True, False, hand_activity=False)  # episode 1: head_drop (se bi prune sau)
     tracker.update(20.0, False, False)  # het episode 1
     tracker.update(80.0, False, False)  # troi qua nhieu thoi gian -- episode 1 gio ngoai window (cutoff=80-50=30)
-    tracker.update(90.0, True, False, hand_activity=False)   # episode 2: head_drop moi, con trong window
+    tracker.update(90.0, True, False, hand_activity=False)  # episode 2: head_drop moi, con trong window
 
     result = tracker.compute_score()
 

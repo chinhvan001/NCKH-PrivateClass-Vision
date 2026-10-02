@@ -27,9 +27,7 @@ def synthetic_video(tmp_path) -> str:
     nho tmp_path (fixture co san cua pytest).
     """
     video_path = tmp_path / "synthetic.mp4"
-    writer = cv2.VideoWriter(
-        str(video_path), cv2.VideoWriter_fourcc(*"mp4v"), 20.0, (320, 240)
-    )
+    writer = cv2.VideoWriter(str(video_path), cv2.VideoWriter_fourcc(*"mp4v"), 20.0, (320, 240))
     for i in range(30):
         frame = np.full((240, 320, 3), (i * 8) % 255, dtype=np.uint8)
         writer.write(frame)

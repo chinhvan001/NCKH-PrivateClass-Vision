@@ -10,11 +10,13 @@ from src.seating import Seat, SeatGrid, SeatGridError
 
 
 def test_find_nearest_seat_basic():
-    grid = SeatGrid(seats=[
-        Seat("A1", 100, 100),
-        Seat("A2", 300, 100),
-        Seat("A3", 500, 100),
-    ])
+    grid = SeatGrid(
+        seats=[
+            Seat("A1", 100, 100),
+            Seat("A2", 300, 100),
+            Seat("A3", 500, 100),
+        ]
+    )
     nearest = grid.find_nearest_seat(310, 105)
     assert nearest.seat_id == "A2"
 

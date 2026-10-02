@@ -22,14 +22,19 @@ def make_person(shoulder_x, shoulder_y, offset=5.0, conf=0.9):
 
 
 def make_grid():
-    return SeatGrid(seats=[
-        Seat("A1", 100, 100), Seat("A2", 300, 100), Seat("A3", 500, 100),
-    ])
+    return SeatGrid(
+        seats=[
+            Seat("A1", 100, 100),
+            Seat("A2", 300, 100),
+            Seat("A3", 500, 100),
+        ]
+    )
 
 
 # ---------------------------------------------------------------
 # On dinh qua nhieu frame voi nhieu nho (jitter)
 # ---------------------------------------------------------------
+
 
 def test_stable_seat_id_despite_jitter_near_boundary():
     """Nguoi ngoi GAN DUNG GIUA A1 va A2 (200,100) -- nearest-centroid tho
@@ -48,9 +53,9 @@ def test_stable_seat_id_despite_jitter_near_boundary():
     jittered_positions = [195, 205, 198, 208, 192, 202]
     for x in jittered_positions:
         result = tracker.update([make_person(x, 100)])
-        assert set(result.keys()) == {seat_id_first}, (
-            f"Seat bi nhay tai x={x}: ket qua {list(result.keys())}, ky vong van la {seat_id_first}"
-        )
+        assert set(result.keys()) == {
+            seat_id_first
+        }, f"Seat bi nhay tai x={x}: ket qua {list(result.keys())}, ky vong van la {seat_id_first}"
 
 
 def test_switches_seat_when_person_actually_moves_far():
@@ -84,6 +89,7 @@ def test_switches_seat_when_person_actually_moves_far():
 # ---------------------------------------------------------------
 # Xu ly khuat tam thoi (missing frames)
 # ---------------------------------------------------------------
+
 
 def test_seat_persists_during_short_occlusion():
     """Nguoi 'bien mat' (vi du cui thap, bi che) trong vai frame ngan (duoi
@@ -138,6 +144,7 @@ def test_person_reappears_after_short_occlusion_keeps_same_seat():
 # ---------------------------------------------------------------
 # Mo phong ca lop 30 hoc sinh qua nhieu frame
 # ---------------------------------------------------------------
+
 
 def test_30_students_stable_across_10_frames():
     """Mo phong 30 hoc sinh ngoi co dinh (dung Assumption 'Fixed Seating

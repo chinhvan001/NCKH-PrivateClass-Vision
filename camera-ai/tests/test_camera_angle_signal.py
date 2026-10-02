@@ -71,20 +71,26 @@ def test_partial_face_keypoints_still_computes_from_available_ones():
 
 
 def test_frontal_dispatches_to_head_drop_ratio():
-    person = make_person({
-        "nose": (100.0, 40.0, 0.9),
-        "left_shoulder": (80.0, 100.0, 0.9),
-        "right_shoulder": (120.0, 100.0, 0.9),
-    })
+    person = make_person(
+        {
+            "nose": (100.0, 40.0, 0.9),
+            "left_shoulder": (80.0, 100.0, 0.9),
+            "right_shoulder": (120.0, 100.0, 0.9),
+        }
+    )
     result = select_head_down_signal(person, "frontal")
     assert result == compute_head_drop_ratio(person)
     assert result == pytest.approx(1.5)
 
 
 def test_top_down_dispatches_to_face_visibility():
-    person = make_person({
-        "nose": (0, 0, 0.9), "left_eye": (0, 0, 0.7), "right_eye": (0, 0, 0.8),
-    })
+    person = make_person(
+        {
+            "nose": (0, 0, 0.9),
+            "left_eye": (0, 0, 0.7),
+            "right_eye": (0, 0, 0.8),
+        }
+    )
     result = select_head_down_signal(person, "top_down")
     assert result == compute_face_visibility_score(person)
     assert result == pytest.approx(0.8)
@@ -93,12 +99,15 @@ def test_top_down_dispatches_to_face_visibility():
 def test_frontal_and_top_down_give_different_values_for_same_person():
     """Xac nhan 2 nhanh dispatch THUC SU goi 2 cong thuc khac nhau, khong
     vo tinh tra ve cung 1 gia tri (vi du do loi copy-paste)."""
-    person = make_person({
-        "nose": (100.0, 40.0, 0.9),
-        "left_shoulder": (80.0, 100.0, 0.9),
-        "right_shoulder": (120.0, 100.0, 0.9),
-        "left_eye": (0, 0, 0.7), "right_eye": (0, 0, 0.8),
-    })
+    person = make_person(
+        {
+            "nose": (100.0, 40.0, 0.9),
+            "left_shoulder": (80.0, 100.0, 0.9),
+            "right_shoulder": (120.0, 100.0, 0.9),
+            "left_eye": (0, 0, 0.7),
+            "right_eye": (0, 0, 0.8),
+        }
+    )
     r_frontal = select_head_down_signal(person, "frontal")
     r_top_down = select_head_down_signal(person, "top_down")
     assert r_frontal != r_top_down

@@ -72,7 +72,11 @@ def load_yolo_labels(images_root: Path, labels_root: Path) -> dict[str, list[Bou
                 _, center_x, center_y, box_width, box_height = map(float, values[:5])
                 box_width *= width
                 box_height *= height
-                boxes.append(_box_from_xywh(center_x * width - box_width / 2, center_y * height - box_height / 2, box_width, box_height))
+                boxes.append(
+                    _box_from_xywh(
+                        center_x * width - box_width / 2, center_y * height - box_height / 2, box_width, box_height
+                    )
+                )
         labels[relative.as_posix()] = boxes
     return labels
 
@@ -83,9 +87,21 @@ def density_bucket(count: int) -> str:
 
 def main() -> int:
     args = parse_args()
-    label_format = "coco" if args.format == "auto" and args.annotations.suffix.lower() == ".json" else ("yolo" if args.format == "auto" else args.format)
-    labels = load_coco_labels(args.annotations) if label_format == "coco" else load_yolo_labels(args.images, args.annotations)
-    image_paths = {path.relative_to(args.images).as_posix(): path for path in args.images.rglob("*") if path.suffix.lower() in IMAGE_EXTENSIONS}
+    label_format = (
+        "coco"
+        if args.format == "auto" and args.annotations.suffix.lower() == ".json"
+        else ("yolo" if args.format == "auto" else args.format)
+    )
+    labels = (
+        load_coco_labels(args.annotations)
+        if label_format == "coco"
+        else load_yolo_labels(args.images, args.annotations)
+    )
+    image_paths = {
+        path.relative_to(args.images).as_posix(): path
+        for path in args.images.rglob("*")
+        if path.suffix.lower() in IMAGE_EXTENSIONS
+    }
     missing = sorted(set(labels) - set(image_paths))
     if missing:
         raise ValueError(f"{len(missing)} anh co nhan khong tim thay trong --images; vi du: {missing[0]}")
@@ -109,13 +125,33 @@ def main() -> int:
 
     def serialize(items: list[DetectionMetrics]) -> dict[str, float | int]:
         result = combine_metrics(items)
-        return {"images": len(items), "tp": result.true_positive, "fp": result.false_positive, "fn": result.false_negative, "precision": round(result.precision, 4), "recall_detection_success": round(result.recall, 4), "f1": round(result.f1, 4)}
+        return {
+            "images": len(items),
+            "tp": result.true_positive,
+            "fp": result.false_positive,
+            "fn": result.false_negative,
+            "precision": round(result.precision, 4),
+            "recall_detection_success": round(result.recall, 4),
+            "f1": round(result.f1, 4),
+        }
 
-    report = {"dataset_images": len(all_metrics), "ground_truth_format": label_format, "model": Path(args.model).name, "confidence": args.confidence, "match_iou": args.match_iou, "overall": serialize(all_metrics), "by_camera_angle": {name: serialize(items) for name, items in sorted(by_angle.items())}, "by_density": {name: serialize(items) for name, items in sorted(by_density.items())}, "privacy": "Chi luu metric tong hop; khong luu raw frame, preview, bbox hay biometric identifier."}
+    report = {
+        "dataset_images": len(all_metrics),
+        "ground_truth_format": label_format,
+        "model": Path(args.model).name,
+        "confidence": args.confidence,
+        "match_iou": args.match_iou,
+        "overall": serialize(all_metrics),
+        "by_camera_angle": {name: serialize(items) for name, items in sorted(by_angle.items())},
+        "by_density": {name: serialize(items) for name, items in sorted(by_density.items())},
+        "privacy": "Chi luu metric tong hop; khong luu raw frame, preview, bbox hay biometric identifier.",
+    }
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
     overall = report["overall"]
-    print(f"Images={overall['images']} | precision={overall['precision']:.2%} | recall={overall['recall_detection_success']:.2%} | F1={overall['f1']:.2%}")
+    print(
+        f"Images={overall['images']} | precision={overall['precision']:.2%} | recall={overall['recall_detection_success']:.2%} | F1={overall['f1']:.2%}"
+    )
     print(f"Bao cao metric an danh: {args.output}")
     return 0
 

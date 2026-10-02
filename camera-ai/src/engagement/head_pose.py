@@ -56,9 +56,9 @@ import numpy as np
 class HeadPose:
     """Goc xoay dau, don vi DO (degree, khong phai radian)."""
 
-    yaw: float    # quay dau sang trai/phai
+    yaw: float  # quay dau sang trai/phai
     pitch: float  # ngua dau len / cui dau xuong
-    roll: float   # nghieng dau sang 2 ben (tai vai)
+    roll: float  # nghieng dau sang 2 ben (tai vai)
 
 
 def estimate_head_pose(transformation_matrix: "np.ndarray") -> HeadPose:

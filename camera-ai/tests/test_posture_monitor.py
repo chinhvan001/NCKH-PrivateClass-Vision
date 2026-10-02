@@ -118,9 +118,7 @@ def test_normal_upright_sequence_never_triggers():
     duoc tinh la head_drop hay slumping."""
     monitor = PostureMonitor()
     for t in range(0, 20):
-        head_drop_event, slump_event = monitor.update(
-            timestamp=float(t), head_drop_ratio=1.2, torso_deviation_deg=2.0
-        )
+        head_drop_event, slump_event = monitor.update(timestamp=float(t), head_drop_ratio=1.2, torso_deviation_deg=2.0)
         assert head_drop_event is False
         assert slump_event is False
 

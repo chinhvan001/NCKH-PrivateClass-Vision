@@ -11,6 +11,11 @@ def test_iou_and_one_to_one_matching():
 
 
 def test_combine_metrics_computes_dataset_level_recall():
-    metric = combine_metrics([evaluate_boxes([BoundingBox(0, 0, 5, 5)], [BoundingBox(0, 0, 5, 5)]), evaluate_boxes([], [BoundingBox(0, 0, 5, 5)])])
+    metric = combine_metrics(
+        [
+            evaluate_boxes([BoundingBox(0, 0, 5, 5)], [BoundingBox(0, 0, 5, 5)]),
+            evaluate_boxes([], [BoundingBox(0, 0, 5, 5)]),
+        ]
+    )
     assert (metric.true_positive, metric.false_positive, metric.false_negative) == (1, 0, 1)
     assert metric.recall == 0.5

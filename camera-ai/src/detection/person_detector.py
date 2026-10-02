@@ -51,12 +51,16 @@ class PersonDetector:
     def open(self) -> None:
         try:
             from ultralytics import YOLO
+
             self._model = YOLO(self._model_path)
         except Exception as error:
-            raise PersonDetectorError(
-                f"Khong nap duoc person detector '{self._model_path}': {error}"
-            ) from error
-        logger.info("Da nap PersonDetector '%s' (conf=%.2f, imgsz=%d).", self._model_path, self._min_confidence, self._image_size)
+            raise PersonDetectorError(f"Khong nap duoc person detector '{self._model_path}': {error}") from error
+        logger.info(
+            "Da nap PersonDetector '%s' (conf=%.2f, imgsz=%d).",
+            self._model_path,
+            self._min_confidence,
+            self._image_size,
+        )
 
     def close(self) -> None:
         self._model = None

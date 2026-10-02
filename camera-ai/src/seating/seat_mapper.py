@@ -96,9 +96,10 @@ def assign_seats(
 
         if max_distance is not None and distance > max_distance:
             logger.debug(
-                "Bo qua 1 PersonPose: khoang cach %.1f toi seat gan nhat '%s' "
-                "vuot qua max_distance=%.1f.",
-                distance, nearest_seat.seat_id, max_distance,
+                "Bo qua 1 PersonPose: khoang cach %.1f toi seat gan nhat '%s' " "vuot qua max_distance=%.1f.",
+                distance,
+                nearest_seat.seat_id,
+                max_distance,
             )
             continue
 

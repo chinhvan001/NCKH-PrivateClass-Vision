@@ -190,9 +190,7 @@ class SeatEngagementTracker:
         self._last_state = current_state
 
     @staticmethod
-    def _classify(
-        is_head_drop_event: bool, is_slumping_event: bool, hand_activity: Optional[bool] = None
-    ) -> str:
+    def _classify(is_head_drop_event: bool, is_slumping_event: bool, hand_activity: Optional[bool] = None) -> str:
         """Giu lai de tuong thich nguoc -- logic that su nam o
         classify_posture_state(), dung chung voi RollingSeatEngagementTracker."""
         return classify_posture_state(is_head_drop_event, is_slumping_event, hand_activity)

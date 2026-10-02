@@ -91,14 +91,14 @@ class FaceDetector:
             raise
         except Exception as e:  # mediapipe co the nem nhieu loai loi C++ khac nhau
             raise FaceDetectorError(
-                f"Khong khoi tao duoc MediaPipe FaceDetector tu model "
-                f"'{self._config.model_path}': {e}"
+                f"Khong khoi tao duoc MediaPipe FaceDetector tu model " f"'{self._config.model_path}': {e}"
             ) from e
 
         self._last_timestamp_ms = None
         logger.info(
             "Da nap Face Detector tu '%s' (min_confidence=%.2f).",
-            self._config.model_path, self._config.min_detection_confidence,
+            self._config.model_path,
+            self._config.min_detection_confidence,
         )
 
     def close(self) -> None:
@@ -162,13 +162,8 @@ class FaceDetector:
         faces: List[FaceBox] = []
         for detection in result.detections:
             bbox = detection.bounding_box
-            keypoints = [
-                (int(kp.x * image_width), int(kp.y * image_height))
-                for kp in (detection.keypoints or [])
-            ]
-            confidence = (
-                detection.categories[0].score if detection.categories else 0.0
-            )
+            keypoints = [(int(kp.x * image_width), int(kp.y * image_height)) for kp in (detection.keypoints or [])]
+            confidence = detection.categories[0].score if detection.categories else 0.0
             faces.append(
                 FaceBox(
                     x=bbox.origin_x,

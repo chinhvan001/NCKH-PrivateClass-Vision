@@ -52,11 +52,20 @@ def iou(left: BoundingBox, right: BoundingBox) -> float:
     return intersection / union if union else 0.0
 
 
-def evaluate_boxes(predictions: Sequence[BoundingBox], ground_truth: Sequence[BoundingBox], iou_threshold: float = 0.5) -> DetectionMetrics:
+def evaluate_boxes(
+    predictions: Sequence[BoundingBox], ground_truth: Sequence[BoundingBox], iou_threshold: float = 0.5
+) -> DetectionMetrics:
     """Ghep tham lam prediction/GT theo IoU lon nhat, moi box chi ghep mot lan."""
     if not 0 < iou_threshold <= 1:
         raise ValueError("iou_threshold phai nam trong (0, 1].")
-    candidates = sorted(((iou(prediction, truth), prediction_index, truth_index) for prediction_index, prediction in enumerate(predictions) for truth_index, truth in enumerate(ground_truth)), reverse=True)
+    candidates = sorted(
+        (
+            (iou(prediction, truth), prediction_index, truth_index)
+            for prediction_index, prediction in enumerate(predictions)
+            for truth_index, truth in enumerate(ground_truth)
+        ),
+        reverse=True,
+    )
     used_predictions: set[int] = set()
     used_truth: set[int] = set()
     for overlap, prediction_index, truth_index in candidates:
@@ -72,4 +81,8 @@ def evaluate_boxes(predictions: Sequence[BoundingBox], ground_truth: Sequence[Bo
 def combine_metrics(metrics: Iterable[DetectionMetrics]) -> DetectionMetrics:
     """Cong metric cua nhieu anh de bao cao theo nhom."""
     values = list(metrics)
-    return DetectionMetrics(sum(item.true_positive for item in values), sum(item.false_positive for item in values), sum(item.false_negative for item in values))
+    return DetectionMetrics(
+        sum(item.true_positive for item in values),
+        sum(item.false_positive for item in values),
+        sum(item.false_negative for item in values),
+    )

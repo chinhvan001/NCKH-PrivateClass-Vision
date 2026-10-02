@@ -86,7 +86,9 @@ class CameraCapture:
         actual_h = int(self._cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
         logger.info(
             "Camera da mo thanh cong. Do phan giai thuc te: %dx%d, FPS muc tieu: %.1f",
-            actual_w, actual_h, self._config.target_fps,
+            actual_w,
+            actual_h,
+            self._config.target_fps,
         )
 
     def close(self) -> None:
@@ -158,9 +160,7 @@ class CameraCapture:
 
     def _handle_read_failure(self) -> Optional[Frame]:
         self._consecutive_failures += 1
-        logger.warning(
-            "Doc khung hinh that bai (lan thu %d lien tiep).", self._consecutive_failures
-        )
+        logger.warning("Doc khung hinh that bai (lan thu %d lien tiep).", self._consecutive_failures)
 
         if self._consecutive_failures == self._config.max_consecutive_failures_before_alert:
             logger.error(
@@ -216,7 +216,9 @@ class CameraCapture:
             self._apply_resolution()
             logger.info(
                 "Da ap dung cau hinh moi: fps=%.1f, resolution=%sx%s",
-                new_config.target_fps, new_config.width, new_config.height,
+                new_config.target_fps,
+                new_config.width,
+                new_config.height,
             )
 
     def _apply_resolution(self) -> None:

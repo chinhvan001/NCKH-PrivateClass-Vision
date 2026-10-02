@@ -70,14 +70,17 @@ def test_identity_4x4_gives_zero_pose():
     assert_pose_close(pose, 0.0, 0.0, 0.0)
 
 
-@pytest.mark.parametrize("pitch,yaw,roll", [
-    (20, 0, 0),
-    (0, 30, 0),
-    (0, 0, 15),
-    (-20, 0, 0),
-    (0, -30, 0),
-    (0, 0, -15),
-])
+@pytest.mark.parametrize(
+    "pitch,yaw,roll",
+    [
+        (20, 0, 0),
+        (0, 30, 0),
+        (0, 0, 15),
+        (-20, 0, 0),
+        (0, -30, 0),
+        (0, 0, -15),
+    ],
+)
 def test_single_axis_rotation_recovered_exactly(pitch, yaw, roll):
     """Khi chi 1 truc xoay, thu tu phan tich (YZX vs XYZ) khong anh huong ket
     qua -- day la test co ban nhat, xac nhan truc/dau khop voi dinh nghia cua
@@ -87,13 +90,16 @@ def test_single_axis_rotation_recovered_exactly(pitch, yaw, roll):
     assert_pose_close(pose, pitch, yaw, roll, tol=1e-4)
 
 
-@pytest.mark.parametrize("pitch,yaw,roll", [
-    (15, 25, 10),
-    (-10, 40, -5),
-    (30, -20, 20),
-    (5, 5, 5),
-    (-45, 45, -30),
-])
+@pytest.mark.parametrize(
+    "pitch,yaw,roll",
+    [
+        (15, 25, 10),
+        (-10, 40, -5),
+        (30, -20, 20),
+        (5, 5, 5),
+        (-45, 45, -30),
+    ],
+)
 def test_combined_rotation_round_trip(pitch, yaw, roll):
     """Ca 3 truc cung xoay dong thoi -- day la test quan trong nhat, xac nhan
     dung THU TU PHAN TICH YZX (khac voi XYZ thong thuong), vi day la truong

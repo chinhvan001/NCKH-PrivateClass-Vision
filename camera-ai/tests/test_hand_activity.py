@@ -19,12 +19,14 @@ class FakePerson:
 
 
 def make_person(wrist_x, wrist_y, left_shoulder, right_shoulder, wrist_conf=0.9):
-    return FakePerson({
-        "left_wrist": (wrist_x, wrist_y, wrist_conf),
-        "right_wrist": (wrist_x + 30, wrist_y, wrist_conf),
-        "left_shoulder": left_shoulder,
-        "right_shoulder": right_shoulder,
-    })
+    return FakePerson(
+        {
+            "left_wrist": (wrist_x, wrist_y, wrist_conf),
+            "right_wrist": (wrist_x + 30, wrist_y, wrist_conf),
+            "left_shoulder": left_shoulder,
+            "right_shoulder": right_shoulder,
+        }
+    )
 
 
 DEFAULT_SHOULDERS = ((60.0, 100.0, 0.9), (140.0, 100.0, 0.9))  # do rong 80px
@@ -75,10 +77,14 @@ def test_occluded_wrists_return_none():
     monitor = HandActivityMonitor(min_samples=3)
     result = None
     for t in [0.0, 1.0, 2.0, 3.0]:
-        person = FakePerson({
-            "left_wrist": None, "right_wrist": None,
-            "left_shoulder": DEFAULT_SHOULDERS[0], "right_shoulder": DEFAULT_SHOULDERS[1],
-        })
+        person = FakePerson(
+            {
+                "left_wrist": None,
+                "right_wrist": None,
+                "left_shoulder": DEFAULT_SHOULDERS[0],
+                "right_shoulder": DEFAULT_SHOULDERS[1],
+            }
+        )
         result = monitor.update(t, person)
     assert result is None
 
@@ -89,10 +95,14 @@ def test_missing_shoulder_prevents_sample_from_being_added():
     monitor = HandActivityMonitor(min_samples=3)
     result = None
     for t in [0.0, 1.0, 2.0]:
-        person = FakePerson({
-            "left_wrist": (50.0, 150.0, 0.9), "right_wrist": (150.0, 150.0, 0.9),
-            "left_shoulder": None, "right_shoulder": None,
-        })
+        person = FakePerson(
+            {
+                "left_wrist": (50.0, 150.0, 0.9),
+                "right_wrist": (150.0, 150.0, 0.9),
+                "left_shoulder": None,
+                "right_shoulder": None,
+            }
+        )
         result = monitor.update(t, person)
     assert result is None
 

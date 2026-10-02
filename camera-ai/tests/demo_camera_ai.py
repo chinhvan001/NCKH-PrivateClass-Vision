@@ -47,11 +47,24 @@ if TYPE_CHECKING:
 
 # Thu tu keypoint theo COCO-Pose.
 SKELETON_EDGES: Tuple[Tuple[int, int], ...] = (
-    (0, 1), (0, 2), (1, 3), (2, 4),
-    (0, 5), (0, 6), (5, 6),
-    (5, 7), (7, 9), (6, 8), (8, 10),
-    (5, 11), (6, 12), (11, 12),
-    (11, 13), (13, 15), (12, 14), (14, 16),
+    (0, 1),
+    (0, 2),
+    (1, 3),
+    (2, 4),
+    (0, 5),
+    (0, 6),
+    (5, 6),
+    (5, 7),
+    (7, 9),
+    (6, 8),
+    (8, 10),
+    (5, 11),
+    (6, 12),
+    (11, 12),
+    (11, 13),
+    (13, 15),
+    (12, 14),
+    (14, 16),
 )
 
 
@@ -147,9 +160,7 @@ def _status_color(status: str) -> Tuple[int, int, int]:
     return 0, 200, 0
 
 
-def _draw_side_conversation(
-    image, events: Iterable[SideConversationEvent], assigned: Dict[str, PersonPose]
-) -> None:
+def _draw_side_conversation(image, events: Iterable[SideConversationEvent], assigned: Dict[str, PersonPose]) -> None:
     """Ve canh bao quan sat cho cap quay ve phia nhau (khong ket luan co loi noi)."""
     for event in events:
         first, second = assigned.get(event.first_seat_id), assigned.get(event.second_seat_id)
@@ -274,15 +285,9 @@ def process_video(args: argparse.Namespace) -> None:
             anonymize_preview(image, people)
             assigned = _assign_to_seats(people, grid, args.max_distance) if grid.seats else {}
             conversation_events = (
-                conversation_detector.update(timestamp, assigned)
-                if conversation_detector is not None
-                else []
+                conversation_detector.update(timestamp, assigned) if conversation_detector is not None else []
             )
-            back_turn_events = (
-                back_turn_detector.update(timestamp, assigned)
-                if back_turn_detector is not None
-                else []
-            )
+            back_turn_events = back_turn_detector.update(timestamp, assigned) if back_turn_detector is not None else []
             visible: List[Tuple[str, PersonPose]] = (
                 list(assigned.items())
                 if assigned
@@ -297,9 +302,7 @@ def process_video(args: argparse.Namespace) -> None:
                 deviation = (
                     None
                     if not state.baseline.is_ready or torso is None
-                    else state.smoother_torso.add(
-                        timestamp, torso - (state.baseline.baseline_angle or 0.0)
-                    )
+                    else state.smoother_torso.add(timestamp, torso - (state.baseline.baseline_angle or 0.0))
                 )
                 head_event, slump_event = state.posture.update(timestamp, head, deviation)
                 state.engagement.update(timestamp, head_event, slump_event)
@@ -367,58 +370,76 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--seats", type=Path, help="File calibration seat grid JSON (tuy chon).")
     parser.add_argument("--model", default="models/yolov8n-pose.pt", help="Model YOLOv8-pose.")
     parser.add_argument(
-        "--person-model", default="models/yolo11s.pt",
+        "--person-model",
+        default="models/yolo11s.pt",
         help="Model object-detection class person de bao phu nguoi bi che/khuat.",
     )
     parser.add_argument("--confidence", type=float, default=0.20, help="Nguong confidence detection (CCTV xa: 0.20).")
     parser.add_argument("--person-confidence", type=float, default=0.15, help="Nguong person detector (CCTV: 0.15).")
     parser.add_argument(
-        "--person-iou", type=float, default=0.70,
+        "--person-iou",
+        type=float,
+        default=0.70,
         help="Nguong NMS person detector (0.70 giu nguoi ngoi sat nhau).",
     )
     parser.add_argument("--imgsz", type=int, default=960, help="Kich thuoc input YOLO (mac dinh 960, thay vi 640).")
     parser.add_argument("--iou", type=float, default=0.50, help="Nguong IoU cho NMS (mac dinh 0.50).")
     parser.add_argument("--max-detections", type=int, default=100, help="So nguoi toi da moi khung hinh.")
     parser.add_argument(
-        "--tile-size", type=int, default=960,
+        "--tile-size",
+        type=int,
+        default=960,
         help="Chia video thanh o vuong de bat nguoi o xa (0 de tat; mac dinh 960).",
     )
     parser.add_argument("--tile-overlap", type=float, default=0.20, help="Phan giao nhau giua cac o (0-<1).")
     parser.add_argument(
-        "--detect-side-conversation", action="store_true",
+        "--detect-side-conversation",
+        action="store_true",
         help="Canh bao cap ghe gan nhau quay mat ve nhau lien tuc (can --seats).",
     )
     parser.add_argument(
-        "--conversation-max-distance", type=float, default=260.0,
+        "--conversation-max-distance",
+        type=float,
+        default=260.0,
         help="Khoang cach pixel toi da cua hai ghe de xet tuong tac rieng.",
     )
     parser.add_argument(
-        "--conversation-duration", type=float, default=3.0,
+        "--conversation-duration",
+        type=float,
+        default=3.0,
         help="So giay lien tuc truoc khi hien canh bao tuong tac rieng.",
     )
     parser.add_argument(
-        "--detect-turning-back", action="store_true",
+        "--detect-turning-back",
+        action="store_true",
         help="Canh bao khi vai ro nhung mat khong huong camera (can --seats; camera frontal).",
     )
     parser.add_argument(
-        "--back-turn-duration", type=float, default=2.0,
+        "--back-turn-duration",
+        type=float,
+        default=2.0,
         help="So giay mat khong huong camera truoc khi canh bao.",
     )
     parser.add_argument(
-        "--back-turn-max-face-visibility", type=float, default=0.20,
+        "--back-turn-max-face-visibility",
+        type=float,
+        default=0.20,
         help="Nguong confidence mat toi da de coi la khong huong camera.",
     )
     parser.add_argument("--max-distance", type=float, default=None, help="Khoang cach gan seat toi da (pixel).")
     parser.add_argument(
-        "--output", type=Path,
+        "--output",
+        type=Path,
         help="Ghi video overlay ra file; bi chan mac dinh vi van chua pixel camera.",
     )
     parser.add_argument(
-        "--allow-persistent-output", action="store_true",
+        "--allow-persistent-output",
+        action="store_true",
         help="Xac nhan chi dung cho debug duoc phep ghi video overlay chua pixel camera.",
     )
     parser.add_argument(
-        "--engagement-jsonl", type=Path,
+        "--engagement-jsonl",
+        type=Path,
         help="Xuat chi so engagement an danh (seat_id, diem, su kien); khong co pixel/keypoint/bbox.",
     )
     return parser.parse_args()

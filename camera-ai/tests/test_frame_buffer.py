@@ -123,10 +123,7 @@ def test_concurrent_put_does_not_crash_or_lose_count_consistency():
         for i in range(frames_per_thread):
             buf.put(make_frame(start_index + i))
 
-    threads = [
-        threading.Thread(target=worker, args=(t * frames_per_thread,))
-        for t in range(n_threads)
-    ]
+    threads = [threading.Thread(target=worker, args=(t * frames_per_thread,)) for t in range(n_threads)]
     for t in threads:
         t.start()
     for t in threads:

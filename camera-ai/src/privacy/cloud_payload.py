@@ -31,7 +31,9 @@ class CloudEngagementPayload:
         }
 
 
-def make_cloud_payload(seat_id: str, keypoints: Iterable[tuple[float, float]], engagement_score: float | None) -> CloudEngagementPayload:
+def make_cloud_payload(
+    seat_id: str, keypoints: Iterable[tuple[float, float]], engagement_score: float | None
+) -> CloudEngagementPayload:
     if not isinstance(seat_id, str) or not seat_id.strip():
         raise CloudPayloadError("seat_id phai la chuoi khong rong.")
     normalized = []
