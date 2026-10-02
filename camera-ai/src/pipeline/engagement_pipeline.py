@@ -8,6 +8,7 @@ from typing import Dict, List, Protocol
 from src.capture import CameraCapture, CaptureConfig
 from src.detection.pose_detector import PersonPose
 from src.engagement.engagement_score import SeatEngagementTracker, classify_posture_state
+from src.engagement.hand_activity import HandActivityMonitor
 from src.engagement.posture import compute_head_drop_ratio, compute_torso_vector_angle
 from src.engagement.posture_monitor import BaselineEstablisher, PostureMonitor, PostureThresholds
 from src.privacy import AnonymizedEngagementRecord, anonymize_engagement, dispose_frame
@@ -26,6 +27,7 @@ class _SeatPipelineState:
     tracker: SeatEngagementTracker
     baseline: BaselineEstablisher
     monitor: PostureMonitor
+    hands: HandActivityMonitor
 
 
 @dataclass(frozen=True)
@@ -72,6 +74,7 @@ def run_pipeline(
                             tracker=SeatEngagementTracker(assignment.seat_id),
                             baseline=BaselineEstablisher(calibration_duration_sec),
                             monitor=PostureMonitor(thresholds),
+                            hands=HandActivityMonitor(),
                         ),
                     )
                     head_signal = compute_head_drop_ratio(assignment.person)
@@ -83,8 +86,11 @@ def run_pipeline(
                         else None
                     )
                     head_event, slump_event = state.monitor.update(timestamp, head_signal, deviation)
-                    state.tracker.update(timestamp, head_event, slump_event)
-                    posture_state = classify_posture_state(head_event, slump_event)
+                    # Cap nhat moi frame (khong chi khi cui dau) de cua so bien thien co tay
+                    # da du mau ngay khi head_event bat dau.
+                    hand_activity = state.hands.update(timestamp, assignment.person)
+                    state.tracker.update(timestamp, head_event, slump_event, hand_activity)
+                    posture_state = classify_posture_state(head_event, slump_event, hand_activity)
                     records.append(anonymize_engagement(state.tracker.compute_score(), timestamp, posture_state))
             finally:
                 dispose_frame(frame)
