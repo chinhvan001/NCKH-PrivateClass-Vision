@@ -100,3 +100,8 @@ def test_unknown_alert_type_fails_fast():
 def test_invalid_config_rejected():
     with pytest.raises(ValueError):
         AlertManager("sess", cooldown_sec=-1)
+
+
+def test_invalid_session_id_rejected_at_construction():
+    with pytest.raises(AlertEventError):
+        AlertManager("lop 10A1")
