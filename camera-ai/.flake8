@@ -1,0 +1,11 @@
+# flake8 khong doc pyproject.toml; giu max-line-length khop voi [tool.black].
+[flake8]
+max-line-length = 120
+# E203/W503 xung dot voi cach black format.
+extend-ignore = E203, W503
+exclude = venv, .venv, __pycache__, .pytest_cache
+# Script/demo can sys.path.insert truoc khi import src.*
+per-file-ignores =
+    tests/demo_camera_ai.py: E402
+    tests/smoke_test.py: E402
+    tools/*.py: E402
