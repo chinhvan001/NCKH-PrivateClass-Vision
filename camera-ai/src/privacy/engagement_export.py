@@ -29,9 +29,7 @@ class AnonymizedEngagementRecord:
         return asdict(self)
 
 
-def anonymize_engagement(
-    score: EngagementScore, timestamp: float, posture_state: str
-) -> AnonymizedEngagementRecord:
+def anonymize_engagement(score: EngagementScore, timestamp: float, posture_state: str) -> AnonymizedEngagementRecord:
     """Chuyen ket qua noi bo thanh schema xuat toi thieu da cho phep."""
     return AnonymizedEngagementRecord(
         seat_id=score.seat_id,

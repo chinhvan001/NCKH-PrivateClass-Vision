@@ -98,9 +98,7 @@ class SeatGrid:
         for i, item in enumerate(raw["seats"]):
             missing = {"seat_id", "center_x", "center_y"} - set(item.keys())
             if missing:
-                raise SeatGridError(
-                    f"Phan tu thu {i} trong 'seats' thieu truong bat buoc: {missing}"
-                )
+                raise SeatGridError(f"Phan tu thu {i} trong 'seats' thieu truong bat buoc: {missing}")
             seats.append(
                 Seat(
                     seat_id=str(item["seat_id"]),
@@ -114,12 +112,7 @@ class SeatGrid:
     def to_json_file(self, path: Union[str, Path]) -> None:
         """Ghi SeatGrid hien tai ra file JSON (huu ich khi tao calibration
         bang code/script rieng thay vi viet tay file JSON)."""
-        data = {
-            "seats": [
-                {"seat_id": s.seat_id, "center_x": s.center_x, "center_y": s.center_y}
-                for s in self.seats
-            ]
-        }
+        data = {"seats": [{"seat_id": s.seat_id, "center_x": s.center_x, "center_y": s.center_y} for s in self.seats]}
         Path(path).write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
 
     def find_nearest_seat(self, x: float, y: float) -> Optional[Seat]:

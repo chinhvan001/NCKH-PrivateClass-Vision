@@ -55,9 +55,7 @@ class SideConversationDetector:
         self.max_gap_sec = max_gap_sec
         self._states: Dict[Tuple[str, str], _PairState] = {}
 
-    def update(
-        self, timestamp: float, people_by_seat: Mapping[str, PersonPose]
-    ) -> List[SideConversationEvent]:
+    def update(self, timestamp: float, people_by_seat: Mapping[str, PersonPose]) -> List[SideConversationEvent]:
         """Cap nhat mot frame va tra ve cac cap da duy tri du lau.
 
         Chi ghep moi nguoi voi mot nguoi gan nhat trong frame, tranh mot hoc
@@ -69,7 +67,7 @@ class SideConversationDetector:
             first_center = self._shoulder_midpoint(first)
             if first_center is None:
                 continue
-            for second_id, second in items[index + 1:]:
+            for second_id, second in items[index + 1 :]:
                 second_center = self._shoulder_midpoint(second)
                 if second_center is None:
                     continue
@@ -132,22 +130,16 @@ class SideConversationDetector:
             return False
         direction = 1 if second_center[0] > first_center[0] else -1
         return (
-            first_turn * direction >= self.min_head_turn_ratio
-            and second_turn * direction <= -self.min_head_turn_ratio
+            first_turn * direction >= self.min_head_turn_ratio and second_turn * direction <= -self.min_head_turn_ratio
         )
 
     @staticmethod
-    def _head_turn_ratio(
-        person: PersonPose, shoulder_center: Tuple[float, float]
-    ) -> Optional[float]:
+    def _head_turn_ratio(person: PersonPose, shoulder_center: Tuple[float, float]) -> Optional[float]:
         """Do lech ngang cua mui theo be rong vai; am=trai, duong=phai."""
         nose = person.get_keypoint("nose")
         left = person.get_keypoint("left_shoulder")
         right = person.get_keypoint("right_shoulder")
-        if (
-            nose is None or left is None or right is None
-            or nose[2] < 0.3 or left[2] < 0.3 or right[2] < 0.3
-        ):
+        if nose is None or left is None or right is None or nose[2] < 0.3 or left[2] < 0.3 or right[2] < 0.3:
             return None
         shoulder_width = math.dist((left[0], left[1]), (right[0], right[1]))
         if shoulder_width < 5.0:

@@ -32,6 +32,7 @@ def make_person(shoulder_x=None, shoulder_y=None, left_conf=0.9, right_conf=0.9,
 # shoulder_midpoint()
 # ---------------------------------------------------------------
 
+
 def test_shoulder_midpoint_both_shoulders_confident():
     person = make_person(shoulder_x=100, shoulder_y=200, offset=10)
     mid = shoulder_midpoint(person)
@@ -54,18 +55,25 @@ def test_shoulder_midpoint_both_low_confidence_returns_none():
 # assign_seats() -- dan skeleton o nhieu vi tri khac nhau
 # ---------------------------------------------------------------
 
+
 def make_grid():
     """Luoi 3x2 = 6 ghe, mo phong mot goc nho cua lop hoc."""
-    return SeatGrid(seats=[
-        Seat("R1C1", 100, 100), Seat("R1C2", 300, 100), Seat("R1C3", 500, 100),
-        Seat("R2C1", 100, 300), Seat("R2C2", 300, 300), Seat("R2C3", 500, 300),
-    ])
+    return SeatGrid(
+        seats=[
+            Seat("R1C1", 100, 100),
+            Seat("R1C2", 300, 100),
+            Seat("R1C3", 500, 100),
+            Seat("R2C1", 100, 300),
+            Seat("R2C2", 300, 300),
+            Seat("R2C3", 500, 300),
+        ]
+    )
 
 
 def test_assign_seats_multiple_people_different_positions():
     grid = make_grid()
     people = [
-        make_person(shoulder_x=105, shoulder_y=95, offset=5),   # gan R1C1
+        make_person(shoulder_x=105, shoulder_y=95, offset=5),  # gan R1C1
         make_person(shoulder_x=310, shoulder_y=105, offset=5),  # gan R1C2
         make_person(shoulder_x=495, shoulder_y=305, offset=5),  # gan R2C3
     ]

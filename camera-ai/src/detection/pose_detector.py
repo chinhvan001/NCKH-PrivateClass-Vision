@@ -32,10 +32,23 @@ logger = logging.getLogger("camera_ai.detection")
 # Ten 17 keypoint theo dung thu tu chuan COCO-Pose (khop voi thu tu output
 # cua YOLOv8-pose) -- dung de truy cap keypoint theo ten thay vi nho chi so.
 COCO_KEYPOINT_NAMES = [
-    "nose", "left_eye", "right_eye", "left_ear", "right_ear",
-    "left_shoulder", "right_shoulder", "left_elbow", "right_elbow",
-    "left_wrist", "right_wrist", "left_hip", "right_hip",
-    "left_knee", "right_knee", "left_ankle", "right_ankle",
+    "nose",
+    "left_eye",
+    "right_eye",
+    "left_ear",
+    "right_ear",
+    "left_shoulder",
+    "right_shoulder",
+    "left_elbow",
+    "right_elbow",
+    "left_wrist",
+    "right_wrist",
+    "left_hip",
+    "right_hip",
+    "left_knee",
+    "right_knee",
+    "left_ankle",
+    "right_ankle",
 ]
 
 
@@ -119,9 +132,25 @@ class PoseDetector:
         self._model = None
         self._config_lock = threading.RLock()
 
-    def apply_runtime_config(self, *, min_confidence: float, iou_threshold: float, image_size: int, max_detections: int, tile_size: Optional[int], tile_overlap: float) -> None:
+    def apply_runtime_config(
+        self,
+        *,
+        min_confidence: float,
+        iou_threshold: float,
+        image_size: int,
+        max_detections: int,
+        tile_size: Optional[int],
+        tile_overlap: float,
+    ) -> None:
         """Ap dung tham so moi giua hai frame, khong nap lai model."""
-        if image_size <= 0 or max_detections <= 0 or not 0 < min_confidence <= 1 or not 0 < iou_threshold <= 1 or (tile_size is not None and tile_size <= 0) or not 0 <= tile_overlap < 1:
+        if (
+            image_size <= 0
+            or max_detections <= 0
+            or not 0 < min_confidence <= 1
+            or not 0 < iou_threshold <= 1
+            or (tile_size is not None and tile_size <= 0)
+            or not 0 <= tile_overlap < 1
+        ):
             raise ValueError("Pose runtime config khong hop le.")
         with self._config_lock:
             self._min_confidence, self._iou_threshold = min_confidence, iou_threshold
@@ -151,20 +180,19 @@ class PoseDetector:
             from ultralytics import YOLO
         except ImportError as e:
             raise PoseDetectorError(
-                "Chua cai thu vien 'ultralytics'. Chay: pip install ultralytics "
-                "(se tu dong cai kem torch)."
+                "Chua cai thu vien 'ultralytics'. Chay: pip install ultralytics " "(se tu dong cai kem torch)."
             ) from e
 
         try:
             self._model = YOLO(self._model_path)
         except Exception as e:  # Ultralytics/torch co the nem nhieu loai loi khac nhau
-            raise PoseDetectorError(
-                f"Khong nap duoc model YOLOv8-pose tu '{self._model_path}': {e}"
-            ) from e
+            raise PoseDetectorError(f"Khong nap duoc model YOLOv8-pose tu '{self._model_path}': {e}") from e
 
         logger.info(
             "Da nap YOLOv8-pose tu '%s' (conf=%.2f, imgsz=%d, tile=%s).",
-            self._model_path, self._min_confidence, self._image_size,
+            self._model_path,
+            self._min_confidence,
+            self._image_size,
             self._tile_size if self._tile_size is not None else "tat",
         )
 
@@ -191,16 +219,14 @@ class PoseDetector:
                    khong can tu convert sang RGB nhu voi MediaPipe).
         """
         if self._model is None:
-            raise RuntimeError(
-                "PoseDetector chua duoc mo. Goi open() truoc, hoac dung 'with'."
-            )
+            raise RuntimeError("PoseDetector chua duoc mo. Goi open() truoc, hoac dung 'with'.")
 
         with self._config_lock:
             if self._tile_size is None:
                 return self._predict(image_bgr)
 
             height, width = image_bgr.shape[:2]
-        # Khong chia o cho khung nho hon tile: tranh lap lai inference vo ich.
+            # Khong chia o cho khung nho hon tile: tranh lap lai inference vo ich.
             if width <= self._tile_size and height <= self._tile_size:
                 return self._predict(image_bgr)
 
@@ -235,8 +261,8 @@ class PoseDetector:
                     x,
                     y,
                     image_bgr[
-                        y:min(y + self._tile_size, height),
-                        x:min(x + self._tile_size, width),
+                        y : min(y + self._tile_size, height),
+                        x : min(x + self._tile_size, width),
                     ],
                 )
 
@@ -265,7 +291,7 @@ class PoseDetector:
         for person in sorted(people, key=lambda item: item.confidence, reverse=True):
             if all(self._box_iou(person.bbox, existing.bbox) < self._iou_threshold for existing in kept):
                 kept.append(person)
-        return kept[:self._max_detections]
+        return kept[: self._max_detections]
 
     @staticmethod
     def _box_iou(a: Tuple[float, float, float, float], b: Tuple[float, float, float, float]) -> float:
@@ -297,19 +323,14 @@ class PoseDetector:
 
         keypoints_xy = result.keypoints.xy.tolist()  # [[[x,y], ...17 diem], ...moi nguoi]
         keypoints_conf_tensor = result.keypoints.conf
-        keypoints_conf = (
-            keypoints_conf_tensor.tolist() if keypoints_conf_tensor is not None else None
-        )
+        keypoints_conf = keypoints_conf_tensor.tolist() if keypoints_conf_tensor is not None else None
         boxes_xyxy = result.boxes.xyxy.tolist()
         boxes_conf = result.boxes.conf.tolist()
 
         for i, kp_xy in enumerate(keypoints_xy):
             kp_conf = keypoints_conf[i] if keypoints_conf is not None else [1.0] * len(kp_xy)
 
-            keypoints = [
-                (float(x), float(y), float(c))
-                for (x, y), c in zip(kp_xy, kp_conf)
-            ]
+            keypoints = [(float(x), float(y), float(c)) for (x, y), c in zip(kp_xy, kp_conf)]
 
             people.append(
                 PersonPose(

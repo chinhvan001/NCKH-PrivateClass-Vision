@@ -1,7 +1,9 @@
 import locale
-locale.setlocale(locale.LC_ALL, 'C')
+
+locale.setlocale(locale.LC_ALL, "C")
 
 import cv2
+
 cap = cv2.VideoCapture(0)
 if not cap.isOpened():
     print("Không mở được camera — kiểm tra lại CAMERA_SOURCE hoặc quyền truy cập camera.")

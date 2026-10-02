@@ -44,10 +44,13 @@ def test_example_1_full_focus_scores_100():
 
 def test_example_2_slump_10_percent_scores_95():
     tracker = SeatEngagementTracker(seat_id="A1")
-    run_sequence(tracker, [
-        (1620.0, False, False),
-        (180.0, False, True),
-    ])
+    run_sequence(
+        tracker,
+        [
+            (1620.0, False, False),
+            (180.0, False, True),
+        ],
+    )
 
     result = tracker.compute_score()
 
@@ -58,10 +61,13 @@ def test_example_2_slump_10_percent_scores_95():
 
 def test_example_3_head_drop_10_percent_scores_90():
     tracker = SeatEngagementTracker(seat_id="A1")
-    run_sequence(tracker, [
-        (1620.0, False, False),
-        (180.0, True, False),
-    ])
+    run_sequence(
+        tracker,
+        [
+            (1620.0, False, False),
+            (180.0, True, False),
+        ],
+    )
 
     result = tracker.compute_score()
 
@@ -71,11 +77,14 @@ def test_example_3_head_drop_10_percent_scores_90():
 
 def test_example_4_mixed_slump_and_head_drop_scores_80():
     tracker = SeatEngagementTracker(seat_id="A1")
-    run_sequence(tracker, [
-        (1260.0, False, False),
-        (360.0, False, True),
-        (180.0, True, False),
-    ])
+    run_sequence(
+        tracker,
+        [
+            (1260.0, False, False),
+            (360.0, False, True),
+            (180.0, True, False),
+        ],
+    )
 
     result = tracker.compute_score()
 
@@ -149,11 +158,14 @@ def test_count_increments_again_after_returning_to_normal():
     """Head drop -> tro ve normal -> head drop lan nua = 2 chuoi rieng biet
     -- count phai la 2."""
     tracker = SeatEngagementTracker(seat_id="A1")
-    run_sequence(tracker, [
-        (2.0, True, False),   # chuoi head_drop #1
-        (2.0, False, False),  # tro ve normal
-        (2.0, True, False),   # chuoi head_drop #2
-    ])
+    run_sequence(
+        tracker,
+        [
+            (2.0, True, False),  # chuoi head_drop #1
+            (2.0, False, False),  # tro ve normal
+            (2.0, True, False),  # chuoi head_drop #2
+        ],
+    )
 
     result = tracker.compute_score()
     assert result.head_drop_count == 2
@@ -161,11 +173,14 @@ def test_count_increments_again_after_returning_to_normal():
 
 def test_slumping_count_independent_of_head_drop_count():
     tracker = SeatEngagementTracker(seat_id="A1")
-    run_sequence(tracker, [
-        (2.0, False, True),   # slumping #1
-        (2.0, True, False),   # head_drop #1 (cung la chuyen trang thai)
-        (2.0, False, True),   # slumping #2
-    ])
+    run_sequence(
+        tracker,
+        [
+            (2.0, False, True),  # slumping #1
+            (2.0, True, False),  # head_drop #1 (cung la chuyen trang thai)
+            (2.0, False, True),  # slumping #2
+        ],
+    )
 
     result = tracker.compute_score()
     assert result.slumping_count == 2

@@ -137,7 +137,8 @@ class SeatTracker:
         for seat_id in expired_seat_ids:
             logger.debug(
                 "Seat '%s' khong thay nguoi sau %d khung hinh lien tiep -- coi la trong.",
-                seat_id, self._max_missing_frames,
+                seat_id,
+                self._max_missing_frames,
             )
             del self._states[seat_id]
 

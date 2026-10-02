@@ -35,15 +35,31 @@ def _draw_room(frame: np.ndarray) -> None:
     height, width = frame.shape[:2]
     frame[:] = (210, 218, 226)
     cv2.rectangle(frame, (0, 0), (width, int(height * 0.16)), (65, 95, 125), -1)
-    cv2.putText(frame, "SYNTHETIC CLASSROOM - NO REAL PEOPLE", (20, 35), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (240, 240, 240), 1)
-    cv2.rectangle(frame, (int(width * 0.34), int(height * 0.05)), (int(width * 0.66), int(height * 0.13)), (55, 75, 70), -1)
+    cv2.putText(
+        frame, "SYNTHETIC CLASSROOM - NO REAL PEOPLE", (20, 35), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (240, 240, 240), 1
+    )
+    cv2.rectangle(
+        frame, (int(width * 0.34), int(height * 0.05)), (int(width * 0.66), int(height * 0.13)), (55, 75, 70), -1
+    )
 
 
 def _draw_desk(frame: np.ndarray, x: int, y: int, scale: float) -> None:
     desk_width, desk_height = int(76 * scale), int(25 * scale)
     cv2.rectangle(frame, (x - desk_width // 2, y), (x + desk_width // 2, y + desk_height), (70, 105, 140), -1)
-    cv2.line(frame, (x - desk_width // 3, y + desk_height), (x - desk_width // 2, y + desk_height + int(22 * scale)), (45, 65, 80), 2)
-    cv2.line(frame, (x + desk_width // 3, y + desk_height), (x + desk_width // 2, y + desk_height + int(22 * scale)), (45, 65, 80), 2)
+    cv2.line(
+        frame,
+        (x - desk_width // 3, y + desk_height),
+        (x - desk_width // 2, y + desk_height + int(22 * scale)),
+        (45, 65, 80),
+        2,
+    )
+    cv2.line(
+        frame,
+        (x + desk_width // 3, y + desk_height),
+        (x + desk_width // 2, y + desk_height + int(22 * scale)),
+        (45, 65, 80),
+        2,
+    )
 
 
 def _draw_silhouette(frame: np.ndarray, x: int, y: int, scale: float, pose: str) -> None:
@@ -59,7 +75,9 @@ def _draw_silhouette(frame: np.ndarray, x: int, y: int, scale: float, pose: str)
     else:
         offset = -head_radius // 3 if pose == "talk_left" else head_radius // 3 if pose == "talk_right" else 0
         cv2.circle(frame, (x + offset, head_y), head_radius, (135, 145, 155), -1)
-    cv2.rectangle(frame, (x - body_width // 2, y - int(18 * scale)), (x + body_width // 2, y + body_height // 2), color, -1)
+    cv2.rectangle(
+        frame, (x - body_width // 2, y - int(18 * scale)), (x + body_width // 2, y + body_height // 2), color, -1
+    )
     cv2.line(frame, (x - body_width // 2, y), (x - int(42 * scale), y + int(18 * scale)), color, max(2, int(4 * scale)))
     cv2.line(frame, (x + body_width // 2, y), (x + int(42 * scale), y + int(18 * scale)), color, max(2, int(4 * scale)))
 
@@ -83,7 +101,18 @@ def _poses_for_scenario(seats: list[dict], scenario: str) -> dict[str, str]:
     return poses
 
 
-def generate_video(output: Path, seats_path: Path, labels_path: Path, *, width: int = 960, height: int = 540, fps: int = 15, duration_sec: int = 12, rows: int = 3, columns: int = 4) -> None:
+def generate_video(
+    output: Path,
+    seats_path: Path,
+    labels_path: Path,
+    *,
+    width: int = 960,
+    height: int = 540,
+    fps: int = 15,
+    duration_sec: int = 12,
+    rows: int = 3,
+    columns: int = 4,
+) -> None:
     if min(width, height, fps, duration_sec, rows, columns) <= 0:
         raise ValueError("Kich thuoc, FPS, thoi luong, rows va columns phai > 0.")
     output.parent.mkdir(parents=True, exist_ok=True)
@@ -106,9 +135,21 @@ def generate_video(output: Path, seats_path: Path, labels_path: Path, *, width: 
                     bob = round(math.sin(frame_index / fps * 2.0 + seat["center_x"]) * scale)
                     _draw_desk(frame, seat["center_x"], seat["center_y"], scale)
                     _draw_silhouette(frame, seat["center_x"], seat["center_y"] + bob, scale, poses[seat["seat_id"]])
-                cv2.putText(frame, f"scenario: {scenario}", (20, height - 20), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (40, 40, 40), 1)
+                cv2.putText(
+                    frame, f"scenario: {scenario}", (20, height - 20), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (40, 40, 40), 1
+                )
                 writer.write(frame)
-                labels.write(json.dumps({"frame_index": frame_index, "timestamp_sec": round(frame_index / fps, 3), "scenario": scenario}, ensure_ascii=False) + "\n")
+                labels.write(
+                    json.dumps(
+                        {
+                            "frame_index": frame_index,
+                            "timestamp_sec": round(frame_index / fps, 3),
+                            "scenario": scenario,
+                        },
+                        ensure_ascii=False,
+                    )
+                    + "\n"
+                )
     finally:
         writer.release()
 
@@ -130,7 +171,17 @@ def parse_args() -> argparse.Namespace:
 def main() -> int:
     args = parse_args()
     try:
-        generate_video(args.output, args.seats, args.labels, width=args.width, height=args.height, fps=args.fps, duration_sec=args.duration, rows=args.rows, columns=args.columns)
+        generate_video(
+            args.output,
+            args.seats,
+            args.labels,
+            width=args.width,
+            height=args.height,
+            fps=args.fps,
+            duration_sec=args.duration,
+            rows=args.rows,
+            columns=args.columns,
+        )
     except (RuntimeError, ValueError) as error:
         print(error)
         return 1

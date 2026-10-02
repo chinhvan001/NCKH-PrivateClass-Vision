@@ -20,7 +20,14 @@ if str(ROOT) not in sys.path:
 
 from src.detection.person_detector import PersonDetector
 
-SCENES = ("SCB5-Discuss-2024-9-17", "SCB5-Talk-2024-9-17", "SCB5-Handrise-Read-write-2024-9-17", "SCB5-Stand-2024-9-17", "SCB5-Teacher-2024-9-17", "SCB5-BlackBoard-Sreen-Teacher")
+SCENES = (
+    "SCB5-Discuss-2024-9-17",
+    "SCB5-Talk-2024-9-17",
+    "SCB5-Handrise-Read-write-2024-9-17",
+    "SCB5-Stand-2024-9-17",
+    "SCB5-Teacher-2024-9-17",
+    "SCB5-BlackBoard-Sreen-Teacher",
+)
 
 
 def arguments() -> argparse.Namespace:
@@ -36,7 +43,9 @@ def arguments() -> argparse.Namespace:
 def to_yolo(box: tuple[float, float, float, float], width: int, height: int) -> str:
     x1, y1, x2, y2 = box
     box_width, box_height = max(0.0, x2 - x1), max(0.0, y2 - y1)
-    return f"0 {(x1 + x2) / 2 / width:.8f} {(y1 + y2) / 2 / height:.8f} {box_width / width:.8f} {box_height / height:.8f}"
+    return (
+        f"0 {(x1 + x2) / 2 / width:.8f} {(y1 + y2) / 2 / height:.8f} {box_width / width:.8f} {box_height / height:.8f}"
+    )
 
 
 def main() -> int:
@@ -64,8 +73,21 @@ def main() -> int:
                 relative = Path(scene) / "images" / "val" / image_path.name
                 label_path = proposal_root / scene / "labels" / "val" / image_path.with_suffix(".txt").name
                 label_path.parent.mkdir(parents=True, exist_ok=True)
-                label_path.write_text("\n".join(to_yolo(box.bbox, width, height) for box in boxes) + ("\n" if boxes else ""), encoding="utf-8")
-                rows.append({"image": relative.as_posix(), "proposal": label_path.relative_to(output).as_posix(), "scene": scene, "split": "calibration" if index % 3 else "locked_test", "proposal_count": len(boxes), "status": "needs_human_review", "identity_fields": None})
+                label_path.write_text(
+                    "\n".join(to_yolo(box.bbox, width, height) for box in boxes) + ("\n" if boxes else ""),
+                    encoding="utf-8",
+                )
+                rows.append(
+                    {
+                        "image": relative.as_posix(),
+                        "proposal": label_path.relative_to(output).as_posix(),
+                        "scene": scene,
+                        "split": "calibration" if index % 3 else "locked_test",
+                        "proposal_count": len(boxes),
+                        "status": "needs_human_review",
+                        "identity_fields": None,
+                    }
+                )
                 del image
     manifest_path.parent.mkdir(parents=True, exist_ok=True)
     manifest_path.write_text("".join(json.dumps(row, ensure_ascii=False) + "\n" for row in rows), encoding="utf-8")

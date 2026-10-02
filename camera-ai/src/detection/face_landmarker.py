@@ -110,8 +110,7 @@ class FaceLandmarker:
             raise
         except Exception as e:  # mediapipe co the nem nhieu loai loi C++ khac nhau
             raise FaceLandmarkerError(
-                f"Khong khoi tao duoc MediaPipe FaceLandmarker tu model "
-                f"'{self._config.model_path}': {e}"
+                f"Khong khoi tao duoc MediaPipe FaceLandmarker tu model " f"'{self._config.model_path}': {e}"
             ) from e
 
         self._last_timestamp_ms = None
@@ -149,9 +148,7 @@ class FaceLandmarker:
         mat nao), moi phan tu ung voi 1 khuon mat.
         """
         if self._landmarker is None:
-            raise RuntimeError(
-                "FaceLandmarker chua duoc mo. Goi open() truoc, hoac dung 'with'."
-            )
+            raise RuntimeError("FaceLandmarker chua duoc mo. Goi open() truoc, hoac dung 'with'.")
 
         timestamp_ms = self._to_monotonic_ms(timestamp)
 
@@ -188,10 +185,7 @@ class FaceLandmarker:
         matrices = result.facial_transformation_matrixes or []
 
         for i, landmarks in enumerate(result.face_landmarks):
-            points = [
-                (int(lm.x * image_width), int(lm.y * image_height), lm.z)
-                for lm in landmarks
-            ]
+            points = [(int(lm.x * image_width), int(lm.y * image_height), lm.z) for lm in landmarks]
             matrix = matrices[i] if i < len(matrices) else None
             faces.append(FaceLandmarks(points=points, transformation_matrix=matrix))
 

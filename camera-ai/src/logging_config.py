@@ -69,9 +69,7 @@ def setup_logging(
     """
     global _configured
     if _configured:
-        logging.getLogger("camera_ai").debug(
-            "setup_logging() da duoc goi truoc do trong tien trinh nay, bo qua."
-        )
+        logging.getLogger("camera_ai").debug("setup_logging() da duoc goi truoc do trong tien trinh nay, bo qua.")
         return
 
     resolved_level = (level or os.getenv("LOG_LEVEL", "INFO")).upper()
@@ -107,7 +105,10 @@ def setup_logging(
     _configured = True
     app_logger.info(
         "Da cau hinh logging: level=%s, file=%s (rotate %d bytes x %d ban sao)",
-        resolved_level, resolved_log_file, max_bytes, backup_count,
+        resolved_level,
+        resolved_log_file,
+        max_bytes,
+        backup_count,
     )
 
 

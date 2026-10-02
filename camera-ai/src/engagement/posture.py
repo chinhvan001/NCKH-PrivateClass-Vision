@@ -101,9 +101,7 @@ def compute_head_drop_ratio(person: PersonPose) -> Optional[float]:
     if not _keypoints_confident(nose, left_shoulder, right_shoulder):
         return None
 
-    shoulder_width = math.hypot(
-        left_shoulder[0] - right_shoulder[0], left_shoulder[1] - right_shoulder[1]
-    )
+    shoulder_width = math.hypot(left_shoulder[0] - right_shoulder[0], left_shoulder[1] - right_shoulder[1])
     if shoulder_width < MIN_SHOULDER_WIDTH_PIXELS:
         return None
 
@@ -152,9 +150,7 @@ def compute_face_visibility_score(person: PersonPose) -> Optional[float]:
     return sum(confidences) / len(confidences)
 
 
-def select_head_down_signal(
-    person: PersonPose, camera_angle_type: CameraAngleType
-) -> Optional[float]:
+def select_head_down_signal(person: PersonPose, camera_angle_type: CameraAngleType) -> Optional[float]:
     """Diem vao THONG NHAT: tu dong chon dung ham tinh tin hieu "cui dau"
     theo loai goc camera da khai bao (xem CameraAngleType, khai bao thu
     cong tai buoc calibration -- KHONG tu dong phat hien).
@@ -177,8 +173,7 @@ def select_head_down_signal(
     if camera_angle_type == "top_down":
         return compute_face_visibility_score(person)
     raise ValueError(
-        f"camera_angle_type khong hop le: {camera_angle_type!r} "
-        '(chi chap nhan "frontal" hoac "top_down")'
+        f"camera_angle_type khong hop le: {camera_angle_type!r} " '(chi chap nhan "frontal" hoac "top_down")'
     )
 
 

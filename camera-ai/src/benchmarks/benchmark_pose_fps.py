@@ -53,9 +53,7 @@ def generate_synthetic_image(width: int, height: int) -> np.ndarray:
     return np.random.randint(0, 255, (height, width, 3), dtype=np.uint8)
 
 
-def load_or_generate_image(
-    image_path: str, width: int, height: int
-) -> Tuple[np.ndarray, bool]:
+def load_or_generate_image(image_path: str, width: int, height: int) -> Tuple[np.ndarray, bool]:
     """Doc anh that neu co duong dan, hoac sinh anh gia lap.
 
     Tra ve (anh, is_real_image) -- is_real_image=False nghia la anh gia lap,
@@ -97,11 +95,14 @@ def benchmark_resolution(model, image: np.ndarray, n_warmup: int, n_runs: int) -
 
 def main():
     parser = argparse.ArgumentParser(description="Benchmark FPS YOLOv8-pose tren CPU")
-    parser.add_argument("--model", default="models/yolov8n-pose.pt", help="Duong dan model (mac dinh: models/yolov8n-pose.pt)")
     parser.add_argument(
-        "--image", default=None,
+        "--model", default="models/yolov8n-pose.pt", help="Duong dan model (mac dinh: models/yolov8n-pose.pt)"
+    )
+    parser.add_argument(
+        "--image",
+        default=None,
         help="Duong dan anh that (KHUYEN NGHI MANH: dung anh lop hoc/anh dong nguoi). "
-             "Neu bo trong, tu sinh anh gia lap KHONG CO NGUOI -- chi de test nhanh."
+        "Neu bo trong, tu sinh anh gia lap KHONG CO NGUOI -- chi de test nhanh.",
     )
     parser.add_argument("--runs", type=int, default=20, help="So lan chay moi do phan giai (mac dinh 20)")
     parser.add_argument("--warmup", type=int, default=3, help="So lan chay warmup, khong tinh vao ket qua (mac dinh 3)")
@@ -127,7 +128,9 @@ def main():
         print("truoc khi chot so lieu vao bao cao benchmark chinh thuc.")
         print()
 
-    print(f"{'Do phan giai':<15}{'FPS trung binh':<16}{'FPS thap nhat':<16}{'Thoi gian TB (ms)':<20}{'So nguoi phat hien':<20}{'Nguon anh'}")
+    print(
+        f"{'Do phan giai':<15}{'FPS trung binh':<16}{'FPS thap nhat':<16}{'Thoi gian TB (ms)':<20}{'So nguoi phat hien':<20}{'Nguon anh'}"
+    )
     print("-" * 100)
 
     results_summary = []
@@ -145,21 +148,25 @@ def main():
         res_label = f"{width}x{height}"
         print(f"{res_label:<15}{avg_fps:<16.2f}{min_fps:<16.2f}{avg_ms:<20.1f}{n_detected:<20}{source_label}")
 
-        results_summary.append({
-            "resolution": res_label,
-            "avg_fps": avg_fps,
-            "min_fps": min_fps,
-            "avg_ms": avg_ms,
-            "n_detected": n_detected,
-            "is_real_image": is_real,
-        })
+        results_summary.append(
+            {
+                "resolution": res_label,
+                "avg_fps": avg_fps,
+                "min_fps": min_fps,
+                "avg_ms": avg_ms,
+                "n_detected": n_detected,
+                "is_real_image": is_real,
+            }
+        )
 
     print()
     print("=== Goi y de dien vao bao cao (bien an toan 20% duoi FPS thap nhat do duoc) ===")
     for r in results_summary:
         sustainable = r["min_fps"] * 0.8
-        print(f"- {r['resolution']}: FPS trung binh {r['avg_fps']:.2f}  ->  "
-              f"de xuat CAMERA_FPS xu ly: {sustainable:.1f}")
+        print(
+            f"- {r['resolution']}: FPS trung binh {r['avg_fps']:.2f}  ->  "
+            f"de xuat CAMERA_FPS xu ly: {sustainable:.1f}"
+        )
 
     if not any(r["is_real_image"] for r in results_summary):
         print()

@@ -116,7 +116,9 @@ class RollingSeatEngagementTracker:
                 logger.debug(
                     "Seat '%s': khoang trong %.1fs (> max_gap_sec=%.1fs) -- "
                     "loai khoi tinh diem, khong gan cho trang thai nao.",
-                    self._seat_id, elapsed, self._max_gap_sec,
+                    self._seat_id,
+                    elapsed,
+                    self._max_gap_sec,
                 )
             elif elapsed > 0:
                 self._segments.append(_Segment(self._last_timestamp, timestamp, current_state))

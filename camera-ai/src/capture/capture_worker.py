@@ -57,7 +57,8 @@ class CaptureWorker:
             if self._thread.is_alive():
                 logger.warning(
                     "Capture worker khong dung kip trong %.1fs (co the target_fps "
-                    "qua thap khien vong lap dang ngu lau).", timeout,
+                    "qua thap khien vong lap dang ngu lau).",
+                    timeout,
                 )
             self._thread = None
         self._cam.close()
