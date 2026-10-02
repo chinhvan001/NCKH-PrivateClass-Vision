@@ -63,11 +63,11 @@ class HeadDownReplayProvider:
         return [_person(90.0, head_drop, wrist_dx=0.0), _person(230.0, head_drop, wrist_dx=writing_dx)]
 
 
-def _video(path):
+def _video(path, frame_count: int = 8):
     writer = cv2.VideoWriter(str(path), cv2.VideoWriter_fourcc(*"mp4v"), 2.0, (320, 240))
     assert writer.isOpened()
     try:
-        for index in range(8):
+        for index in range(frame_count):
             writer.write(np.full((240, 320, 3), index, dtype=np.uint8))
     finally:
         writer.release()
@@ -86,6 +86,7 @@ def test_full_pipeline_from_simulated_video_to_anonymized_engagement(tmp_path):
         max_frames=8,
         calibration_duration_sec=0.0,
         posture_thresholds=PostureThresholds(sustained_duration_sec=1.0),
+        smoothing_window_sec=1.0,
     )
 
     assert result.frames_processed == 8
@@ -110,11 +111,13 @@ def test_head_down_with_still_hands_is_head_drop_but_writing_is_normal(tmp_path)
         max_frames=8,
         calibration_duration_sec=0.0,
         posture_thresholds=PostureThresholds(sustained_duration_sec=1.0),
+        smoothing_window_sec=1.0,
     )
 
     still = [record for record in result.records if record.seat_id == "A1"]
     writing = [record for record in result.records if record.seat_id == "A2"]
-    # Cui dau tu t=1.0s, vuot sustained 1s tai t=2.0s (frame 5).
+    # frame n co t=n/2s. Cui dau tu t=1.5s; trung binh 1s duoi nguong tu t=2.5s,
+    # du sustained 1s tai t=3.5s (frame cuoi).
     assert still[-1].posture_state == "head_drop"
     assert still[-1].head_drop_events == 1
     assert still[-1].slumping_events == 0
@@ -122,3 +125,66 @@ def test_head_down_with_still_hands_is_head_drop_but_writing_is_normal(tmp_path)
     assert all(record.posture_state == "normal" for record in writing)
     assert writing[-1].head_drop_events == 0
     assert writing[-1].engagement_score == 100.0
+
+
+class GlitchReplayProvider:
+    """1 seat cui dau tu frame 3, tay tinh; frame 11 (t=5.5s) keypoint nhieu
+    tra ve tu the ngoi thang trong 1 frame duy nhat."""
+
+    def __init__(self):
+        self.calls = 0
+
+    def detect(self, image_bgr):
+        self.calls += 1
+        head_drop = self.calls >= 3 and self.calls != 11
+        return [_person(90.0, head_drop, wrist_dx=0.0)]
+
+
+def _run_glitch(tmp_path, smoothing_window_sec):
+    video = tmp_path / f"glitch_{smoothing_window_sec}.mp4"
+    _video(video, frame_count=15)
+    result = run_pipeline(
+        CaptureConfig(source=str(video), target_fps=2.0),
+        GlitchReplayProvider(),
+        SeatGrid([Seat("A1", 90.0, 100.0)]),
+        max_frames=15,
+        calibration_duration_sec=0.0,
+        posture_thresholds=PostureThresholds(sustained_duration_sec=1.0),
+        smoothing_window_sec=smoothing_window_sec,
+    )
+    return result.records[-1]
+
+
+def test_single_noisy_frame_does_not_split_head_drop_episode(tmp_path):
+    # Khong lam muot: frame nhieu reset dem sustained -> bi tach thanh 2 episode.
+    assert _run_glitch(tmp_path, smoothing_window_sec=0.0).head_drop_events == 2
+    # Lam muot 3s (mac dinh): frame nhieu bi trung binh hoa -> van 1 episode.
+    smoothed = _run_glitch(tmp_path, smoothing_window_sec=3.0)
+    assert smoothed.head_drop_events == 1
+    assert smoothed.posture_state == "head_drop"
+
+
+class OccludedReplayProvider:
+    """A1 chi duoc detect o frame le (frame chan bi che)."""
+
+    def __init__(self):
+        self.calls = 0
+
+    def detect(self, image_bgr):
+        self.calls += 1
+        return [_person(90.0, False, wrist_dx=0.0)] if self.calls % 2 else []
+
+
+def test_occluded_frames_do_not_replay_last_pose(tmp_path):
+    video = tmp_path / "occluded.mp4"
+    _video(video)
+    result = run_pipeline(
+        CaptureConfig(source=str(video), target_fps=2.0),
+        OccludedReplayProvider(),
+        SeatGrid([Seat("A1", 90.0, 100.0)]),
+        max_frames=8,
+        calibration_duration_sec=0.0,
+    )
+    # SeatTracker giu seat A1 qua frame bi che, nhung pipeline chi xu ly
+    # quan sat moi: 4 frame le -> 4 record, khong phai 8.
+    assert [record.observed_at_sec for record in result.records] == [0.5, 1.5, 2.5, 3.5]

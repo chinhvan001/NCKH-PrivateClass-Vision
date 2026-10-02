@@ -184,6 +184,16 @@ def test_30_students_stable_across_10_frames():
         assert len(set(seat_id_history[i])) == 1, f"Hoc sinh {i} bi nhay seat_id: {seat_id_history[i]}"
 
 
+def test_fresh_assignments_excludes_occluded_seats():
+    grid = make_grid()
+    tracker = SeatTracker(grid, max_missing_frames=5)
+    tracker.update([make_person(100, 100), make_person(300, 100)])
+    tracker.update([make_person(100, 100)])  # A2 bi che o frame nay
+
+    assert set(tracker.current_assignments) == {"A1", "A2"}
+    assert set(tracker.fresh_assignments) == {"A1"}
+
+
 def test_reset_clears_all_state():
     grid = make_grid()
     tracker = SeatTracker(grid)

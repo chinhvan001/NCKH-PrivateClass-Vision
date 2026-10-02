@@ -178,6 +178,13 @@ class SeatTracker:
         max_missing_frames)."""
         return {seat_id: state.last_assignment for seat_id, state in self._states.items()}
 
+    @property
+    def fresh_assignments(self) -> Dict[str, SeatAssignment]:
+        """Chi cac seat THUC SU thay nguoi o lan update() gan nhat (khong gom
+        seat dang bi che tam thoi). Dung khi can QUAN SAT MOI (posture, co tay):
+        xu ly lai pose cu cua seat bi che se gia lap "dung yen tuyet doi"."""
+        return {seat_id: state.last_assignment for seat_id, state in self._states.items() if state.missing_count == 0}
+
     def reset(self) -> None:
         """Xoa toan bo trang thai theo doi (vi du khi bat dau buoi hoc moi)."""
         self._states.clear()
