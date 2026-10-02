@@ -150,7 +150,8 @@ def main() -> int:
     args.output.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
     overall = report["overall"]
     print(
-        f"Images={overall['images']} | precision={overall['precision']:.2%} | recall={overall['recall_detection_success']:.2%} | F1={overall['f1']:.2%}"
+        f"Images={overall['images']} | precision={overall['precision']:.2%} | "
+        f"recall={overall['recall_detection_success']:.2%} | F1={overall['f1']:.2%}"
     )
     print(f"Bao cao metric an danh: {args.output}")
     return 0

@@ -11,7 +11,6 @@ import argparse
 import json
 import math
 from pathlib import Path
-from typing import Iterable
 
 import cv2
 import numpy as np

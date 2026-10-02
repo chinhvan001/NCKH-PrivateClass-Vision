@@ -6,8 +6,6 @@ TRUOC (khong phai model that), tinh ket qua ky vong bang tay/cong thuc doc
 lap, roi so sanh voi ket qua ham tra ve.
 """
 
-import math
-
 import pytest
 
 from src.detection.pose_detector import COCO_KEYPOINT_NAMES, PersonPose
@@ -100,12 +98,6 @@ def test_head_drop_ratio_scale_invariant_with_distance_from_camera():
 
 
 def test_head_drop_ratio_missing_nose_returns_none():
-    person = make_person(
-        {
-            "left_shoulder": (80.0, 100.0, 0.9),
-            "right_shoulder": (120.0, 100.0, 0.9),
-        }
-    )
     # nose mac dinh la (0,0,0.9) -- van "co" nhung khong dai dien cho test nay,
     # nen test rieng truong hop confidence thap thay vi "thieu" hoan toan:
     person_low_conf = make_person(

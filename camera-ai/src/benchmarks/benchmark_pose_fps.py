@@ -129,7 +129,8 @@ def main():
         print()
 
     print(
-        f"{'Do phan giai':<15}{'FPS trung binh':<16}{'FPS thap nhat':<16}{'Thoi gian TB (ms)':<20}{'So nguoi phat hien':<20}{'Nguon anh'}"
+        f"{'Do phan giai':<15}{'FPS trung binh':<16}{'FPS thap nhat':<16}"
+        f"{'Thoi gian TB (ms)':<20}{'So nguoi phat hien':<20}{'Nguon anh'}"
     )
     print("-" * 100)
 

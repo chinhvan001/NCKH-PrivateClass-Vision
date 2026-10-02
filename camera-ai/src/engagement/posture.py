@@ -39,7 +39,6 @@ head-down cho dung loai camera nay. Con can kiem chung bang du lieu that.
 """
 
 import math
-from dataclasses import dataclass
 from typing import Literal, Optional, Tuple
 
 from src.detection.pose_detector import PersonPose

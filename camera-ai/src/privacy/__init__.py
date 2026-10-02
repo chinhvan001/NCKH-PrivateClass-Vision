@@ -7,6 +7,7 @@ from .engagement_export import (
     anonymize_engagement,
     append_anonymized_record,
 )
+from .cloud_payload import CloudEngagementPayload, CloudPayloadError, make_cloud_payload
 
 __all__ = [
     "anonymize_preview",
@@ -14,8 +15,10 @@ __all__ = [
     "append_anonymized_record",
     "AnonymizedEngagementRecord",
     "blur_regions",
+    "CloudEngagementPayload",
+    "CloudPayloadError",
     "dispose_frame",
     "face_regions_from_poses",
+    "make_cloud_payload",
     "wipe_image",
 ]
-from .cloud_payload import CloudEngagementPayload, CloudPayloadError, make_cloud_payload
