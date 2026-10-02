@@ -63,6 +63,14 @@ class HeadDownReplayProvider:
         return [_person(90.0, head_drop, wrist_dx=0.0), _person(230.0, head_drop, wrist_dx=writing_dx)]
 
 
+def _collect(*args, **kwargs):
+    """Chay pipeline voi sink la list -- chi hop le cho video test ngan."""
+    records = []
+    result = run_pipeline(*args, on_record=records.append, **kwargs)
+    assert result.records_emitted == len(records)
+    return result, records
+
+
 def _video(path, frame_count: int = 8):
     writer = cv2.VideoWriter(str(path), cv2.VideoWriter_fourcc(*"mp4v"), 2.0, (320, 240))
     assert writer.isOpened()
@@ -79,7 +87,7 @@ def test_full_pipeline_from_simulated_video_to_anonymized_engagement(tmp_path):
     provider = ReplayPoseProvider()
     grid = SeatGrid([Seat("A1", 90.0, 100.0), Seat("A2", 230.0, 100.0)])
 
-    result = run_pipeline(
+    result, records = _collect(
         CaptureConfig(source=str(video), target_fps=2.0),
         provider,
         grid,
@@ -91,20 +99,20 @@ def test_full_pipeline_from_simulated_video_to_anonymized_engagement(tmp_path):
 
     assert result.frames_processed == 8
     assert provider.calls == 8
-    assert len(result.records) == 16
-    by_seat = {seat_id: [record for record in result.records if record.seat_id == seat_id] for seat_id in ("A1", "A2")}
+    assert len(records) == 16
+    by_seat = {seat_id: [record for record in records if record.seat_id == seat_id] for seat_id in ("A1", "A2")}
     assert by_seat["A1"][-1].engagement_score < by_seat["A2"][-1].engagement_score
     assert by_seat["A1"][-1].slumping_events >= 1
     allowed = {"seat_id", "observed_at_sec", "engagement_score", "posture_state", "head_drop_events", "slumping_events"}
-    assert all(set(record.to_dict()) == allowed for record in result.records)
-    assert all("image" not in json.dumps(record.to_dict()) for record in result.records)
+    assert all(set(record.to_dict()) == allowed for record in records)
+    assert all("image" not in json.dumps(record.to_dict()) for record in records)
 
 
 def test_head_down_with_still_hands_is_head_drop_but_writing_is_normal(tmp_path):
     video = tmp_path / "head_down.mp4"
     _video(video)
 
-    result = run_pipeline(
+    result, records = _collect(
         CaptureConfig(source=str(video), target_fps=2.0),
         HeadDownReplayProvider(),
         SeatGrid([Seat("A1", 90.0, 100.0), Seat("A2", 230.0, 100.0)]),
@@ -114,8 +122,8 @@ def test_head_down_with_still_hands_is_head_drop_but_writing_is_normal(tmp_path)
         smoothing_window_sec=1.0,
     )
 
-    still = [record for record in result.records if record.seat_id == "A1"]
-    writing = [record for record in result.records if record.seat_id == "A2"]
+    still = [record for record in records if record.seat_id == "A1"]
+    writing = [record for record in records if record.seat_id == "A2"]
     # frame n co t=n/2s. Cui dau tu t=1.5s; trung binh 1s duoi nguong tu t=2.5s,
     # du sustained 1s tai t=3.5s (frame cuoi).
     assert still[-1].posture_state == "head_drop"
@@ -143,7 +151,7 @@ class GlitchReplayProvider:
 def _run_glitch(tmp_path, smoothing_window_sec):
     video = tmp_path / f"glitch_{smoothing_window_sec}.mp4"
     _video(video, frame_count=15)
-    result = run_pipeline(
+    result, records = _collect(
         CaptureConfig(source=str(video), target_fps=2.0),
         GlitchReplayProvider(),
         SeatGrid([Seat("A1", 90.0, 100.0)]),
@@ -152,7 +160,7 @@ def _run_glitch(tmp_path, smoothing_window_sec):
         posture_thresholds=PostureThresholds(sustained_duration_sec=1.0),
         smoothing_window_sec=smoothing_window_sec,
     )
-    return result.records[-1]
+    return records[-1]
 
 
 def test_single_noisy_frame_does_not_split_head_drop_episode(tmp_path):
@@ -178,7 +186,7 @@ class OccludedReplayProvider:
 def test_occluded_frames_do_not_replay_last_pose(tmp_path):
     video = tmp_path / "occluded.mp4"
     _video(video)
-    result = run_pipeline(
+    result, records = _collect(
         CaptureConfig(source=str(video), target_fps=2.0),
         OccludedReplayProvider(),
         SeatGrid([Seat("A1", 90.0, 100.0)]),
@@ -187,4 +195,25 @@ def test_occluded_frames_do_not_replay_last_pose(tmp_path):
     )
     # SeatTracker giu seat A1 qua frame bi che, nhung pipeline chi xu ly
     # quan sat moi: 4 frame le -> 4 record, khong phai 8.
-    assert [record.observed_at_sec for record in result.records] == [0.5, 1.5, 2.5, 3.5]
+    assert [record.observed_at_sec for record in records] == [0.5, 1.5, 2.5, 3.5]
+
+
+def test_records_are_streamed_to_sink_during_run_not_buffered(tmp_path):
+    video = tmp_path / "stream.mp4"
+    _video(video)
+    provider = ReplayPoseProvider()
+    detect_calls_at_emit = []
+
+    result = run_pipeline(
+        CaptureConfig(source=str(video), target_fps=2.0),
+        provider,
+        SeatGrid([Seat("A1", 90.0, 100.0), Seat("A2", 230.0, 100.0)]),
+        on_record=lambda record: detect_calls_at_emit.append(provider.calls),
+        max_frames=8,
+        calibration_duration_sec=0.0,
+    )
+
+    # Moi frame day 2 record (2 seat) NGAY sau khi detect frame do, truoc frame sau.
+    assert detect_calls_at_emit == [call for call in range(1, 9) for _ in range(2)]
+    assert result.records_emitted == 16
+    assert not hasattr(result, "records")

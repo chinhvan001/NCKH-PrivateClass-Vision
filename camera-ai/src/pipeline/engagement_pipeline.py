@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Dict, List, Protocol
+from typing import Callable, Dict, List, Protocol
 
 from src.capture import CameraCapture, CaptureConfig
 from src.detection.pose_detector import PersonPose
@@ -35,7 +35,7 @@ class _SeatPipelineState:
 @dataclass(frozen=True)
 class PipelineRunResult:
     frames_processed: int
-    records: List[AnonymizedEngagementRecord]
+    records_emitted: int
 
 
 def run_pipeline(
@@ -43,13 +43,18 @@ def run_pipeline(
     pose_provider: PoseProvider,
     seat_grid: SeatGrid,
     *,
+    on_record: Callable[[AnonymizedEngagementRecord], None],
     max_frames: int | None = None,
     max_seat_distance: float | None = None,
     calibration_duration_sec: float = 5.0,
     posture_thresholds: PostureThresholds | None = None,
     smoothing_window_sec: float = 3.0,
 ) -> PipelineRunResult:
-    """Chay pipeline khong GUI va chi tra record engagement an danh.
+    """Chay pipeline khong GUI; moi record engagement an danh duoc day ngay vao
+    ``on_record`` (sink: ghi JSONL, day len Firestore, ...) va KHONG giu lai
+    trong RAM -- session dai khong lam bo nho tang theo so frame. Sink chay
+    dong bo trong vong lap frame nen phai nhanh; sink nem exception se dung
+    pipeline (frame hien tai van duoc dispose).
 
     Seat duoc gan bang ``SeatTracker`` (giu seat_id on dinh qua jitter/che
     khuat ngan); chi seat thay nguoi o CHINH frame nay moi duoc cap nhat
@@ -68,7 +73,7 @@ def run_pipeline(
     if smoothing_window_sec < 0:
         raise ValueError("smoothing_window_sec phai >= 0.")
     states: Dict[str, _SeatPipelineState] = {}
-    records: List[AnonymizedEngagementRecord] = []
+    records_emitted = 0
     frames_processed = 0
     thresholds = posture_thresholds or PostureThresholds()
 
@@ -109,10 +114,11 @@ def run_pipeline(
                     hand_activity = state.hands.update(timestamp, assignment.person)
                     state.tracker.update(timestamp, head_event, slump_event, hand_activity)
                     posture_state = classify_posture_state(head_event, slump_event, hand_activity)
-                    records.append(anonymize_engagement(state.tracker.compute_score(), timestamp, posture_state))
+                    on_record(anonymize_engagement(state.tracker.compute_score(), timestamp, posture_state))
+                    records_emitted += 1
             finally:
                 dispose_frame(frame)
             frames_processed += 1
             if max_frames is not None and frames_processed >= max_frames:
                 break
-    return PipelineRunResult(frames_processed=frames_processed, records=records)
+    return PipelineRunResult(frames_processed=frames_processed, records_emitted=records_emitted)
