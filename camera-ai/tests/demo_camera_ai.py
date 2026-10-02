@@ -14,9 +14,8 @@ from __future__ import annotations
 
 import argparse
 import sys
-from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, Iterable, List, Optional, Tuple
+from typing import Dict, Iterable, Tuple
 
 import cv2
 
@@ -29,17 +28,11 @@ from typing import TYPE_CHECKING
 
 from src.detection.pose_detector import PoseDetector
 from src.detection.person_detector import PersonBox, PersonDetector
-from src.engagement.engagement_score import SeatEngagementTracker
-from src.engagement.posture import compute_head_drop_ratio, compute_torso_vector_angle
-from src.engagement.posture_monitor import (
-    BaselineEstablisher,
-    PostureMonitor,
-    RollingSmoother,
-)
 from src.engagement.side_conversation import SideConversationDetector, SideConversationEvent
 from src.engagement.back_turn import BackTurnDetector, BackTurnEvent
+from src.pipeline import EngagementEngine
 from src.seating.seat_grid import SeatGrid
-from src.privacy import anonymize_engagement, anonymize_preview, append_anonymized_record, wipe_image
+from src.privacy import anonymize_preview, append_anonymized_record, wipe_image
 
 if TYPE_CHECKING:
     from src.detection.pose_detector import PersonPose
@@ -66,66 +59,6 @@ SKELETON_EDGES: Tuple[Tuple[int, int], ...] = (
     (12, 14),
     (14, 16),
 )
-
-
-@dataclass
-class StudentState:
-    """Trang thai hien thi va tich luy cho mot seat (hoac mot detection)."""
-
-    smoother_head: RollingSmoother
-    smoother_torso: RollingSmoother
-    baseline: BaselineEstablisher
-    posture: PostureMonitor
-    engagement: SeatEngagementTracker
-
-
-def _shoulder_midpoint(person: PersonPose) -> Optional[Tuple[float, float]]:
-    left = person.get_keypoint("left_shoulder")
-    right = person.get_keypoint("right_shoulder")
-    if left is None and right is None:
-        return None
-    if left is None or left[2] < 0.3:
-        return (right[0], right[1]) if right is not None and right[2] >= 0.3 else None
-    if right is None or right[2] < 0.3:
-        return left[0], left[1]
-    return (left[0] + right[0]) / 2.0, (left[1] + right[1]) / 2.0
-
-
-def _assign_to_seats(
-    people: Iterable[PersonPose],
-    grid: SeatGrid,
-    max_distance: Optional[float],
-) -> Dict[str, PersonPose]:
-    """Gan nearest-centroid va loai trung seat trong mot frame."""
-    choices: Dict[str, Tuple[PersonPose, float]] = {}
-    for person in people:
-        midpoint = _shoulder_midpoint(person)
-        if midpoint is None:
-            continue
-        seat = grid.find_nearest_seat(*midpoint)
-        if seat is None:
-            continue
-        distance = grid.distance_to(seat, *midpoint)
-        if max_distance is not None and distance > max_distance:
-            continue
-        current = choices.get(seat.seat_id)
-        if current is None or distance < current[1]:
-            choices[seat.seat_id] = person, distance
-    return {seat_id: person for seat_id, (person, _) in choices.items()}
-
-
-def _state_for(states: Dict[str, StudentState], key: str) -> StudentState:
-    if key not in states:
-        from src.engagement.posture_monitor import RollingSmoother
-
-        states[key] = StudentState(
-            smoother_head=RollingSmoother(window_sec=3.0),
-            smoother_torso=RollingSmoother(window_sec=3.0),
-            baseline=BaselineEstablisher(calibration_duration_sec=5.0),
-            posture=PostureMonitor(),
-            engagement=SeatEngagementTracker(seat_id=key),
-        )
-    return states[key]
 
 
 def _draw_skeleton(image, person: PersonPose, color: Tuple[int, int, int]) -> None:
@@ -206,7 +139,8 @@ def process_video(args: argparse.Namespace) -> None:
 
     fps = capture.get(cv2.CAP_PROP_FPS) or 25.0
     writer = None
-    states: Dict[str, StudentState] = {}
+    # Cung logic engagement voi pipeline headless (src/pipeline); demo chi ve.
+    engine = EngagementEngine(grid, max_seat_distance=args.max_distance) if grid.seats else None
     conversation_detector = (
         SideConversationDetector(
             max_pair_distance=args.conversation_max_distance,
@@ -271,44 +205,31 @@ def process_video(args: argparse.Namespace) -> None:
             # xong tren pixel goc trong RAM. An danh ca mat pose duoc va mat
             # pose bo sot (pixelate toan khung) truoc bat ky output nao.
             anonymize_preview(image, people)
-            assigned = _assign_to_seats(people, grid, args.max_distance) if grid.seats else {}
+            observations = engine.process(timestamp, people) if engine is not None else []
+            assigned = {observation.seat_id: observation.person for observation in observations}
             conversation_events = (
                 conversation_detector.update(timestamp, assigned) if conversation_detector is not None else []
             )
             back_turn_events = back_turn_detector.update(timestamp, assigned) if back_turn_detector is not None else []
-            visible: List[Tuple[str, PersonPose]] = (
-                list(assigned.items())
-                if assigned
-                else [(f"person-{index + 1}", person) for index, person in enumerate(people)]
-            )
+            if engine is None:
+                # Chua co --seats: chi ve skeleton, khong cham diem (khong co seat_id on dinh).
+                for person in people:
+                    _draw_skeleton(image, person, (200, 200, 200))
 
-            for label, person in visible:
-                state = _state_for(states, label)
-                head = state.smoother_head.add(timestamp, compute_head_drop_ratio(person))
-                torso = compute_torso_vector_angle(person)
-                state.baseline.add_sample(timestamp, torso)
-                deviation = (
-                    None
-                    if not state.baseline.is_ready or torso is None
-                    else state.smoother_torso.add(timestamp, torso - (state.baseline.baseline_angle or 0.0))
-                )
-                head_event, slump_event = state.posture.update(timestamp, head, deviation)
-                state.engagement.update(timestamp, head_event, slump_event)
-                status = "HEAD_DROP" if head_event else "SLUMPING" if slump_event else "NORMAL"
+            for observation in observations:
+                record = observation.record
+                status = record.posture_state.upper()
                 color = _status_color(status)
+                person = observation.person
 
                 _draw_skeleton(image, person, color)
                 x1, y1, x2, y2 = (round(value) for value in person.bbox)
                 cv2.rectangle(image, (x1, y1), (x2, y2), color, 2)
-                engagement_score = state.engagement.compute_score()
-                score = engagement_score.score
-                score_text = "--" if score is None else f"{score:.0f}"
-                _put_text(image, f"{label} | {status} | score {score_text}", (x1, max(18, y1 - 8)), color)
+                score_text = "--" if record.engagement_score is None else f"{record.engagement_score:.0f}"
+                _put_text(image, f"{observation.seat_id} | {status} | score {score_text}", (x1, max(18, y1 - 8)), color)
                 if args.engagement_jsonl:
-                    append_anonymized_record(
-                        args.engagement_jsonl,
-                        anonymize_engagement(engagement_score, timestamp, status),
-                    )
+                    append_anonymized_record(args.engagement_jsonl, record)
+                head = observation.head_drop_ratio
                 metrics = f"head={head:.2f}" if head is not None else "head=--"
                 _put_text(image, metrics, (x1, min(image.shape[0] - 8, y2 + 18)), color, 0.45)
 
