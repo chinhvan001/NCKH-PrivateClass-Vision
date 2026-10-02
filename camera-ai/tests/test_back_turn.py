@@ -1,5 +1,7 @@
 """Unit test cho canh bao mat khong huong camera/nghi quay lung."""
 
+import pytest
+
 from src.detection.pose_detector import COCO_KEYPOINT_NAMES, PersonPose
 from src.engagement.back_turn import BackTurnDetector
 
@@ -25,7 +27,7 @@ def test_alerts_when_face_is_hidden_but_shoulders_remain_visible():
     events = detector.update(2.0, people)
     assert len(events) == 1
     assert events[0].seat_id == "A1"
-    assert events[0].face_visibility == 0.05
+    assert events[0].face_visibility == pytest.approx(0.05)
 
 
 def test_does_not_alert_for_clear_face_or_hidden_shoulders():
