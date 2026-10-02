@@ -1,1 +1,32 @@
+# Secrets
 .env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+venv/
+.venv/
+.pytest_cache/
+
+# Video output (privacy: never commit classroom footage)
+*.mp4
+*.avi
+
+# Runtime logs
+logs/
+*.log
+
+# IDE / OS
+.vscode/
+.idea/
+Thumbs.db
+.DS_Store
+
+# Model weights (download instead of committing, see CLAUDE.md)
+*.pt
+*.onnx
+*.engine
+*.tflite
+*.task
