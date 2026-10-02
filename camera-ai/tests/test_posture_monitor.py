@@ -223,3 +223,16 @@ def test_reset_clears_state():
     # Sau reset, phai bat dau dem lai tu dau -- t=4.0 chi moi la lan dau tien
     event, _ = monitor.update(4.0, head_drop_ratio=0.1, torso_deviation_deg=0.0)
     assert event is False
+
+
+def test_head_drop_since_tracks_start_of_current_head_drop_run():
+    monitor = PostureMonitor(PostureThresholds(head_drop_ratio_threshold=0.4))
+    assert monitor.head_drop_since is None
+    monitor.update(0.0, 1.0, 0.0)
+    assert monitor.head_drop_since is None
+    monitor.update(1.0, 0.1, 0.0)  # bat dau cui
+    monitor.update(2.0, None, 0.0)  # thieu du lieu: giu nguyen moc
+    monitor.update(3.0, 0.1, 0.0)
+    assert monitor.head_drop_since == 1.0
+    monitor.update(4.0, 1.0, 0.0)  # ngang dau lai
+    assert monitor.head_drop_since is None

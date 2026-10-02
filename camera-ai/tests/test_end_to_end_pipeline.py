@@ -283,9 +283,66 @@ def test_back_turn_is_disabled_for_top_down_camera(tmp_path):
     assert [alert[1] for alert in alerts] == ["head_drop", "side_conversation", "side_conversation"]
 
 
-def test_alert_sink_requires_alert_manager_and_valid_camera_angle(tmp_path):
+def test_alert_sink_requires_alert_manager_and_valid_camera_angle():
     grid = SeatGrid([Seat("A1", 90.0, 100.0)])
     with pytest.raises(ValueError, match="cung nhau"):
         run_pipeline(CaptureConfig(source="unused"), None, grid, on_record=print, on_alert=print)
     with pytest.raises(ValueError, match="camera_angle_type"):
         run_pipeline(CaptureConfig(source="unused"), None, grid, on_record=print, camera_angle_type="side")
+
+
+def test_head_down_while_writing_does_not_alert(tmp_path):
+    video = tmp_path / "writing_alerts.mp4"
+    _video(video)
+    alerts = []
+    _collect(
+        CaptureConfig(source=str(video), target_fps=2.0),
+        HeadDownReplayProvider(),
+        SeatGrid([Seat("A1", 90.0, 100.0), Seat("A2", 230.0, 100.0)]),
+        max_frames=8,
+        calibration_duration_sec=0.0,
+        posture_thresholds=PostureThresholds(sustained_duration_sec=1.0),
+        smoothing_window_sec=1.0,
+        alert_manager=AlertManager("sess_test"),
+        on_alert=alerts.append,
+    )
+    # A1 cui + tay tinh -> alert; A2 cui nhung dang viet -> khong alert.
+    assert [(alert.seat_id, alert.type) for alert in alerts] == [("A1", "head_drop")]
+
+
+class MissedFrameBackTurnProvider:
+    """A1 mat khong huong camera suot video, nhung pose detector bo sot A1 o
+    frame 3 (thuong gap o CCTV FPS thap)."""
+
+    def __init__(self):
+        self.calls = 0
+
+    def detect(self, image_bgr):
+        self.calls += 1
+        return [] if self.calls == 3 else [_person(90.0, False, face_conf=0.05)]
+
+
+@pytest.mark.parametrize(
+    "fps, expected",
+    [
+        # t=n/2s: hanh vi tu t=0.5, bo sot t=1.5 -> alert t=2.5 (du 2s).
+        (2.0, ("back_turn", 0.5, 2.0)),
+        # t=n s (CPU FPS thap): hanh vi tu t=1, bo sot t=3 -> alert ngay frame ke tiep
+        # t=4 voi start goc 1.0 (truoc khi sua: start 4.0, alert tre den t=6).
+        (1.0, ("back_turn", 1.0, 3.0)),
+    ],
+)
+def test_single_missed_detection_does_not_restart_back_turn_episode(tmp_path, fps, expected):
+    video = tmp_path / "missed_frame.mp4"
+    _video(video)
+    alerts = []
+    _collect(
+        CaptureConfig(source=str(video), target_fps=fps),
+        MissedFrameBackTurnProvider(),
+        SeatGrid([Seat("A1", 90.0, 100.0)]),
+        max_frames=8,
+        calibration_duration_sec=0.0,
+        alert_manager=AlertManager("sess_test", cooldown_sec=0.0),
+        on_alert=alerts.append,
+    )
+    assert [(alert.type, alert.start_sec, alert.duration_sec) for alert in alerts] == [expected]
