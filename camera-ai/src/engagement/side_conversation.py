@@ -43,8 +43,11 @@ class SideConversationDetector:
         max_pair_distance: float = 260.0,
         min_head_turn_ratio: float = 0.12,
         min_duration_sec: float = 3.0,
-        max_gap_sec: float = 0.75,
+        max_gap_sec: float = 2.0,
     ) -> None:
+        # max_gap_sec: khoang khong thay hanh vi van coi la cung 1 dot. 2.0s (bang
+        # AlertManager.episode_gap_sec) chiu duoc 1 frame bo sot ngay ca o ~1 FPS (CPU);
+        # 0.75s cu lam 1 lan detect hut o 1 FPS xoa sach thoi gian da tich luy.
         if max_pair_distance <= 0 or min_duration_sec <= 0 or max_gap_sec < 0:
             raise ValueError("Nguong khoang cach/thoi gian khong hop le.")
         if not 0 <= min_head_turn_ratio <= 1:
