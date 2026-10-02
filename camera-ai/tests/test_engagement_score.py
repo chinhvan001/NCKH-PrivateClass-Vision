@@ -15,12 +15,16 @@ from src.engagement.engagement_score import EngagementScore, SeatEngagementTrack
 
 def run_sequence(tracker: SeatEngagementTracker, segments):
     """Chay 1 chuoi segment, moi segment la (duration_sec, is_head_drop, is_slumping).
-    Tu dong cong don timestamp qua tung segment va goi tracker.update()."""
+    Tu dong cong don timestamp qua tung segment va goi tracker.update().
+
+    hand_activity=False (tay tinh) de head_drop duoc xac nhan la head_drop
+    that -- tu ban Head-Drop-Redesign, hand_activity=None se xep head_drop
+    vao "slumping" (xem classify_posture_state)."""
     t = 0.0
     tracker.update(t, False, False)  # mau khoi tao tai t=0, chua tich luy gi
     for duration, is_drop, is_slump in segments:
         t += duration
-        tracker.update(t, is_drop, is_slump)
+        tracker.update(t, is_drop, is_slump, hand_activity=False)
 
 
 # ----------------------------------------------------------------------
@@ -135,7 +139,7 @@ def test_count_increments_once_per_episode_not_per_update_call():
     tracker.update(t, False, False)
     for _ in range(3):
         t += 1.0
-        tracker.update(t, True, False)  # van dang trong CUNG 1 chuoi head_drop
+        tracker.update(t, True, False, hand_activity=False)  # van dang trong CUNG 1 chuoi head_drop
 
     result = tracker.compute_score()
     assert result.head_drop_count == 1
