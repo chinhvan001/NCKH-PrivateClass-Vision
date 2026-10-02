@@ -219,6 +219,11 @@ class PostureMonitor:
             return False
         return (timestamp - start_time) >= self._thresholds.sustained_duration_sec
 
+    @property
+    def head_drop_since(self) -> Optional[float]:
+        """Timestamp bat dau chuoi head-drop dang duy tri (None neu khong co)."""
+        return self._head_drop_start
+
     def reset(self) -> None:
         self._head_drop_start = None
         self._slump_start = None

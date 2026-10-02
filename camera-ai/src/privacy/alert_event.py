@@ -25,6 +25,12 @@ class AlertEventError(ValueError):
     pass
 
 
+def check_session_id(session_id: str) -> str:
+    if not isinstance(session_id, str) or not _SESSION_ID_PATTERN.fullmatch(session_id):
+        raise AlertEventError("session_id phai la ma 1-64 ky tu [A-Za-z0-9_-].")
+    return session_id
+
+
 @dataclass(frozen=True)
 class AlertEvent:
     """Canh bao cho MOT ghe trong MOT phien.
@@ -63,8 +69,7 @@ def _non_negative_seconds(value: float, name: str) -> float:
 def make_alert_event(
     session_id: str, seat_id: str, alert_type: str, start_sec: float, duration_sec: float
 ) -> AlertEvent:
-    if not isinstance(session_id, str) or not _SESSION_ID_PATTERN.fullmatch(session_id):
-        raise AlertEventError("session_id phai la ma 1-64 ky tu [A-Za-z0-9_-].")
+    check_session_id(session_id)
     if not isinstance(seat_id, str) or not seat_id.strip():
         raise AlertEventError("seat_id phai la chuoi khong rong.")
     if alert_type not in ALERT_TYPES:

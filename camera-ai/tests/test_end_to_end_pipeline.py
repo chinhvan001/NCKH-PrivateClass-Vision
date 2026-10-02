@@ -9,20 +9,28 @@ import json
 
 import cv2
 import numpy as np
+import pytest
 
 from src.capture import CaptureConfig
 from src.detection.pose_detector import COCO_KEYPOINT_NAMES, PersonPose
 from src.engagement.posture_monitor import PostureThresholds
-from src.pipeline import run_pipeline
+from src.pipeline import AlertManager, run_pipeline
 from src.seating.seat_grid import Seat, SeatGrid
 
 
-def _person(center_x: float, head_drop: bool, wrist_dx: float | None = None) -> PersonPose:
+def _person(
+    center_x: float,
+    head_drop: bool,
+    wrist_dx: float | None = None,
+    nose_dx: float = 0.0,
+    face_conf: float = 0.95,
+) -> PersonPose:
     """wrist_dx=None: khong co wrist (hand_activity=None). Nguoc lai 2 co tay
-    nam tren ban, lech ngang wrist_dx so voi vi tri goc."""
+    nam tren ban, lech ngang wrist_dx so voi vi tri goc. nose_dx: quay dau
+    sang ngang; face_conf thap: mat khong huong camera."""
     points = [(0.0, 0.0, 0.0)] * 17
     values = {
-        "nose": (center_x, 96.0 if head_drop else 50.0, 0.95),
+        "nose": (center_x + nose_dx, 96.0 if head_drop else 50.0, face_conf),
         "left_shoulder": (center_x - 20.0, 100.0, 0.95),
         "right_shoulder": (center_x + 20.0, 100.0, 0.95),
         "left_hip": (center_x - 20.0, 160.0, 0.95),
@@ -217,3 +225,67 @@ def test_records_are_streamed_to_sink_during_run_not_buffered(tmp_path):
     assert detect_calls_at_emit == [call for call in range(1, 9) for _ in range(2)]
     assert result.records_emitted == 16
     assert not hasattr(result, "records")
+
+
+class AlertScenarioProvider:
+    """A1: cui dau + tay tinh tu frame 3. A2: vai ro nhung mat khong huong
+    camera. A3/A4: quay mat ve nhau (cach 140px). Moi hanh vi duy tri nhieu frame."""
+
+    def __init__(self):
+        self.calls = 0
+
+    def detect(self, image_bgr):
+        self.calls += 1
+        return [
+            _person(90.0, self.calls >= 3, wrist_dx=0.0),
+            _person(230.0, False, face_conf=0.05),
+            _person(370.0, False, nose_dx=10.0),
+            _person(510.0, False, nose_dx=-10.0),
+        ]
+
+
+def _run_alert_scenario(tmp_path, camera_angle_type):
+    video = tmp_path / f"alerts_{camera_angle_type}.mp4"
+    _video(video)
+    alerts = []
+    result, _ = _collect(
+        CaptureConfig(source=str(video), target_fps=2.0),
+        AlertScenarioProvider(),
+        SeatGrid(
+            [Seat(seat_id, x, 100.0) for seat_id, x in (("A1", 90.0), ("A2", 230.0), ("A3", 370.0), ("A4", 510.0))]
+        ),
+        max_frames=8,
+        calibration_duration_sec=0.0,
+        posture_thresholds=PostureThresholds(sustained_duration_sec=1.0),
+        smoothing_window_sec=1.0,
+        camera_angle_type=camera_angle_type,
+        alert_manager=AlertManager("sess_test", cooldown_sec=60.0),
+        on_alert=alerts.append,
+    )
+    assert result.alerts_emitted == len(alerts)
+    return sorted((a.seat_id, a.type, a.start_sec, a.duration_sec) for a in alerts)
+
+
+def test_each_behaviour_alerts_once_per_episode_on_frontal_camera(tmp_path):
+    # frame n co t=n/2s. back_turn (>=2s) tu t=0.5 -> alert t=2.5; side_conversation
+    # (>=3s) tu t=0.5 -> alert t=3.5 cho CA 2 ghe; head_drop cui tu t=2.5 (sau lam muot),
+    # du sustained 1s tai t=3.5. Hanh vi con keo dai nhung khong phat lai.
+    assert _run_alert_scenario(tmp_path, "frontal") == [
+        ("A1", "head_drop", 2.5, 1.0),
+        ("A2", "back_turn", 0.5, 2.0),
+        ("A3", "side_conversation", 0.5, 3.0),
+        ("A4", "side_conversation", 0.5, 3.0),
+    ]
+
+
+def test_back_turn_is_disabled_for_top_down_camera(tmp_path):
+    alerts = _run_alert_scenario(tmp_path, "top_down")
+    assert [alert[1] for alert in alerts] == ["head_drop", "side_conversation", "side_conversation"]
+
+
+def test_alert_sink_requires_alert_manager_and_valid_camera_angle(tmp_path):
+    grid = SeatGrid([Seat("A1", 90.0, 100.0)])
+    with pytest.raises(ValueError, match="cung nhau"):
+        run_pipeline(CaptureConfig(source="unused"), None, grid, on_record=print, on_alert=print)
+    with pytest.raises(ValueError, match="camera_angle_type"):
+        run_pipeline(CaptureConfig(source="unused"), None, grid, on_record=print, camera_angle_type="side")

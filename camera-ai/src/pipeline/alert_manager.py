@@ -13,7 +13,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Dict, Iterable, List, Tuple
 
-from src.privacy import AlertEvent, make_alert_event
+from src.privacy import AlertEvent, check_session_id, make_alert_event
 
 
 @dataclass(frozen=True)
@@ -36,7 +36,7 @@ class AlertManager:
         """
         if cooldown_sec < 0 or episode_gap_sec < 0:
             raise ValueError("cooldown_sec va episode_gap_sec phai >= 0.")
-        self._session_id = session_id
+        self._session_id = check_session_id(session_id)
         self._cooldown_sec = cooldown_sec
         self._episode_gap_sec = episode_gap_sec
         self._active = True
