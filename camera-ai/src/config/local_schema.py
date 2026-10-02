@@ -41,7 +41,7 @@ def _unit(value: Any, path: str, *, allow_zero: bool = False) -> float:
         raise LocalConfigError(f"{path} phai la so.")
     value = float(value)
     if not (0 <= value <= 1 if allow_zero else 0 < value <= 1):
-        raise LocalConfigError(f"{path} phai nam trong {'[0, 1]' if allow_zero else '(0, 1]' }.")
+        raise LocalConfigError(f"{path} phai nam trong {'[0, 1]' if allow_zero else '(0, 1]'}.")
     return value
 
 

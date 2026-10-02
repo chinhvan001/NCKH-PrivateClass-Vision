@@ -28,7 +28,7 @@ if str(CAMERA_AI_ROOT) not in sys.path:
 from typing import TYPE_CHECKING
 
 from src.detection.pose_detector import PoseDetector
-from src.detection.person_detector import PersonBox, PersonDetector, PersonDetectorError
+from src.detection.person_detector import PersonBox, PersonDetector
 from src.engagement.engagement_score import SeatEngagementTracker
 from src.engagement.posture import compute_head_drop_ratio, compute_torso_vector_angle
 from src.engagement.posture_monitor import (
@@ -199,18 +199,6 @@ def _draw_back_turn(image, events: Iterable[BackTurnEvent], assigned: Dict[str, 
 
 
 def process_video(args: argparse.Namespace) -> None:
-    # Import sau khi parse CLI de `--help` van hoat dong tren may chua cai
-    # model/inference dependencies.
-    from src.seating.seat_grid import SeatGrid
-    from src.detection.pose_detector import PoseDetector
-    from src.engagement.engagement_score import SeatEngagementTracker
-    from src.engagement.posture import compute_head_drop_ratio, compute_torso_vector_angle
-    from src.engagement.posture_monitor import (
-        BaselineEstablisher,
-        PostureMonitor,
-        RollingSmoother,
-    )
-
     grid = SeatGrid.from_json_file(args.seats) if args.seats else SeatGrid(seats=[])
     capture = cv2.VideoCapture(str(args.video))
     if not capture.isOpened():

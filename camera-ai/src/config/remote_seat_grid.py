@@ -6,7 +6,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol
 import threading
-import time
 
 from src.seating import SeatGrid, SeatGridError
 

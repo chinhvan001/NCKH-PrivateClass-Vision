@@ -3,8 +3,6 @@ test_hand_activity.py -- Unit test cho HandActivityMonitor
 (src/engagement/hand_activity.py)
 """
 
-import pytest
-
 from src.engagement.hand_activity import HandActivityMonitor
 
 
@@ -70,7 +68,7 @@ def test_normalized_by_shoulder_width_regardless_of_camera_distance():
     for t, wx in zip([0.0, 1.0, 2.0, 3.0], [50, 70, 50, 70]):  # dao dong 20px (bang 1/2 -- cung ty le)
         result_far = monitor_far.update(t, make_person(wx, 150, *far_shoulders))
 
-    assert result_close == result_far == True
+    assert result_close is True and result_far is True
 
 
 def test_occluded_wrists_return_none():

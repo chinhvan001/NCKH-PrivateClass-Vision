@@ -17,7 +17,7 @@ dinh -- neu dung so luong frame co dinh (vi du "150 frame = 5 giay" gia dinh
 
 import logging
 import statistics
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import List, Optional, Tuple
 
 logger = logging.getLogger("camera_ai.engagement")
