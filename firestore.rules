@@ -1,0 +1,79 @@
+rules_version = '2';
+
+// Quy tắc bảo mật Firestore cho Private Class Vision.
+// CHƯA DEPLOY: so sánh với rules đang chạy trên Firebase Console và báo cả nhóm trước khi
+// chạy `firebase deploy --only firestore:rules`, vì rules sai sẽ chặn luôn phía giáo viên.
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function isTeacher() {
+      return signedIn()
+        && exists(/databases/$(database)/documents/teachers/$(request.auth.uid));
+    }
+
+    function isParent() {
+      return signedIn()
+        && exists(/databases/$(database)/documents/parents/$(request.auth.uid));
+    }
+
+    // Theo sơ đồ CSDL: học sinh trỏ về phụ huynh qua parent_id (hoặc parent_email)
+    function isMyChild(studentData) {
+      return studentData.get('parent_id', '') == request.auth.uid
+        || (request.auth.token.email != null
+            && studentData.get('parent_email', '') == request.auth.token.email);
+    }
+
+    // Tài khoản giáo viên. AuthWrapper cần đọc teachers/{uid} để kiểm tra vai trò,
+    // phụ huynh cần đọc tên giáo viên phụ trách lớp của con.
+    match /teachers/{uid} {
+      allow read: if signedIn();
+      allow update: if isTeacher() && request.auth.uid == uid;
+    }
+
+    // Tài khoản phụ huynh: chỉ chính chủ và giáo viên được đọc, chỉ giáo viên/admin được sửa.
+    match /parents/{uid} {
+      allow read: if (signedIn() && request.auth.uid == uid) || isTeacher();
+      allow write: if isTeacher();
+    }
+
+    // Học sinh: phụ huynh chỉ đọc được con của mình.
+    // Query của app phải lọc theo parent_id hoặc parent_email thì mới qua được rule này.
+    match /students/{studentId} {
+      allow read: if isTeacher() || (isParent() && isMyChild(resource.data));
+      allow write: if isTeacher();
+    }
+
+    // Ghi danh: phụ huynh chỉ đọc được bản ghi của con mình
+    match /enrollments/{enrollmentId} {
+      allow read: if isTeacher()
+        || (isParent() && isMyChild(
+              get(/databases/$(database)/documents/students/$(resource.data.student_id)).data));
+      allow write: if isTeacher();
+    }
+
+    // Dữ liệu lớp học, phòng học, lịch và buổi giám sát
+    match /classes/{classId} {
+      allow read: if isTeacher() || isParent();
+      allow write: if isTeacher();
+    }
+
+    match /classrooms/{classroomId} {
+      allow read: if isTeacher() || isParent();
+      allow write: if isTeacher();
+    }
+
+    match /schedules/{scheduleId} {
+      allow read: if isTeacher() || isParent();
+      allow write: if isTeacher();
+    }
+
+    match /monitoring_sessions/{sessionId} {
+      allow read: if isTeacher() || isParent();
+      allow write: if isTeacher();
+    }
+  }
+}
