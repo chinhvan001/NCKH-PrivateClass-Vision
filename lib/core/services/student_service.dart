@@ -2,98 +2,115 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 
 import '../models/student_model.dart';
 
+/// Lấy danh sách học sinh của một lớp, ghép cùng tọa độ ghế hiện tại
+/// (row/column) đọc từ bảng trung gian `enrollments`.
+///
+/// Nguồn danh sách là `enrollments`, không phải `class_members`: chỉ những
+/// học sinh ĐÃ có enrollment cho đúng lớp này mới xuất hiện trong stream.
+/// Học sinh chưa có enrollment (mới thêm vào lớp, chưa từng lưu sơ đồ lần
+/// nào) sẽ không xuất hiện cho tới khi có một enrollment được tạo ở nơi khác
+/// (SeatingManagerRepository.saveSeats() cố tình KHÔNG tự tạo enrollment mới).
 class StudentService {
   final FirebaseFirestore _db = FirebaseFirestore.instance;
 
-  // =========================================================================
-  // CODE CŨ (SUBCOLLECTION: class/{classId}/students) - COMMENT ĐỂ DỰ PHÒNG
-  // =========================================================================
-  /*
-  Stream<List<StudentModel>> getStudentsStream(String classId) {
-    return _db
-        .collection('class')
-        .doc(classId)
-        .collection('students')
-        .snapshots()
-        .map((snapshot) {
-          return snapshot.docs.map((doc) {
-            final data = doc.data();
-            return StudentModel(
-              id: data['student_id'] ?? doc.id,
-              name: data['full_name'] ?? '',
-              short: data['short_name'] ?? '',
-            );
-          }).toList();
-        });
-  }
-  */
+  // Giới hạn số phần tử tối đa của một truy vấn `whereIn` trên Firestore.
+  static const int _whereInChunkSize = 30;
 
-  // =========================================================================
-  // LOGIC MỚI: QUERY THEO BẢNG TRUNG GIAN enrollments & students
-  // =========================================================================
   Stream<List<StudentModel>> getStudentsStream(String classId) {
     return _db
         .collection('enrollments')
         .where('class_id', isEqualTo: classId)
         .snapshots()
-        .asyncMap((enrollmentSnap) async {
-      if (enrollmentSnap.docs.isEmpty) return [];
+        .asyncMap(_buildRoster);
+  }
 
-      // Map lưu tạm tọa độ theo student_id: { studentId: { 'row': 1, 'col': 1 } }
-      final Map<String, Map<String, int>> seatPositions = {};
-      final List<String> studentIds = [];
+  Future<List<StudentModel>> _buildRoster(
+    QuerySnapshot<Map<String, dynamic>> enrollmentSnap,
+  ) async {
+    if (enrollmentSnap.docs.isEmpty) return [];
 
-      for (var doc in enrollmentSnap.docs) {
-        final data = doc.data();
-        final String? sId = data['student_id'];
-        if (sId != null && sId.isNotEmpty) {
-          studentIds.add(sId);
-          seatPositions[sId] = {
-            'row': (data['row'] as num?)?.toInt() ?? 0,
-            'col': (data['column'] as num?)?.toInt() ?? 0,
-          };
-        }
-      }
+    // Map tọa độ theo student_id: { studentId: {'row': x, 'col': y} }.
+    // Dùng Map (key là student_id) để tự loại trùng nếu lỡ có 2 enrollment
+    // rác cùng student_id cho cùng 1 lớp.
+    final Map<String, Map<String, int>> seatPositions = {};
 
-      if (studentIds.isEmpty) return [];
+    for (final doc in enrollmentSnap.docs) {
+      final data = doc.data();
+      final studentId = data['student_id'];
 
-      // Query lấy thông tin tên học sinh từ collection 'students'
-      // Xử lý chunk 30 phần tử để tránh giới hạn whereIn của Firestore
-      List<StudentModel> studentList = [];
+      // Ép kiểu an toàn: bỏ qua nếu field bị lưu sai kiểu thay vì crash.
+      if (studentId is! String || studentId.isEmpty) continue;
 
-      for (var i = 0; i < studentIds.length; i += 30) {
-        final chunk = studentIds.sublist(
+      seatPositions[studentId] = {
+        'row': (data['row'] as num?)?.toInt() ?? 0,
+        'col': (data['column'] as num?)?.toInt() ?? 0,
+      };
+    }
+
+    if (seatPositions.isEmpty) return [];
+
+    final studentIds = seatPositions.keys.toList();
+
+    // Chia thành các chunk tối đa 30 phần tử (giới hạn whereIn của Firestore).
+    final chunks = <List<String>>[
+      for (var i = 0; i < studentIds.length; i += _whereInChunkSize)
+        studentIds.sublist(
           i,
-          i + 30 > studentIds.length ? studentIds.length : i + 30,
-        );
+          i + _whereInChunkSize > studentIds.length
+              ? studentIds.length
+              : i + _whereInChunkSize,
+        ),
+    ];
 
-        final studentsSnap = await _db
+    // Chạy các chunk SONG SONG (Future.wait) thay vì tuần tự -> giảm độ trễ
+    // đáng kể khi lớp có nhiều hơn 30 học sinh (nhiều hơn 1 chunk).
+    final chunkResults = await Future.wait(
+      chunks.map(
+        (chunk) => _db
             .collection('students')
             .where(FieldPath.documentId, whereIn: chunk)
-            .get();
+            .get(),
+      ),
+    );
 
-        for (var doc in studentsSnap.docs) {
-          final sData = doc.data();
-          final pos = seatPositions[doc.id] ?? {'row': 0, 'col': 0};
-          final fullName = (sData['student_name'] ?? sData['full_name'] ?? sData['name'] ?? 'Học sinh').toString();
+    final studentList = <StudentModel>[];
+    for (final studentsSnap in chunkResults) {
+      for (final doc in studentsSnap.docs) {
+        final sData = doc.data();
+        final pos = seatPositions[doc.id];
+        if (pos == null) continue; // an toàn, lý thuyết không nên xảy ra
 
-          // Tự lấy từ cuối cùng làm tên ngắn (short) nếu không có trường short_name
-          final shortName = sData['short_name'] ??
-              (fullName.trim().isNotEmpty ? fullName.trim().split(' ').last : 'HS');
+        final fullName = (sData['student_name'] ??
+                sData['full_name'] ??
+                sData['name'] ??
+                'Học sinh')
+            .toString();
 
-          studentList.add(
-            StudentModel(
-              id: doc.id,
-              name: fullName,
-              short: shortName,
-              row: pos['row'] ?? 0,
-              column: pos['col'] ?? 0,
-            ),
-          );
-        }
+        // Tự lấy từ cuối cùng làm tên ngắn nếu không có trường short_name.
+        final shortName = sData['short_name'] ??
+            (fullName.trim().isNotEmpty
+                ? fullName.trim().split(' ').last
+                : 'HS');
+
+        studentList.add(
+          StudentModel(
+            id: doc.id,
+            name: fullName,
+            short: shortName,
+            row: pos['row'] ?? 0,
+            column: pos['col'] ?? 0,
+          ),
+        );
       }
+    }
 
-      return studentList;
+    // Sắp xếp ổn định theo tên -> danh sách (đặc biệt là picker chọn học
+    // sinh) không bị đảo lộn thứ tự giữa các lần Firestore emit lại.
+    studentList.sort((a, b) {
+      String firstNameA = a.name.trim().split(' ').last;
+      String firstNameB = b.name.trim().split(' ').last;
+      return firstNameA.compareTo(firstNameB);
     });
+    return studentList;
   }
 }

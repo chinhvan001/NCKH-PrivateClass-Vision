@@ -67,11 +67,8 @@ class SessionListCard extends StatelessWidget {
                   height: 40,
                   alignment: Alignment.center,
                   decoration: BoxDecoration(
-                    gradient: item.status == 'Đã kết thúc'
-                        ? const LinearGradient(
-                            colors: [Colors.grey, Colors.black26],
-                          )
-                        : const LinearGradient(
+                    gradient: 
+                        const LinearGradient(
                             colors: [AppColors.brand, Color(0xFF1D4ED8)],
                             begin: Alignment.topLeft,
                             end: Alignment.bottomRight,

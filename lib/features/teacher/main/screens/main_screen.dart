@@ -18,8 +18,8 @@ class _MainScreenState extends State<MainScreen> {
   @override
   Widget build(BuildContext context) {
     final List<Widget> screens = [
-      const SessionListScreen(),
       const ClassScreen(),
+      const SessionListScreen(),
       const SeatingManagerScreen(),
       AccountScreen(
         onLogout: () {
@@ -79,7 +79,7 @@ class _MainScreenState extends State<MainScreen> {
                 padding: EdgeInsets.symmetric(vertical: 4.0),
                 child: Icon(Icons.class_, size: 22),
               ),
-              label: 'Lớp học',
+              label: 'Lịch dạy',
             ),
             BottomNavigationBarItem(
               icon: Padding(
