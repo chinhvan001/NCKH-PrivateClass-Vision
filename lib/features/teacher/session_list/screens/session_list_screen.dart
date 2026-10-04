@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_privateclass_vision/core/models/session_model.dart';
 
 import '../../../../../core/constants/app_colors.dart';
 import '../widgets/session_list_card.dart';
@@ -220,6 +219,7 @@ class _SessionListScreenState extends State<SessionListScreen> {
                                         MaterialPageRoute(
                                           builder: (context) =>
                                               SessionDetailScreen(
+                                                sessionId: item.id,
                                                 classId: item.classId,
                                                 className: item.className,
                                                 room: item.room,
@@ -245,14 +245,14 @@ class _SessionListScreenState extends State<SessionListScreen> {
 
   Widget _buildHeader(int count) {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 56, 20, 16),
+      padding: const EdgeInsets.fromLTRB(16, 56, 16, 16),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
           const Text(
             'Danh sách phiên',
             style: TextStyle(
-              fontSize: 22,
+              fontSize: 20, // Giảm nhẹ font size tiêu đề để tranh chấp không gian ở màn hình nhỏ
               fontWeight: FontWeight.w800,
               color: AppColors.navy,
             ),
@@ -289,7 +289,7 @@ class _SessionListScreenState extends State<SessionListScreen> {
         }
       },
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
         decoration: BoxDecoration(
           color: isSelected ? AppColors.navy : Colors.transparent,
           borderRadius: BorderRadius.circular(8),
@@ -334,7 +334,7 @@ class _SessionListScreenState extends State<SessionListScreen> {
     }
 
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
@@ -345,15 +345,14 @@ class _SessionListScreenState extends State<SessionListScreen> {
             },
             borderRadius: BorderRadius.circular(8),
             child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
               child: Row(
                 children: const [
                   Icon(Icons.chevron_left, size: 20, color: AppColors.navy),
-                  SizedBox(width: 2),
                   Text(
                     'Lùi',
                     style: TextStyle(
-                      fontSize: 14,
+                      fontSize: 13,
                       fontWeight: FontWeight.w600,
                       color: AppColors.navy,
                     ),
@@ -362,12 +361,19 @@ class _SessionListScreenState extends State<SessionListScreen> {
               ),
             ),
           ),
-          Text(
-            label,
-            style: const TextStyle(
-              fontSize: 13,
-              fontWeight: FontWeight.bold,
-              color: AppColors.navy,
+          // Bọc Expanded vào đây để Text tự căn giữa và co dãn linh hoạt, tránh tràn màn hình
+          Expanded(
+            child: Text(
+              label,
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                fontSize:
+                    12, // Giảm nhẹ font từ 13 xuống 12 để vừa màn hình nhỏ
+                fontWeight: FontWeight.bold,
+                color: AppColors.navy,
+              ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis, // Nếu màn hình quá bé sẽ hiển thị dấu ... thay vì bị nổ giao diện
             ),
           ),
           InkWell(
@@ -377,18 +383,17 @@ class _SessionListScreenState extends State<SessionListScreen> {
             },
             borderRadius: BorderRadius.circular(8),
             child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
               child: Row(
                 children: const [
                   Text(
                     'Tiếp',
                     style: TextStyle(
-                      fontSize: 14,
+                      fontSize: 13,
                       fontWeight: FontWeight.w600,
                       color: AppColors.navy,
                     ),
                   ),
-                  SizedBox(width: 2),
                   Icon(Icons.chevron_right, size: 20, color: AppColors.navy),
                 ],
               ),

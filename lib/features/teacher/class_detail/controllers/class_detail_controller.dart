@@ -1,4 +1,5 @@
 import 'dart:async';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
 
@@ -47,7 +48,10 @@ class ClassDetailController extends ChangeNotifier {
   int get totalEnrolled => _students.length;
   int get activeStudentsCount => _students.where((s) => s.isStudying).length;
   int get seatedStudentsCount => _students
-      .where((s) => (s.row != null && s.row! > 0 && s.column != null && s.column! > 0))
+      .where(
+        (s) =>
+            (s.row != null && s.row! > 0 && s.column != null && s.column! > 0),
+      )
       .length;
 
   int get classroomRows {
@@ -89,10 +93,12 @@ class ClassDetailController extends ChangeNotifier {
     }
     final query = _searchStudentQuery.trim().toLowerCase();
     return _students
-        .where((s) =>
-            s.name.toLowerCase().contains(query) ||
-            s.short.toLowerCase().contains(query) ||
-            s.parentEmail.toLowerCase().contains(query))
+        .where(
+          (s) =>
+              s.name.toLowerCase().contains(query) ||
+              s.short.toLowerCase().contains(query) ||
+              s.parentEmail.toLowerCase().contains(query),
+        )
         .toList();
   }
 
@@ -124,47 +130,55 @@ class ClassDetailController extends ChangeNotifier {
         .doc(classId)
         .snapshots()
         .listen(
-      (snapshot) async {
-        if (!snapshot.exists) {
-          _isLoading = false;
-          _errorMessage = 'Không tìm thấy thông tin lớp học.';
-          notifyListeners();
-          return;
-        }
+          (snapshot) async {
+            if (!snapshot.exists) {
+              _isLoading = false;
+              _errorMessage = 'Không tìm thấy thông tin lớp học.';
+              notifyListeners();
+              return;
+            }
 
-        try {
-          final data = snapshot.data() ?? {};
-          final String classroomId = data['classroom_id']?.toString() ?? '';
-          final String teacherId = data['teacher_id']?.toString() ?? '';
+            try {
+              final data = snapshot.data() ?? {};
+              final String classroomId = data['classroom_id']?.toString() ?? '';
+              final String teacherId = data['teacher_id']?.toString() ?? '';
 
-          await Future.wait([
-            if (classroomId.isNotEmpty) _fetchClassroom(classroomId),
-            if (teacherId.isNotEmpty) _fetchTeacher(teacherId),
-          ]);
+              await Future.wait([
+                if (classroomId.isNotEmpty) _fetchClassroom(classroomId),
+                if (teacherId.isNotEmpty) _fetchTeacher(teacherId),
+              ]);
 
-          final String roomTitle = _classroomData?['classroom_name']?.toString() ??
-              (classroomId.isNotEmpty ? classroomId : 'Chưa cập nhật');
+              final String roomTitle =
+                  _classroomData?['classroom_name']?.toString() ??
+                  (classroomId.isNotEmpty ? classroomId : 'Chưa cập nhật');
 
-          _classDetail = ClassModel.fromFirestore(snapshot, roomName: roomTitle);
-          _isLoading = false;
-          _errorMessage = null;
-          notifyListeners();
-        } catch (e) {
-          _isLoading = false;
-          _errorMessage = 'Lỗi xử lý dữ liệu lớp: $e';
-          notifyListeners();
-        }
-      },
-      onError: (error) {
-        _isLoading = false;
-        _errorMessage = 'Lỗi kết nối lớp học: $error';
-        notifyListeners();
-      },
-    );
+              _classDetail = ClassModel.fromFirestore(
+                snapshot,
+                roomName: roomTitle,
+              );
+              _isLoading = false;
+              _errorMessage = null;
+              notifyListeners();
+            } catch (e) {
+              _isLoading = false;
+              _errorMessage = 'Lỗi xử lý dữ liệu lớp: $e';
+              notifyListeners();
+            }
+          },
+          onError: (error) {
+            _isLoading = false;
+            _errorMessage = 'Lỗi kết nối lớp học: $error';
+            notifyListeners();
+          },
+        );
   }
+
   Future<void> _fetchClassroom(String classroomId) async {
     try {
-      final doc = await _firestore.collection('classrooms').doc(classroomId).get();
+      final doc = await _firestore
+          .collection('classrooms')
+          .doc(classroomId)
+          .get();
       if (doc.exists) {
         _classroomData = doc.data();
       }
@@ -192,31 +206,31 @@ class ClassDetailController extends ChangeNotifier {
         .where('class_id', isEqualTo: classId)
         .snapshots()
         .listen(
-      (enrollSnap) async {
-        if (enrollSnap.docs.isEmpty) {
-          try {
-            final fallbackSnap = await _firestore
-                .collection('enrollments')
-                .where('class_id', isEqualTo: classId)
-                .get();
+          (enrollSnap) async {
+            if (enrollSnap.docs.isEmpty) {
+              try {
+                final fallbackSnap = await _firestore
+                    .collection('enrollments')
+                    .where('class_id', isEqualTo: classId)
+                    .get();
 
-            if (fallbackSnap.docs.isNotEmpty) {
-              await _processEnrollmentDocs(fallbackSnap.docs);
+                if (fallbackSnap.docs.isNotEmpty) {
+                  await _processEnrollmentDocs(fallbackSnap.docs);
+                  return;
+                }
+              } catch (_) {}
+
+              _students = [];
+              notifyListeners();
               return;
             }
-          } catch (_) {}
 
-          _students = [];
-          notifyListeners();
-          return;
-        }
-
-        await _processEnrollmentDocs(enrollSnap.docs);
-      },
-      onError: (e) {
-        debugPrint('Lỗi listen Enrollment: $e');
-      },
-    );
+            await _processEnrollmentDocs(enrollSnap.docs);
+          },
+          onError: (e) {
+            debugPrint('Lỗi listen Enrollment: $e');
+          },
+        );
   }
 
   Future<void> _processEnrollmentDocs(List<QueryDocumentSnapshot> docs) async {
@@ -232,7 +246,9 @@ class ClassDetailController extends ChangeNotifier {
           enrollmentMeta[sId] = {
             'row': (data['row'] as num?)?.toInt(),
             'column': (data['column'] as num?)?.toInt(),
-            'is_studying': data['is_studying'] is bool ? data['is_studying'] : true,
+            'is_studying': data['is_studying'] is bool
+                ? data['is_studying']
+                : true,
             'school_year': (data['school_year'] as num?)?.toInt(),
           };
         }
@@ -285,26 +301,26 @@ class ClassDetailController extends ChangeNotifier {
         .where('class_id', isEqualTo: classId)
         .snapshots()
         .listen(
-      (snapshot) {
-        final List<SessionModel> list = [];
-        for (var doc in snapshot.docs) {
-          list.add(
-            SessionModel.fromFirestore(
-              doc,
-              className: _classDetail?.name ?? 'Lớp học',
-              classSize: _classDetail?.students ?? _students.length,
-            ),
-          );
-        }
+          (snapshot) {
+            final List<SessionModel> list = [];
+            for (var doc in snapshot.docs) {
+              list.add(
+                SessionModel.fromFirestore(
+                  doc,
+                  className: _classDetail?.name ?? 'Lớp học',
+                  classSize: _classDetail?.students ?? _students.length,
+                ),
+              );
+            }
 
-        list.sort((a, b) => b.date.compareTo(a.date));
-        _sessions = list;
-        notifyListeners();
-      },
-      onError: (e) {
-        debugPrint('Lỗi listen monitoring_sessions: $e');
-      },
-    );
+            list.sort((a, b) => b.date.compareTo(a.date));
+            _sessions = list;
+            notifyListeners();
+          },
+          onError: (e) {
+            debugPrint('Lỗi listen monitoring_sessions: $e');
+          },
+        );
   }
 
   Future<void> refresh() async {
@@ -318,5 +334,4 @@ class ClassDetailController extends ChangeNotifier {
     _sessionsSubscription?.cancel();
     super.dispose();
   }
-
 }

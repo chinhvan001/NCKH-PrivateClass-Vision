@@ -70,8 +70,13 @@ class _NotificationScreenState extends State<NotificationScreen> {
         backgroundColor: Colors.white,
         elevation: 0,
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back_ios, color: AppColors.textPrimary, size: 20),
-          onPressed: () => Navigator.canPop(context) ? Navigator.pop(context) : null,
+          icon: const Icon(
+            Icons.arrow_back_ios,
+            color: AppColors.textPrimary,
+            size: 20,
+          ),
+          onPressed: () =>
+              Navigator.canPop(context) ? Navigator.pop(context) : null,
         ),
         title: const Text('Thông báo', style: AppTextStyles.heading2),
       ),
@@ -89,12 +94,17 @@ class _NotificationScreenState extends State<NotificationScreen> {
                   child: GestureDetector(
                     onTap: () => setState(() => _activeTab = t),
                     child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 7),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 7,
+                      ),
                       decoration: BoxDecoration(
                         color: selected ? AppColors.primary : Colors.white,
                         borderRadius: BorderRadius.circular(20),
                         border: Border.all(
-                          color: selected ? AppColors.primary : AppColors.divider,
+                          color: selected
+                              ? AppColors.primary
+                              : AppColors.divider,
                         ),
                       ),
                       child: Text(
@@ -102,7 +112,9 @@ class _NotificationScreenState extends State<NotificationScreen> {
                         style: TextStyle(
                           fontSize: 13,
                           fontWeight: FontWeight.w500,
-                          color: selected ? Colors.white : AppColors.textSecondary,
+                          color: selected
+                              ? Colors.white
+                              : AppColors.textSecondary,
                         ),
                       ),
                     ),
@@ -141,11 +153,20 @@ class _NotificationScreenState extends State<NotificationScreen> {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text(n['title'] as String, style: AppTextStyles.heading3),
+                            Text(
+                              n['title'] as String,
+                              style: AppTextStyles.heading3,
+                            ),
                             const SizedBox(height: 4),
-                            Text(n['body'] as String, style: AppTextStyles.body2),
+                            Text(
+                              n['body'] as String,
+                              style: AppTextStyles.body2,
+                            ),
                             const SizedBox(height: 6),
-                            Text(n['time'] as String, style: AppTextStyles.small),
+                            Text(
+                              n['time'] as String,
+                              style: AppTextStyles.small,
+                            ),
                           ],
                         ),
                       ),

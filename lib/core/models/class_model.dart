@@ -24,27 +24,27 @@ class ClassModel {
   });
 
   /// Factory parse document from Firestore matching docs/firebase_schema.md
-  factory ClassModel.fromFirestore(
-    DocumentSnapshot doc, {
-    String? roomName,
-  }) {
+  factory ClassModel.fromFirestore(DocumentSnapshot doc, {String? roomName}) {
     final data = doc.data() as Map<String, dynamic>? ?? {};
 
-    final String name = (data['class_name'] ?? data['name'] ?? 'Lớp học').toString();
+    final String name = (data['class_name'] ?? data['name'] ?? 'Lớp học')
+        .toString();
     final String cId = data['classroom_id']?.toString() ?? '';
     final String tId = data['teacher_id']?.toString() ?? '';
-    final int size = (data['class_size'] as num?)?.toInt() ??
+    final int size =
+        (data['class_size'] as num?)?.toInt() ??
         (data['students'] as num?)?.toInt() ??
         0;
     final int year = (data['school_year'] as num?)?.toInt() ?? 0;
-    final String gradeStr = data['grade']?.toString() ??
+    final String gradeStr =
+        data['grade']?.toString() ??
         (name.contains('12')
             ? 'Khối 12'
             : name.contains('11')
-                ? 'Khối 11'
-                : name.contains('10')
-                    ? 'Khối 10'
-                    : '');
+            ? 'Khối 11'
+            : name.contains('10')
+            ? 'Khối 10'
+            : '');
 
     return ClassModel(
       id: doc.id,
@@ -94,4 +94,3 @@ const List<ClassModel> mockClasses = [
     students: 40,
   ),
 ];
-

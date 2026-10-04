@@ -34,17 +34,17 @@ class StudentModel {
   }) {
     final data = doc.data() as Map<String, dynamic>? ?? {};
 
-    final String fullName = (data['student_name'] ??
-            data['full_name'] ??
-            data['name'] ??
-            'Học sinh')
-        .toString();
+    final String fullName =
+        (data['student_name'] ??
+                data['full_name'] ??
+                data['name'] ??
+                'Học sinh')
+            .toString();
 
     // Auto calculate short name if not provided
-    final String shortName = data['short_name']?.toString() ??
-        (fullName.trim().isNotEmpty
-            ? fullName.trim().split(' ').last
-            : 'HS');
+    final String shortName =
+        data['short_name']?.toString() ??
+        (fullName.trim().isNotEmpty ? fullName.trim().split(' ').last : 'HS');
 
     String birthdayStr = '';
     if (data['birthday'] != null) {
@@ -98,4 +98,3 @@ class StudentModel {
     );
   }
 }
-

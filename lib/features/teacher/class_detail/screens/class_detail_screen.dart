@@ -48,7 +48,6 @@ class _ClassDetailScreenState extends State<ClassDetailScreen> {
     }
   }
 
-
   @override
   Widget build(BuildContext context) {
     return AnimatedBuilder(
@@ -116,7 +115,11 @@ class _ClassDetailScreenState extends State<ClassDetailScreen> {
                     width: 1,
                   ),
                 ),
-                child: const Icon(Icons.arrow_back, color: Colors.white, size: 20),
+                child: const Icon(
+                  Icons.arrow_back,
+                  color: Colors.white,
+                  size: 20,
+                ),
               ),
             ),
           ),
@@ -140,7 +143,10 @@ class _ClassDetailScreenState extends State<ClassDetailScreen> {
                 Row(
                   children: [
                     Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 7,
+                        vertical: 2,
+                      ),
                       decoration: BoxDecoration(
                         color: Colors.white.withValues(alpha: 0.16),
                         borderRadius: BorderRadius.circular(6),
@@ -217,7 +223,11 @@ class _ClassDetailScreenState extends State<ClassDetailScreen> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Icon(Icons.error_outline, size: 48, color: Colors.redAccent),
+              const Icon(
+                Icons.error_outline,
+                size: 48,
+                color: Colors.redAccent,
+              ),
               const SizedBox(height: 12),
               Text(
                 _controller.errorMessage ?? 'Đã có lỗi xảy ra',
@@ -260,9 +270,8 @@ class _ClassDetailScreenState extends State<ClassDetailScreen> {
     return RefreshIndicator(
       onRefresh: _controller.refresh,
       color: AppColors.brand,
-      child: SingleChildScrollView(
-        physics: const AlwaysScrollableScrollPhysics(),
-        padding: const EdgeInsets.fromLTRB(16, 20, 16, 28),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 20, 16, 0),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -270,7 +279,7 @@ class _ClassDetailScreenState extends State<ClassDetailScreen> {
             const SizedBox(height: 16),
             _buildTabBar(),
             const SizedBox(height: 16),
-            _buildTabContent(),
+            Expanded(child: _buildTabContent()),
           ],
         ),
       ),
@@ -321,7 +330,9 @@ class _ClassDetailScreenState extends State<ClassDetailScreen> {
                       _tabs[index],
                       style: TextStyle(
                         fontSize: 12,
-                        fontWeight: isSelected ? FontWeight.w700 : FontWeight.w600,
+                        fontWeight: isSelected
+                            ? FontWeight.w700
+                            : FontWeight.w600,
                         color: isSelected ? AppColors.navy : AppColors.muted,
                       ),
                     ),

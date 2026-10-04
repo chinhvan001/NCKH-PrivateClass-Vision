@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+
 import '../../../../core/constants/app_colors.dart';
 import '../../../../core/models/session_model.dart';
 import '../controllers/class_detail_controller.dart';
@@ -12,31 +13,35 @@ class SessionScheduleWidget extends StatelessWidget {
     final sessions = controller.sessions;
 
     if (sessions.isEmpty) {
-      return Container(
-        width: double.infinity,
-        padding: const EdgeInsets.all(32),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: AppColors.hair),
-        ),
-        child: const Column(
-          children: [
-            Icon(Icons.event_busy_outlined, size: 40, color: AppColors.muted),
-            SizedBox(height: 8),
-            Text(
-              'Chưa có lịch hoặc buổi học nào được ghi nhận.',
-              style: TextStyle(fontSize: 13, color: AppColors.muted),
-              textAlign: TextAlign.center,
-            ),
-          ],
+      return SingleChildScrollView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        child: Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(32),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: AppColors.hair),
+          ),
+          child: const Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.event_busy_outlined, size: 40, color: AppColors.muted),
+              SizedBox(height: 8),
+              Text(
+                'Chưa có lịch hoặc buổi học nào được ghi nhận.',
+                style: TextStyle(fontSize: 13, color: AppColors.muted),
+                textAlign: TextAlign.center,
+              ),
+            ],
+          ),
         ),
       );
     }
 
     return ListView.separated(
-      shrinkWrap: true,
-      physics: const NeverScrollableScrollPhysics(),
+      physics: const AlwaysScrollableScrollPhysics(),
+      padding: const EdgeInsets.only(bottom: 24),
       itemCount: sessions.length,
       separatorBuilder: (context, index) => const SizedBox(height: 10),
       itemBuilder: (context, index) => _sessionCard(sessions[index]),
@@ -50,14 +55,14 @@ class SessionScheduleWidget extends StatelessWidget {
     final Color badgeBg = isLive
         ? const Color(0xFFDCFCE7)
         : isFinished
-            ? AppColors.appBg
-            : const Color(0xFFFEF3C7);
+        ? AppColors.appBg
+        : const Color(0xFFFEF3C7);
 
     final Color badgeColor = isLive
         ? const Color(0xFF16A34A)
         : isFinished
-            ? AppColors.muted
-            : const Color(0xFFD97706);
+        ? AppColors.muted
+        : const Color(0xFFD97706);
 
     return Container(
       padding: const EdgeInsets.all(14),

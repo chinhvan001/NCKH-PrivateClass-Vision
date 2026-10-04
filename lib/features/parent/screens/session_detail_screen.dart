@@ -17,8 +17,11 @@ class SessionDetailScreen extends StatelessWidget {
         backgroundColor: Colors.white,
         elevation: 0,
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back_ios_new_rounded,
-              color: AppColors.textPrimary, size: 20),
+          icon: const Icon(
+            Icons.arrow_back_ios_new_rounded,
+            color: AppColors.textPrimary,
+            size: 20,
+          ),
           onPressed: () => Navigator.pop(context),
         ),
         title: const Text('Chi tiết buổi học', style: AppTextStyles.heading2),
@@ -50,8 +53,11 @@ class SessionDetailScreen extends StatelessWidget {
                       color: AppColors.accentLight,
                       borderRadius: BorderRadius.circular(10),
                     ),
-                    child: const Icon(Icons.calendar_today_rounded,
-                        color: AppColors.primary, size: 22),
+                    child: const Icon(
+                      Icons.calendar_today_rounded,
+                      color: AppColors.primary,
+                      size: 22,
+                    ),
                   ),
                   const SizedBox(width: 12),
                   Column(
@@ -85,12 +91,17 @@ class SessionDetailScreen extends StatelessWidget {
                           color: _percentColor(percent).withValues(alpha: 0.12),
                           borderRadius: BorderRadius.circular(8),
                         ),
-                        child: Icon(Icons.track_changes_rounded,
-                            color: _percentColor(percent), size: 20),
+                        child: Icon(
+                          Icons.track_changes_rounded,
+                          color: _percentColor(percent),
+                          size: 20,
+                        ),
                       ),
                       const SizedBox(width: 10),
-                      const Text('Mức độ tập trung',
-                          style: AppTextStyles.heading3),
+                      const Text(
+                        'Mức độ tập trung',
+                        style: AppTextStyles.heading3,
+                      ),
                     ],
                   ),
                   const SizedBox(height: 20),
@@ -158,8 +169,11 @@ class SessionDetailScreen extends StatelessWidget {
                 children: [
                   Row(
                     children: const [
-                      Icon(Icons.info_outline_rounded,
-                          color: AppColors.primary, size: 20),
+                      Icon(
+                        Icons.info_outline_rounded,
+                        color: AppColors.primary,
+                        size: 20,
+                      ),
                       SizedBox(width: 8),
                       Text('Thông tin buổi học', style: AppTextStyles.heading3),
                     ],
@@ -174,8 +188,7 @@ class SessionDetailScreen extends StatelessWidget {
                   _InfoRow(
                     icon: Icons.meeting_room_outlined,
                     label: 'Lớp / phòng',
-                    value:
-                        'Lớp 5A / ${session['room'] ?? 'P.201'}',
+                    value: 'Lớp 5A / ${session['room'] ?? 'P.201'}',
                   ),
                   const Divider(height: 16, color: AppColors.divider),
                   _InfoRow(
@@ -212,8 +225,11 @@ class _InfoRow extends StatelessWidget {
   final String label;
   final String value;
 
-  const _InfoRow(
-      {required this.icon, required this.label, required this.value});
+  const _InfoRow({
+    required this.icon,
+    required this.label,
+    required this.value,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -222,13 +238,8 @@ class _InfoRow extends StatelessWidget {
       children: [
         Icon(icon, size: 16, color: AppColors.textSecondary),
         const SizedBox(width: 8),
-        SizedBox(
-          width: 90,
-          child: Text(label, style: AppTextStyles.caption),
-        ),
-        Expanded(
-          child: Text(value, style: AppTextStyles.body2),
-        ),
+        SizedBox(width: 90, child: Text(label, style: AppTextStyles.caption)),
+        Expanded(child: Text(value, style: AppTextStyles.body2)),
       ],
     );
   }
@@ -240,8 +251,11 @@ class _FocusBarRow extends StatelessWidget {
   final int value;
   final Color color;
 
-  const _FocusBarRow(
-      {required this.label, required this.value, required this.color});
+  const _FocusBarRow({
+    required this.label,
+    required this.value,
+    required this.color,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -252,11 +266,14 @@ class _FocusBarRow extends StatelessWidget {
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
             Text(label, style: AppTextStyles.caption),
-            Text('$value%',
-                style: TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
-                    color: color)),
+            Text(
+              '$value%',
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                color: color,
+              ),
+            ),
           ],
         ),
         const SizedBox(height: 6),
@@ -273,4 +290,3 @@ class _FocusBarRow extends StatelessWidget {
     );
   }
 }
-

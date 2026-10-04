@@ -85,10 +85,7 @@ class ClassStatsCard extends StatelessWidget {
           Container(
             width: 32,
             height: 32,
-            decoration: BoxDecoration(
-              color: bgColor,
-              shape: BoxShape.circle,
-            ),
+            decoration: BoxDecoration(color: bgColor, shape: BoxShape.circle),
             child: Icon(icon, size: 16, color: iconColor),
           ),
           const SizedBox(height: 8),

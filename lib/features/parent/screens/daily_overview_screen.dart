@@ -30,7 +30,11 @@ class _DailyOverviewScreenState extends State<DailyOverviewScreen> {
         backgroundColor: Colors.white,
         elevation: 0,
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back_ios, color: AppColors.textPrimary, size: 20),
+          icon: const Icon(
+            Icons.arrow_back_ios,
+            color: AppColors.textPrimary,
+            size: 20,
+          ),
           onPressed: () => Navigator.pop(context),
         ),
         title: const Text('Tổng quan', style: AppTextStyles.heading2),
@@ -61,9 +65,14 @@ class _DailyOverviewScreenState extends State<DailyOverviewScreen> {
                   return GestureDetector(
                     onTap: () => setState(() => _selectedPeriod = p),
                     child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 7),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 7,
+                      ),
                       decoration: BoxDecoration(
-                        color: selected ? AppColors.primary : Colors.transparent,
+                        color: selected
+                            ? AppColors.primary
+                            : Colors.transparent,
                         borderRadius: BorderRadius.circular(8),
                       ),
                       child: Text(
@@ -71,7 +80,9 @@ class _DailyOverviewScreenState extends State<DailyOverviewScreen> {
                         style: TextStyle(
                           fontSize: 13,
                           fontWeight: FontWeight.w500,
-                          color: selected ? Colors.white : AppColors.textSecondary,
+                          color: selected
+                              ? Colors.white
+                              : AppColors.textSecondary,
                         ),
                       ),
                     ),
@@ -85,13 +96,18 @@ class _DailyOverviewScreenState extends State<DailyOverviewScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text('Mức độ tập trung theo môn', style: AppTextStyles.heading3),
+                  const Text(
+                    'Mức độ tập trung theo môn',
+                    style: AppTextStyles.heading3,
+                  ),
                   const SizedBox(height: 14),
-                  ..._subjects.map((s) => SubjectProgressBar(
-                        subject: s['name'],
-                        percent: s['percent'],
-                        color: s['color'],
-                      )),
+                  ..._subjects.map(
+                    (s) => SubjectProgressBar(
+                      subject: s['name'],
+                      percent: s['percent'],
+                      color: s['color'],
+                    ),
+                  ),
                 ],
               ),
             ),
@@ -144,7 +160,10 @@ class _DailyOverviewScreenState extends State<DailyOverviewScreen> {
                     alignment: Alignment.centerRight,
                     child: GestureDetector(
                       onTap: () {},
-                      child: const Text('Xem chi tiết >', style: AppTextStyles.linkText),
+                      child: const Text(
+                        'Xem chi tiết >',
+                        style: AppTextStyles.linkText,
+                      ),
                     ),
                   ),
                 ],
@@ -197,10 +216,7 @@ class _AttendanceBox extends StatelessWidget {
                     color: color,
                   ),
                 ),
-                TextSpan(
-                  text: ' $unit',
-                  style: AppTextStyles.body2,
-                ),
+                TextSpan(text: ' $unit', style: AppTextStyles.body2),
               ],
             ),
           ),

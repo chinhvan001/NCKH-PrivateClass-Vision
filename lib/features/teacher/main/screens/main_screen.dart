@@ -29,16 +29,11 @@ class _MainScreenState extends State<MainScreen> {
     ];
 
     return Scaffold(
-      body: IndexedStack(
-        index: _currentIndex,
-        children: screens,
-      ),
+      body: IndexedStack(index: _currentIndex, children: screens),
       bottomNavigationBar: Container(
         decoration: const BoxDecoration(
           color: Colors.white,
-          border: Border(
-            top: BorderSide(color: Color(0xFFE2E8F0), width: 1.0),
-          ),
+          border: Border(top: BorderSide(color: Color(0xFFE2E8F0), width: 1.0)),
         ),
         child: BottomNavigationBar(
           currentIndex: _currentIndex,

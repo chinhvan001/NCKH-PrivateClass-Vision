@@ -9,10 +9,9 @@ Future<void> signOutAndResetRole(BuildContext context) async {
   if (user != null) {
     try {
       // 1. Xóa active_role trên Firestore để đăng nhập lần sau bắt buộc chọn lại
-      await FirebaseFirestore.instance
-          .collection('users')
-          .doc(user.uid)
-          .update({'active_role': FieldValue.delete()});
+      await FirebaseFirestore.instance.collection('users').doc(user.uid).update(
+        {'active_role': FieldValue.delete()},
+      );
     } catch (e) {
       debugPrint("Lỗi xóa active_role: $e");
     }

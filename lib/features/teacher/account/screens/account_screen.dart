@@ -1,69 +1,104 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 
 import '../../../../core/constants/app_colors.dart';
 import '../../../../core/models/teacher_model.dart';
-import '../../../../global_widgets/info_row.dart';
 import '../../../../global_widgets/action_row.dart';
+import '../../../../global_widgets/info_row.dart';
 import '../widgets/profile_card.dart';
 
 class AccountScreen extends StatelessWidget {
   final VoidCallback onLogout;
 
-  // Dữ liệu giả lập
-  final TeacherModel teacher = const TeacherModel(
-    name: 'Trần Quang Minh',
-    role: 'Giáo viên Toán',
-    email: 'tranquangminh@example.com',
-    phone: '0901234567',
-    school: 'THPT Nguyễn Du',
-  );
-
   const AccountScreen({super.key, required this.onLogout});
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: AppColors.appBg,
-      body: SingleChildScrollView(
-        child: Column(
-          children: [
-            _buildHeaderAndProfile(),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16.0),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const SizedBox(height: 24),
-                  _buildSectionTitle('Thông tin liên hệ'),
-                  _buildContactInfo(),
+    final currentUser = FirebaseAuth.instance.currentUser;
 
-                  const SizedBox(height: 24),
-                  _buildSectionTitle('Bảo mật & cài đặt'),
-                  _buildSettingsInfo(),
+    if (currentUser == null) {
+      return const Scaffold(
+        body: Center(child: Text('Người dùng chưa đăng nhập')),
+      );
+    }
 
-                  const SizedBox(height: 32),
-                  _buildLogoutButton(context),
+    return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+      stream: FirebaseFirestore.instance
+          .collection('teachers')
+          .doc(currentUser.uid)
+          .snapshots(),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Scaffold(
+            backgroundColor: AppColors.appBg,
+            body: Center(child: CircularProgressIndicator()),
+          );
+        }
 
-                  const SizedBox(height: 16),
-                  const Center(
-                    child: Text(
-                      'PrivateClass Vision · Phiên bản 2.4.0',
-                      style: TextStyle(fontSize: 12, color: AppColors.muted),
-                    ),
+        if (snapshot.hasError) {
+          return Scaffold(
+            backgroundColor: AppColors.appBg,
+            body: Center(child: Text('Lỗi tải dữ liệu: ${snapshot.error}')),
+          );
+        }
+
+        if (!snapshot.hasData || !snapshot.data!.exists) {
+          return const Scaffold(
+            backgroundColor: AppColors.appBg,
+            body: Center(child: Text('Không tìm thấy thông tin tài khoản')),
+          );
+        }
+
+        // Chuyển đổi dữ liệu Firestore sang UserModel
+        final userModel = TeacherModel.fromFirestore(snapshot.data!);
+
+        return Scaffold(
+          backgroundColor: AppColors.appBg,
+          body: SingleChildScrollView(
+            child: Column(
+              children: [
+                _buildHeaderAndProfile(userModel),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16.0),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const SizedBox(height: 24),
+                      _buildSectionTitle('Thông tin liên hệ'),
+                      _buildContactInfo(userModel),
+
+                      const SizedBox(height: 24),
+                      _buildSectionTitle('Bảo mật & cài đặt'),
+                      _buildSettingsInfo(),
+
+                      const SizedBox(height: 32),
+                      _buildLogoutButton(context),
+
+                      const SizedBox(height: 16),
+                      const Center(
+                        child: Text(
+                          'PrivateClass Vision · Phiên bản 2.4.0',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: AppColors.muted,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 24),
+                    ],
                   ),
-                  const SizedBox(height: 24),
-                ],
-              ),
+                ),
+              ],
             ),
-          ],
-        ),
-      ),
+          ),
+        );
+      },
     );
   }
 
-  Widget _buildHeaderAndProfile() {
+  Widget _buildHeaderAndProfile(TeacherModel user) {
     return Stack(
       clipBehavior: Clip.none,
       alignment: Alignment.topCenter,
@@ -95,7 +130,7 @@ class AccountScreen extends StatelessWidget {
         ),
         Padding(
           padding: const EdgeInsets.only(top: 130, left: 16, right: 16),
-          child: ProfileCard(teacher: teacher),
+          child: ProfileCard(user: user),
         ),
       ],
     );
@@ -115,7 +150,7 @@ class AccountScreen extends StatelessWidget {
     );
   }
 
-  Widget _buildContactInfo() {
+  Widget _buildContactInfo(TeacherModel user) {
     return Card(
       elevation: 0,
       shape: RoundedRectangleBorder(
@@ -126,22 +161,18 @@ class AccountScreen extends StatelessWidget {
       clipBehavior: Clip.antiAlias,
       child: Column(
         children: [
-          InfoRow(
-            icon: Icons.mail_outline,
-            label: 'Email',
-            value: teacher.email,
-          ),
+          InfoRow(icon: Icons.mail_outline, label: 'Email', value: user.email),
           const Divider(height: 1, color: AppColors.hair),
           InfoRow(
             icon: Icons.phone_outlined,
             label: 'Số điện thoại',
-            value: teacher.phone,
+            value: user.phoneNumber,
           ),
           const Divider(height: 1, color: AppColors.hair),
           InfoRow(
             icon: Icons.school_outlined,
             label: 'Trường',
-            value: teacher.school,
+            value: 'THPT Phan Châu Trinh',
           ),
         ],
       ),
@@ -242,7 +273,7 @@ class AccountScreen extends StatelessWidget {
                 ),
                 const SizedBox(height: 12),
                 const Text(
-                  'Bạn có chắc chắn muốn đăng xuất khỏi tài khoản giáo viên không?',
+                  'Bạn có chắc chắn muốn đăng xuất khỏi tài khoản không?',
                   textAlign: TextAlign.center,
                   style: TextStyle(
                     fontSize: 14,
@@ -257,14 +288,11 @@ class AccountScreen extends StatelessWidget {
                   child: ElevatedButton(
                     onPressed: () async {
                       Navigator.of(context).pop();
-                      // onLogout();
                       try {
                         await GoogleSignIn().signOut();
                         await FirebaseAuth.instance.signOut();
-      // AuthWrapper sẽ tự phát hiện tài khoản đã đăng xuất 
-      // và tự chuyển về LoginScreen ngay lập tức.
                       } catch (e) {
-                         debugPrint('Lỗi đăng xuất: $e');
+                        debugPrint('Lỗi đăng xuất: $e');
                       }
                     },
                     style: ElevatedButton.styleFrom(

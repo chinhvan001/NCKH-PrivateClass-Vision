@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
 
 import '../../../../../core/constants/app_colors.dart';
+import '../../../../core/models/session_student_model.dart';
+import '../controllers/session_detail_controller.dart';
 import 'student_list_screen.dart';
 
 // ==========================================
-// 1. MOCK DATA & MODELS CHO SESSION DETAIL
+// 1. MODEL CHO SEAT INFO
 // ==========================================
 class SeatInfo {
   final String id;
@@ -52,58 +54,11 @@ class SeatInfo {
   }
 }
 
-List<SeatInfo> generateMockSeats(int rows, int cols, String status) {
-  final List<String> initials = [
-    'An', 'Bảo', 'Cường', 'Dũng', 'Hà', 'Huy', 'Khang', 'Linh', 'Minh', 'Nam',
-    'Ngọc', 'Oanh', 'Phúc', 'Quân', 'Sơn', 'Trang', 'Tú', 'Uyên', 'Vy', 'Yến',
-    'Bình', 'Châu', 'Đạt', 'Hương', 'Kiên', 'Lan', 'Mai', 'Nhung', 'Phong', 'Quỳnh',
-    'Sang', 'Thảo', 'Trí', 'Vân', 'Việt', 'Xuân', 'Ánh', 'Diệp', 'Hòa', 'Long', 'Tâm', 'Yên',
-  ];
-
-  bool isFuture = status == 'Sắp diễn ra';
-
-  return List.generate(rows * cols, (index) {
-    if (index >= initials.length) {
-      return SeatInfo(
-        id: '',
-        name: '',
-        fullName: '',
-        dob: '',
-        parentPhone: '',
-        present: false,
-        distracted: false,
-      );
-    }
-
-    bool present = isFuture ? true : (index % 10) != 0;
-    bool distracted = isFuture ? false : (present && (index % 7) == 0);
-    int? attention = (!present || isFuture)
-        ? null
-        : (distracted ? 38 + ((index * 7) % 20) : 78 + ((index * 5) % 18));
-
-    List<int>? recent = (!present && !isFuture)
-        ? null
-        : [85 + (index % 15), 80 + (index % 20)];
-
-    return SeatInfo(
-      id: 'HS${index.toString().padLeft(3, '0')}',
-      name: initials[index],
-      fullName: 'Nguyễn Văn ${initials[index]}',
-      dob: '${(10 + (index % 20)).toString().padLeft(2, '0')}/05/2008',
-      parentPhone: '0901 234 ${index.toString().padLeft(3, '0')}',
-      present: present,
-      distracted: distracted,
-      attention: attention,
-      recentAttention: recent,
-      note: '',
-    );
-  });
-}
-
 // ==========================================
 // 2. MÀN HÌNH CHÍNH (SESSION DETAIL SCREEN)
 // ==========================================
 class SessionDetailScreen extends StatefulWidget {
+  final String sessionId;
   final String classId;
   final String className;
   final String room;
@@ -114,12 +69,13 @@ class SessionDetailScreen extends StatefulWidget {
 
   const SessionDetailScreen({
     super.key,
-    this.classId = '12A1',
-    this.className = 'Lớp 12A1',
-    this.room = 'A203',
-    this.start = '08:00',
-    this.end = '09:30',
-    this.date = 'Hôm nay',
+    required this.sessionId,
+    this.classId = '',
+    this.className = 'Lớp học',
+    this.room = 'N/A',
+    this.start = '07:00',
+    this.end = '09:00',
+    this.date,
     this.status = 'Đang diễn ra',
   });
 
@@ -128,81 +84,130 @@ class SessionDetailScreen extends StatefulWidget {
 }
 
 class _SessionDetailScreenState extends State<SessionDetailScreen> {
-  final int rows = 6;
-  final int cols = 7;
-  late List<SeatInfo> seats;
-  late List<SeatInfo> _originalSeats;
-  bool _hasChanges = false;
+  late final SessionDetailController _controller;
 
   @override
   void initState() {
     super.initState();
-    seats = generateMockSeats(rows, cols, widget.status);
-    _saveSnapshot();
+    _controller = SessionDetailController(sessionId: widget.sessionId);
+    _controller.addListener(_onControllerChanged);
   }
 
-  void _saveSnapshot() {
-    _originalSeats = seats.map((s) => s.copyWith()).toList();
-    _hasChanges = false;
+  void _onControllerChanged() {
+    if (mounted) {
+      setState(() {});
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller.removeListener(_onControllerChanged);
+    _controller.dispose();
+    super.dispose();
+  }
+
+  int get rows => _controller.classroomRows;
+  int get cols => _controller.classroomColumns;
+
+  List<SeatInfo> get seats {
+    final sessionStudents = _controller.sessionStudents;
+    final Map<String, SessionStudentModel> posMap = {};
+    for (var s in sessionStudents) {
+      posMap['${s.row},${s.column}'] = s;
+    }
+
+    return List.generate(rows * cols, (index) {
+      final r0 = index ~/ cols;
+      final c0 = index % cols;
+      final r1 = r0 + 1;
+      final c1 = c0 + 1;
+      final sData = posMap['$r1,$c1'] ?? posMap['$r0,$c0'];
+
+      if (sData == null) {
+        return SeatInfo(
+          id: '',
+          name: '',
+          fullName: '',
+          dob: '',
+          parentPhone: '',
+          present: false,
+          distracted: false,
+        );
+      }
+
+      final studentId = sData.studentId;
+      final studentModel = _controller.getStudentInfo(studentId);
+      final isPresent = sData.isPresent;
+      final isAttention = sData.isAttention;
+      final attentionScore =
+          sData.attentionScore?.toInt() ?? (isPresent ? 85 : null);
+      final note = sData.note;
+
+      return SeatInfo(
+        id: studentId,
+        name:
+            studentModel?.short ??
+            (studentModel?.name.isNotEmpty == true
+                ? studentModel!.name.split(' ').last
+                : (studentId.isNotEmpty ? 'HS' : '')),
+        fullName: studentModel?.name ?? 'Học sinh',
+        dob: studentModel?.birthday ?? '',
+        parentPhone: studentModel?.parentEmail.isNotEmpty == true
+            ? studentModel!.parentEmail
+            : (studentModel?.parentId ?? ''),
+        present: isPresent,
+        distracted: isPresent && !isAttention,
+        attention: attentionScore,
+        recentAttention: isPresent ? [85, 90] : null,
+        note: note,
+      );
+    });
   }
 
   // Chuyển đổi trạng thái tuần tự: Có mặt -> Mất tập trung -> Vắng -> Có mặt
   void _toggleSeatStatus(SeatInfo seat) {
-    if (seat.name.isEmpty) return;
-
-    setState(() {
-      if (seat.present && !seat.distracted) {
-        // Đang Có mặt -> Chuyển sang Mất tập trung (Vàng)
-        seat.present = true;
-        seat.distracted = true;
-        seat.attention = 45;
-      } else if (seat.present && seat.distracted) {
-        // Đang Mất tập trung -> Chuyển sang Vắng mặt (Xám)
-        seat.present = false;
-        seat.distracted = false;
-        seat.attention = null;
-      } else {
-        // Đang Vắng -> Quay lại Có mặt (Xanh lá)
-        seat.present = true;
-        seat.distracted = false;
-        seat.attention = 95;
-      }
-      _hasChanges = true;
-    });
+    if (seat.id.isEmpty) return;
+    _controller.toggleAttendance(seat.id);
   }
 
   void _handleCancel() {
-    setState(() {
-      seats = _originalSeats.map((s) => s.copyWith()).toList();
-      _hasChanges = false;
-    });
+    _controller.cancelChanges();
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
-        content: Text('Đã hủy toàn bộ thay đổi!'),
+        content: Text('Đã khôi phục lại dữ liệu gốc ban đầu!'),
         duration: Duration(seconds: 1),
       ),
     );
   }
 
-  void _handleSave() {
-    setState(() {
-      _saveSnapshot();
-    });
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Đã lưu trạng thái điểm danh thành công!'),
-        backgroundColor: Color(0xFF137A41),
-        duration: Duration(seconds: 2),
-      ),
-    );
+  void _handleSave() async {
+    final success = await _controller.saveChanges();
+    if (!mounted) return;
+    if (success) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Đã lưu thay đổi thành công!'),
+          backgroundColor: Color(0xFF137A41),
+          duration: Duration(seconds: 2),
+        ),
+      );
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Lỗi khi lưu dữ liệu. Vui lòng thử lại!'),
+          backgroundColor: Colors.redAccent,
+          duration: Duration(seconds: 2),
+        ),
+      );
+    }
   }
 
   @override
   Widget build(BuildContext context) {
-    final total = rows * cols;
-    final absent = seats.where((s) => !s.present && s.name.isNotEmpty).length;
-    final present = seats.where((s) => s.present).length;
-    final distracted = seats.where((s) => s.distracted).length;
+    final total = _controller.totalStudents;
+    final present = _controller.presentCount;
+    final absent = _controller.absentCount;
+    final distracted = _controller.distractedCount;
 
     return Scaffold(
       backgroundColor: AppColors.appBg,
@@ -267,7 +272,7 @@ class _SessionDetailScreenState extends State<SessionDetailScreen> {
               width: 40,
               height: 40,
               decoration: BoxDecoration(
-                color: Colors.white.withOpacity(0.1),
+                color: Colors.white.withValues(alpha: 0.1),
                 shape: BoxShape.circle,
               ),
               child: const Icon(
@@ -297,7 +302,7 @@ class _SessionDetailScreenState extends State<SessionDetailScreen> {
                   style: TextStyle(
                     fontSize: 13,
                     fontWeight: FontWeight.w500,
-                    color: Colors.white.withOpacity(0.7),
+                    color: Colors.white.withValues(alpha: 0.7),
                   ),
                 ),
               ],
@@ -309,11 +314,11 @@ class _SessionDetailScreenState extends State<SessionDetailScreen> {
   }
 
   Widget _buildInfoAndStatsCard(
-      int total,
-      int present,
-      int absent,
-      int distracted,
-      ) {
+    int total,
+    int present,
+    int absent,
+    int distracted,
+  ) {
     bool isFuture = widget.status == 'Sắp diễn ra';
 
     return Card(
@@ -537,116 +542,101 @@ class _SessionDetailScreenState extends State<SessionDetailScreen> {
               ),
             ),
             Text(
-              'Chạm để đổi màu · Nhấn giữ để xem chi tiết',
+              'Chạm để đổi màu',
               style: TextStyle(fontSize: 11, color: AppColors.muted),
             ),
           ],
         ),
         const SizedBox(height: 12),
-        Card(
-          elevation: 0,
-          margin: EdgeInsets.zero,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(16),
-            side: const BorderSide(color: AppColors.hair),
+        Container(
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: AppColors.hair),
           ),
-          color: Colors.white,
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              children: [
-                Container(
-                  width: 150,
-                  padding: const EdgeInsets.symmetric(vertical: 8),
-                  decoration: BoxDecoration(
-                    color: AppColors.navy,
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  alignment: Alignment.center,
-                  child: const Text(
-                    'BỤC GIẢNG',
-                    style: TextStyle(
-                      fontSize: 11,
-                      fontWeight: FontWeight.w700,
-                      color: Colors.white,
-                      letterSpacing: 1.0,
-                    ),
+          child: Column(
+            children: [
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(vertical: 8),
+                margin: const EdgeInsets.only(bottom: 14),
+                decoration: BoxDecoration(
+                  color: AppColors.navy,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                alignment: Alignment.center,
+                child: const Text(
+                  'BỤC GIẢNG',
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
+                    color: Colors.white,
+                    letterSpacing: 2.0,
                   ),
                 ),
-                const SizedBox(height: 20),
+              ),
+              GridView.builder(
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                  crossAxisCount: cols,
+                  crossAxisSpacing: 4,
+                  mainAxisSpacing: 4,
+                  childAspectRatio: 1.0,
+                ),
+                itemCount: rows * cols,
+                itemBuilder: (context, index) {
+                  final seat = seats[index];
+                  final bool hasStudent = seat.name.isNotEmpty;
 
-                GridView.builder(
-                  shrinkWrap: true,
-                  physics: const NeverScrollableScrollPhysics(),
-                  gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                    crossAxisCount: cols,
-                    crossAxisSpacing: 6,
-                    mainAxisSpacing: 6,
-                    childAspectRatio: 1.0,
-                  ),
-                  itemCount: rows * cols,
-                  itemBuilder: (context, index) {
-                    final seat = seats[index];
-                    if (seat.name.isEmpty) return const SizedBox.shrink();
+                  Color bgColor, borderColor, textColor;
+                  if (!hasStudent) {
+                    bgColor = AppColors.appBg;
+                    borderColor = AppColors.hair;
+                    textColor = Colors.transparent;
+                  } else if (!seat.present) {
+                    bgColor = const Color(0xFFF1F5F9);
+                    borderColor = const Color(0xFFCBD5E1);
+                    textColor = const Color(0xFF64748B);
+                  } else if (seat.distracted) {
+                    bgColor = const Color(0xFFFFF4E3);
+                    borderColor = const Color(0xFFF0CFA0);
+                    textColor = const Color(0xFF7A4D13);
+                  } else {
+                    bgColor = const Color(0xFFE9F8EF);
+                    borderColor = const Color(0xFFBFE6CF);
+                    textColor = const Color(0xFF137A41);
+                  }
 
-                    Color bgColor, borderColor, textColor, dotColor;
-                    if (!seat.present) {
-                      bgColor = AppColors.appBg;
-                      borderColor = AppColors.hair;
-                      textColor = const Color(0xFF94A3B8);
-                      dotColor = const Color(0xFFCBD5E1);
-                    } else if (seat.distracted) {
-                      bgColor = const Color(0xFFFFF4E3);
-                      borderColor = const Color(0xFFF0CFA0);
-                      textColor = const Color(0xFF7A4D13);
-                      dotColor = const Color(0xFFD9822B);
-                    } else {
-                      bgColor = const Color(0xFFE9F8EF);
-                      borderColor = const Color(0xFFBFE6CF);
-                      textColor = const Color(0xFF137A41);
-                      dotColor = const Color(0xFF20A75A);
-                    }
-
-                    return InkWell(
-                      onTap: () => _toggleSeatStatus(seat),
-                      onLongPress: () => _showStudentDetails(seat),
-                      borderRadius: BorderRadius.circular(8),
-                      child: Container(
-                        decoration: BoxDecoration(
-                          color: bgColor,
-                          border: Border.all(color: borderColor),
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Text(
-                              seat.name,
-                              style: TextStyle(
-                                fontSize: 11,
-                                fontWeight: FontWeight.bold,
-                                color: textColor,
-                              ),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                            const SizedBox(height: 4),
-                            Container(
-                              width: 6,
-                              height: 6,
-                              decoration: BoxDecoration(
-                                color: dotColor,
-                                shape: BoxShape.circle,
-                              ),
-                            ),
-                          ],
-                        ),
+                  return InkWell(
+                    onTap: hasStudent ? () => _toggleSeatStatus(seat) : null,
+                    onLongPress: hasStudent
+                        ? () => _showStudentDetails(seat)
+                        : null,
+                    borderRadius: BorderRadius.circular(6),
+                    child: Container(
+                      decoration: BoxDecoration(
+                        color: bgColor,
+                        border: Border.all(color: borderColor),
+                        borderRadius: BorderRadius.circular(6),
                       ),
-                    );
-                  },
-                ),
-              ],
-            ),
+                      alignment: Alignment.center,
+                      child: Text(
+                        seat.name,
+                        style: TextStyle(
+                          fontSize: 10,
+                          fontWeight: FontWeight.bold,
+                          color: textColor,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ],
           ),
         ),
       ],
@@ -663,20 +653,26 @@ class _SessionDetailScreenState extends State<SessionDetailScreen> {
             child: OutlinedButton(
               style: OutlinedButton.styleFrom(
                 side: BorderSide(
-                  color: _hasChanges ? Colors.redAccent : AppColors.hair,
+                  color: _controller.hasChanges && !_controller.isSaving
+                      ? Colors.redAccent
+                      : AppColors.hair,
                 ),
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(12),
                 ),
                 backgroundColor: Colors.white,
               ),
-              onPressed: _hasChanges ? _handleCancel : null,
+              onPressed: _controller.hasChanges && !_controller.isSaving
+                  ? _handleCancel
+                  : null,
               child: Text(
                 'Hủy thay đổi',
                 style: TextStyle(
                   fontSize: 14,
                   fontWeight: FontWeight.w600,
-                  color: _hasChanges ? Colors.redAccent : AppColors.muted,
+                  color: _controller.hasChanges && !_controller.isSaving
+                      ? Colors.redAccent
+                      : AppColors.muted,
                 ),
               ),
             ),
@@ -688,21 +684,34 @@ class _SessionDetailScreenState extends State<SessionDetailScreen> {
             height: 44,
             child: ElevatedButton(
               style: ElevatedButton.styleFrom(
-                backgroundColor: _hasChanges ? AppColors.navy : Colors.grey.shade300,
+                backgroundColor: _controller.hasChanges && !_controller.isSaving
+                    ? AppColors.navy
+                    : Colors.grey.shade300,
                 elevation: 0,
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(12),
                 ),
               ),
-              onPressed: _hasChanges ? _handleSave : null,
-              child: const Text(
-                'Lưu thay đổi',
-                style: TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.white,
-                ),
-              ),
+              onPressed: _controller.hasChanges && !_controller.isSaving
+                  ? _handleSave
+                  : null,
+              child: _controller.isSaving
+                  ? const SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2.5,
+                        valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                      ),
+                    )
+                  : const Text(
+                      'Lưu thay đổi',
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.white,
+                      ),
+                    ),
             ),
           ),
         ),
@@ -751,9 +760,6 @@ class _SessionDetailScreenState extends State<SessionDetailScreen> {
                   StudentListScreen(seats: seats, status: widget.status),
             ),
           );
-          setState(() {
-            _hasChanges = true;
-          });
         },
         child: Padding(
           padding: const EdgeInsets.all(16),
@@ -894,10 +900,13 @@ class _SessionDetailScreenState extends State<SessionDetailScreen> {
                                                 Container(
                                                   width: 6,
                                                   height: 6,
-                                                  decoration: const BoxDecoration(
-                                                    color: Color(0xFF20A75A),
-                                                    shape: BoxShape.circle,
-                                                  ),
+                                                  decoration:
+                                                      const BoxDecoration(
+                                                        color: Color(
+                                                          0xFF20A75A,
+                                                        ),
+                                                        shape: BoxShape.circle,
+                                                      ),
                                                 ),
                                                 const SizedBox(width: 6),
                                                 const Text(
@@ -918,10 +927,13 @@ class _SessionDetailScreenState extends State<SessionDetailScreen> {
                                                 Container(
                                                   width: 6,
                                                   height: 6,
-                                                  decoration: const BoxDecoration(
-                                                    color: Color(0xFF94A3B8),
-                                                    shape: BoxShape.circle,
-                                                  ),
+                                                  decoration:
+                                                      const BoxDecoration(
+                                                        color: Color(
+                                                          0xFF94A3B8,
+                                                        ),
+                                                        shape: BoxShape.circle,
+                                                      ),
                                                 ),
                                                 const SizedBox(width: 6),
                                                 const Text(
@@ -948,9 +960,14 @@ class _SessionDetailScreenState extends State<SessionDetailScreen> {
                                                 student.attention = 100;
                                               }
                                             });
-                                            setState(() {
-                                              _hasChanges = true;
-                                            });
+                                            _controller
+                                                .updateStudentSessionData(
+                                                  student.id,
+                                                  isPresent: newValue,
+                                                  isAttention: newValue
+                                                      ? true
+                                                      : false,
+                                                );
                                           }
                                         },
                                       ),
@@ -1142,7 +1159,10 @@ class _SessionDetailScreenState extends State<SessionDetailScreen> {
                         ),
                         child: const Text(
                           'Học sinh vắng mặt — không có dữ liệu tập trung.',
-                          style: TextStyle(fontSize: 13, color: AppColors.muted),
+                          style: TextStyle(
+                            fontSize: 13,
+                            color: AppColors.muted,
+                          ),
                         ),
                       ),
                       const SizedBox(height: 24),
@@ -1165,11 +1185,20 @@ class _SessionDetailScreenState extends State<SessionDetailScreen> {
                       maxLines: 3,
                       onChanged: (val) {
                         student.note = val;
-                        _hasChanges = true;
+                        _controller.updateStudentSessionData(
+                          student.id,
+                          isPresent: student.present,
+                          isAttention: !student.distracted,
+                          note: val,
+                        );
                       },
                       decoration: InputDecoration(
-                        hintText: 'Nhập lý do vắng mặt, hoặc lý do mất tập trung...',
-                        hintStyle: const TextStyle(fontSize: 13, color: Colors.black38),
+                        hintText:
+                            'Nhập lý do vắng mặt, hoặc lý do mất tập trung...',
+                        hintStyle: const TextStyle(
+                          fontSize: 13,
+                          color: Colors.black38,
+                        ),
                         filled: true,
                         fillColor: AppColors.appBg,
                         border: OutlineInputBorder(
@@ -1178,7 +1207,10 @@ class _SessionDetailScreenState extends State<SessionDetailScreen> {
                         ),
                         contentPadding: const EdgeInsets.all(16),
                       ),
-                      style: const TextStyle(fontSize: 14, color: AppColors.navy),
+                      style: const TextStyle(
+                        fontSize: 14,
+                        color: AppColors.navy,
+                      ),
                     ),
 
                     const SizedBox(height: 24),
@@ -1225,7 +1257,10 @@ class _SessionDetailScreenState extends State<SessionDetailScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(label, style: const TextStyle(fontSize: 12, color: AppColors.muted)),
+          Text(
+            label,
+            style: const TextStyle(fontSize: 12, color: AppColors.muted),
+          ),
           const SizedBox(height: 4),
           Row(
             crossAxisAlignment: CrossAxisAlignment.end,

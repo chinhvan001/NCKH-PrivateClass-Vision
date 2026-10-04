@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+
 import '../../../../core/constants/app_colors.dart';
 import '../../../../core/models/student_model.dart';
 import '../controllers/class_detail_controller.dart';
@@ -59,42 +60,58 @@ class StudentListWidget extends StatelessWidget {
           ],
         ),
         const SizedBox(height: 8),
-        if (students.isEmpty)
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.all(32),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: AppColors.hair),
-            ),
-            child: Column(
-              children: [
-                const Icon(Icons.people_outline, size: 40, color: AppColors.muted),
-                const SizedBox(height: 8),
-                Text(
-                  controller.searchStudentQuery.isNotEmpty
-                      ? 'Không tìm thấy học sinh phù hợp.'
-                      : 'Chưa có học sinh nào trong lớp học.',
-                  style: const TextStyle(fontSize: 13, color: AppColors.muted),
+        Expanded(
+          child: students.isEmpty
+              ? SingleChildScrollView(
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  child: Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(32),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(color: AppColors.hair),
+                    ),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(
+                          Icons.people_outline,
+                          size: 40,
+                          color: AppColors.muted,
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          controller.searchStudentQuery.isNotEmpty
+                              ? 'Không tìm thấy học sinh phù hợp.'
+                              : 'Chưa có học sinh nào trong lớp học.',
+                          style: const TextStyle(
+                            fontSize: 13,
+                            color: AppColors.muted,
+                          ),
+                          textAlign: TextAlign.center,
+                        ),
+                      ],
+                    ),
+                  ),
+                )
+              : ListView.separated(
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  padding: const EdgeInsets.only(bottom: 24),
+                  itemCount: students.length,
+                  separatorBuilder: (context, index) =>
+                      const SizedBox(height: 8),
+                  itemBuilder: (context, index) =>
+                      _item(students[index], index + 1),
                 ),
-              ],
-            ),
-          )
-        else
-          ListView.separated(
-            shrinkWrap: true,
-            physics: const NeverScrollableScrollPhysics(),
-            itemCount: students.length,
-            separatorBuilder: (context, index) => const SizedBox(height: 8),
-            itemBuilder: (context, index) => _item(students[index], index + 1),
-          ),
+        ),
       ],
     );
   }
 
   Widget _item(StudentModel s, int idx) {
-    final hasSeat = s.row != null && s.row! > 0 && s.column != null && s.column! > 0;
+    final hasSeat =
+        s.row != null && s.row! > 0 && s.column != null && s.column! > 0;
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(

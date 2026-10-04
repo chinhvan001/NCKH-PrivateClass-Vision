@@ -18,4 +18,3 @@ class PrivateClassVision extends StatelessWidget {
     );
   }
 }
-

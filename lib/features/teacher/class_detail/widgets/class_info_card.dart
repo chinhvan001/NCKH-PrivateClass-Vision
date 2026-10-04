@@ -12,10 +12,12 @@ class ClassInfoCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final classDetail = controller.classDetail;
     final teacherData = controller.teacherData;
-    final String teacherName = teacherData?['name']?.toString() ?? 'Chưa phân công';
+    final String teacherName =
+        teacherData?['name']?.toString() ?? 'Chưa phân công';
     final String teacherSubject = teacherData?['subject']?.toString() ?? '';
     final String cameraStatus = controller.cameraStatus;
-    final bool isCameraActive = cameraStatus.toLowerCase().contains('active') ||
+    final bool isCameraActive =
+        cameraStatus.toLowerCase().contains('active') ||
         cameraStatus.toLowerCase().contains('online') ||
         cameraStatus.toLowerCase().contains('hoạt');
 
@@ -57,7 +59,11 @@ class ClassInfoCard extends StatelessWidget {
           const SizedBox(height: 14),
           const Divider(height: 1, color: AppColors.hair),
           const SizedBox(height: 12),
-          _row(Icons.meeting_room_outlined, 'Phòng học:', controller.classroomName),
+          _row(
+            Icons.meeting_room_outlined,
+            'Phòng học:',
+            controller.classroomName,
+          ),
           const SizedBox(height: 10),
           _row(
             Icons.grid_view_outlined,
@@ -68,7 +74,9 @@ class ClassInfoCard extends StatelessWidget {
           _row(
             Icons.person_outline,
             'Giáo viên:',
-            teacherSubject.isNotEmpty ? '$teacherName ($teacherSubject)' : teacherName,
+            teacherSubject.isNotEmpty
+                ? '$teacherName ($teacherSubject)'
+                : teacherName,
           ),
           if (classDetail != null && classDetail.schoolYear > 0) ...[
             const SizedBox(height: 10),
@@ -81,7 +89,11 @@ class ClassInfoCard extends StatelessWidget {
           const SizedBox(height: 10),
           Row(
             children: [
-              const Icon(Icons.videocam_outlined, size: 18, color: AppColors.muted),
+              const Icon(
+                Icons.videocam_outlined,
+                size: 18,
+                color: AppColors.muted,
+              ),
               const SizedBox(width: 8),
               const Text(
                 'Camera:',
@@ -100,7 +112,9 @@ class ClassInfoCard extends StatelessWidget {
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
                 decoration: BoxDecoration(
-                  color: isCameraActive ? const Color(0xFFDCFCE7) : const Color(0xFFFEE2E2),
+                  color: isCameraActive
+                      ? const Color(0xFFDCFCE7)
+                      : const Color(0xFFFEE2E2),
                   borderRadius: BorderRadius.circular(8),
                 ),
                 child: Text(
@@ -108,7 +122,9 @@ class ClassInfoCard extends StatelessWidget {
                   style: TextStyle(
                     fontSize: 11,
                     fontWeight: FontWeight.w700,
-                    color: isCameraActive ? const Color(0xFF16A34A) : const Color(0xFFDC2626),
+                    color: isCameraActive
+                        ? const Color(0xFF16A34A)
+                        : const Color(0xFFDC2626),
                   ),
                 ),
               ),

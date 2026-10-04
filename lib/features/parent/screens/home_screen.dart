@@ -3,6 +3,7 @@ import 'package:flutter_privateclass_vision/features/parent/screens/widgets/bott
 import 'package:flutter_privateclass_vision/features/parent/screens/widgets/common_widgets.dart';
 import 'package:flutter_privateclass_vision/features/parent/utils/app_colors.dart';
 import 'package:flutter_privateclass_vision/features/parent/utils/app_text_styles.dart';
+
 import 'session_history_screen.dart';
 import 'notification_screen.dart';
 import 'profile_screen.dart';
@@ -21,11 +22,16 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Widget _buildBody() {
     switch (_currentIndex) {
-      case 0: return const _HomeContent();
-      case 1: return const SessionHistoryScreen();
-      case 2: return const NotificationScreen();
-      case 3: return const ProfileScreen();
-      default: return const _HomeContent();
+      case 0:
+        return const _HomeContent();
+      case 1:
+        return const SessionHistoryScreen();
+      case 2:
+        return const NotificationScreen();
+      case 3:
+        return const ProfileScreen();
+      default:
+        return const _HomeContent();
     }
   }
 
@@ -64,8 +70,7 @@ class _HomeContent extends StatelessWidget {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: const [
-                        Text('Lớp học của con',
-                            style: AppTextStyles.heading2),
+                        Text('Lớp học của con', style: AppTextStyles.heading2),
                       ],
                     ),
                   ),
@@ -117,7 +122,9 @@ class _HomeContent extends StatelessWidget {
                           },
                           child: Container(
                             padding: const EdgeInsets.symmetric(
-                                horizontal: 10, vertical: 6),
+                              horizontal: 10,
+                              vertical: 6,
+                            ),
                             decoration: BoxDecoration(
                               color: AppColors.accentLight,
                               borderRadius: BorderRadius.circular(20),
@@ -125,15 +132,20 @@ class _HomeContent extends StatelessWidget {
                             child: Row(
                               mainAxisSize: MainAxisSize.min,
                               children: const [
-                                Text('Đổi',
-                                    style: TextStyle(
-                                      fontSize: 12,
-                                      fontWeight: FontWeight.w600,
-                                      color: AppColors.primary,
-                                    )),
+                                Text(
+                                  'Đổi',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w600,
+                                    color: AppColors.primary,
+                                  ),
+                                ),
                                 SizedBox(width: 2),
-                                Icon(Icons.swap_horiz_rounded,
-                                    color: AppColors.primary, size: 16),
+                                Icon(
+                                  Icons.swap_horiz_rounded,
+                                  color: AppColors.primary,
+                                  size: 16,
+                                ),
                               ],
                             ),
                           ),
@@ -146,21 +158,27 @@ class _HomeContent extends StatelessWidget {
                     // Info banner
                     Container(
                       padding: const EdgeInsets.symmetric(
-                          horizontal: 12, vertical: 9),
+                        horizontal: 12,
+                        vertical: 9,
+                      ),
                       decoration: BoxDecoration(
                         color: AppColors.accentLight,
                         borderRadius: BorderRadius.circular(10),
                       ),
                       child: Row(
                         children: [
-                          const Icon(Icons.trending_up_rounded,
-                              color: AppColors.primary, size: 18),
+                          const Icon(
+                            Icons.trending_up_rounded,
+                            color: AppColors.primary,
+                            size: 18,
+                          ),
                           const SizedBox(width: 8),
                           Expanded(
                             child: Text(
                               'Hôm nay Minh Anh tập trung tốt hơn 15% so với buổi trước.',
-                              style: AppTextStyles.caption
-                                  .copyWith(color: AppColors.primary),
+                              style: AppTextStyles.caption.copyWith(
+                                color: AppColors.primary,
+                              ),
                             ),
                           ),
                         ],
@@ -313,8 +331,11 @@ class _HomeContent extends StatelessWidget {
                           color: Colors.white.withValues(alpha: 0.18),
                           borderRadius: BorderRadius.circular(10),
                         ),
-                        child: const Icon(Icons.bar_chart_rounded,
-                            color: Colors.white, size: 26),
+                        child: const Icon(
+                          Icons.bar_chart_rounded,
+                          color: Colors.white,
+                          size: 26,
+                        ),
                       ),
                       const SizedBox(width: 14),
                       const Expanded(
@@ -333,7 +354,9 @@ class _HomeContent extends StatelessWidget {
                             Text(
                               'Tập trung & điểm danh chi tiết',
                               style: TextStyle(
-                                  fontSize: 12, color: Colors.white70),
+                                fontSize: 12,
+                                color: Colors.white70,
+                              ),
                             ),
                           ],
                         ),
@@ -344,8 +367,11 @@ class _HomeContent extends StatelessWidget {
                           color: Colors.white.withValues(alpha: 0.18),
                           shape: BoxShape.circle,
                         ),
-                        child: const Icon(Icons.arrow_forward_rounded,
-                            color: Colors.white, size: 18),
+                        child: const Icon(
+                          Icons.arrow_forward_rounded,
+                          color: Colors.white,
+                          size: 18,
+                        ),
                       ),
                     ],
                   ),
@@ -396,9 +422,13 @@ class _TapScaleWidgetState extends State<_TapScaleWidget>
   void initState() {
     super.initState();
     _ctrl = AnimationController(
-        vsync: this, duration: const Duration(milliseconds: 140));
-    _scale = Tween(begin: 1.0, end: 0.95)
-        .animate(CurvedAnimation(parent: _ctrl, curve: Curves.easeInOut));
+      vsync: this,
+      duration: const Duration(milliseconds: 140),
+    );
+    _scale = Tween(
+      begin: 1.0,
+      end: 0.95,
+    ).animate(CurvedAnimation(parent: _ctrl, curve: Curves.easeInOut));
   }
 
   @override
@@ -447,9 +477,13 @@ class _AnimatedButtonState extends State<_AnimatedButton>
   void initState() {
     super.initState();
     _ctrl = AnimationController(
-        vsync: this, duration: const Duration(milliseconds: 150));
-    _scale = Tween(begin: 1.0, end: 0.96)
-        .animate(CurvedAnimation(parent: _ctrl, curve: Curves.easeInOut));
+      vsync: this,
+      duration: const Duration(milliseconds: 150),
+    );
+    _scale = Tween(
+      begin: 1.0,
+      end: 0.96,
+    ).animate(CurvedAnimation(parent: _ctrl, curve: Curves.easeInOut));
     _color = ColorTween(
       begin: Colors.transparent,
       end: AppColors.primary.withValues(alpha: 0.08),
@@ -533,9 +567,13 @@ class _IconBadgeButtonState extends State<_IconBadgeButton>
   void initState() {
     super.initState();
     _ctrl = AnimationController(
-        vsync: this, duration: const Duration(milliseconds: 130));
-    _scale = Tween(begin: 1.0, end: 0.82)
-        .animate(CurvedAnimation(parent: _ctrl, curve: Curves.easeInOut));
+      vsync: this,
+      duration: const Duration(milliseconds: 130),
+    );
+    _scale = Tween(
+      begin: 1.0,
+      end: 0.82,
+    ).animate(CurvedAnimation(parent: _ctrl, curve: Curves.easeInOut));
   }
 
   @override
@@ -565,8 +603,7 @@ class _IconBadgeButtonState extends State<_IconBadgeButton>
                 color: AppColors.backgroundGrey,
                 shape: BoxShape.circle,
               ),
-              child: Icon(widget.icon,
-                  color: AppColors.textPrimary, size: 24),
+              child: Icon(widget.icon, color: AppColors.textPrimary, size: 24),
             ),
             if (widget.count > 0)
               Positioned(
@@ -643,11 +680,7 @@ class _VertDivider extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      width: 1,
-      height: 44,
-      color: AppColors.divider,
-    );
+    return Container(width: 1, height: 44, color: AppColors.divider);
   }
 }
 
@@ -711,12 +744,14 @@ class _FocusCard extends StatelessWidget {
             children: [
               Icon(icon, color: iconColor, size: 18),
               const SizedBox(height: 3),
-              Text(label,
-                  style: TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
-                    color: iconColor,
-                  )),
+              Text(
+                label,
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  color: iconColor,
+                ),
+              ),
             ],
           ),
         ],
@@ -763,9 +798,11 @@ class _AttendanceBadge extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 2),
-            Text(label,
-                style: AppTextStyles.small,
-                textAlign: TextAlign.center),
+            Text(
+              label,
+              style: AppTextStyles.small,
+              textAlign: TextAlign.center,
+            ),
           ],
         ),
       ),

@@ -37,63 +37,71 @@ class StudentService {
         .where('class_id', isEqualTo: classId)
         .snapshots()
         .asyncMap((enrollmentSnap) async {
-      if (enrollmentSnap.docs.isEmpty) return [];
+          if (enrollmentSnap.docs.isEmpty) return [];
 
-      // Map lưu tạm tọa độ theo student_id: { studentId: { 'row': 1, 'col': 1 } }
-      final Map<String, Map<String, int>> seatPositions = {};
-      final List<String> studentIds = [];
+          // Map lưu tạm tọa độ theo student_id: { studentId: { 'row': 1, 'col': 1 } }
+          final Map<String, Map<String, int>> seatPositions = {};
+          final List<String> studentIds = [];
 
-      for (var doc in enrollmentSnap.docs) {
-        final data = doc.data();
-        final String? sId = data['student_id'];
-        if (sId != null && sId.isNotEmpty) {
-          studentIds.add(sId);
-          seatPositions[sId] = {
-            'row': (data['row'] as num?)?.toInt() ?? 0,
-            'col': (data['column'] as num?)?.toInt() ?? 0,
-          };
-        }
-      }
+          for (var doc in enrollmentSnap.docs) {
+            final data = doc.data();
+            final String? sId = data['student_id'];
+            if (sId != null && sId.isNotEmpty) {
+              studentIds.add(sId);
+              seatPositions[sId] = {
+                'row': (data['row'] as num?)?.toInt() ?? 0,
+                'col': (data['column'] as num?)?.toInt() ?? 0,
+              };
+            }
+          }
 
-      if (studentIds.isEmpty) return [];
+          if (studentIds.isEmpty) return [];
 
-      // Query lấy thông tin tên học sinh từ collection 'students'
-      // Xử lý chunk 30 phần tử để tránh giới hạn whereIn của Firestore
-      List<StudentModel> studentList = [];
+          // Query lấy thông tin tên học sinh từ collection 'students'
+          // Xử lý chunk 30 phần tử để tránh giới hạn whereIn của Firestore
+          List<StudentModel> studentList = [];
 
-      for (var i = 0; i < studentIds.length; i += 30) {
-        final chunk = studentIds.sublist(
-          i,
-          i + 30 > studentIds.length ? studentIds.length : i + 30,
-        );
+          for (var i = 0; i < studentIds.length; i += 30) {
+            final chunk = studentIds.sublist(
+              i,
+              i + 30 > studentIds.length ? studentIds.length : i + 30,
+            );
 
-        final studentsSnap = await _db
-            .collection('students')
-            .where(FieldPath.documentId, whereIn: chunk)
-            .get();
+            final studentsSnap = await _db
+                .collection('students')
+                .where(FieldPath.documentId, whereIn: chunk)
+                .get();
 
-        for (var doc in studentsSnap.docs) {
-          final sData = doc.data();
-          final pos = seatPositions[doc.id] ?? {'row': 0, 'col': 0};
-          final fullName = (sData['student_name'] ?? sData['full_name'] ?? sData['name'] ?? 'Học sinh').toString();
+            for (var doc in studentsSnap.docs) {
+              final sData = doc.data();
+              final pos = seatPositions[doc.id] ?? {'row': 0, 'col': 0};
+              final fullName =
+                  (sData['student_name'] ??
+                          sData['full_name'] ??
+                          sData['name'] ??
+                          'Học sinh')
+                      .toString();
 
-          // Tự lấy từ cuối cùng làm tên ngắn (short) nếu không có trường short_name
-          final shortName = sData['short_name'] ??
-              (fullName.trim().isNotEmpty ? fullName.trim().split(' ').last : 'HS');
+              // Tự lấy từ cuối cùng làm tên ngắn (short) nếu không có trường short_name
+              final shortName =
+                  sData['short_name'] ??
+                  (fullName.trim().isNotEmpty
+                      ? fullName.trim().split(' ').last
+                      : 'HS');
 
-          studentList.add(
-            StudentModel(
-              id: doc.id,
-              name: fullName,
-              short: shortName,
-              row: pos['row'] ?? 0,
-              column: pos['col'] ?? 0,
-            ),
-          );
-        }
-      }
+              studentList.add(
+                StudentModel(
+                  id: doc.id,
+                  name: fullName,
+                  short: shortName,
+                  row: pos['row'] ?? 0,
+                  column: pos['col'] ?? 0,
+                ),
+              );
+            }
+          }
 
-      return studentList;
-    });
+          return studentList;
+        });
   }
 }

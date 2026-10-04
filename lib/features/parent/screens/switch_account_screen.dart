@@ -14,14 +14,8 @@ class _SwitchAccountScreenState extends State<SwitchAccountScreen> {
   int _selectedIndex = 0;
 
   final List<Map<String, dynamic>> _children = [
-    {
-      'name': 'Minh Anh',
-      'class': 'Lớp 5A - Trường Tiểu học ABC',
-    },
-    {
-      'name': 'Gia Hưng',
-      'class': 'Lớp 2B - Trường Tiểu học ABC',
-    },
+    {'name': 'Minh Anh', 'class': 'Lớp 5A - Trường Tiểu học ABC'},
+    {'name': 'Gia Hưng', 'class': 'Lớp 2B - Trường Tiểu học ABC'},
   ];
 
   @override
@@ -61,7 +55,9 @@ class _SwitchAccountScreenState extends State<SwitchAccountScreen> {
                 margin: const EdgeInsets.only(bottom: 10),
                 padding: const EdgeInsets.all(14),
                 decoration: BoxDecoration(
-                  color: selected ? AppColors.accentLight : AppColors.backgroundGrey,
+                  color: selected
+                      ? AppColors.accentLight
+                      : AppColors.backgroundGrey,
                   borderRadius: BorderRadius.circular(12),
                   border: Border.all(
                     color: selected ? AppColors.primary : Colors.transparent,
@@ -73,7 +69,9 @@ class _SwitchAccountScreenState extends State<SwitchAccountScreen> {
                     AvatarWidget(
                       name: child['name'] as String,
                       size: 44,
-                      bgColor: selected ? AppColors.primary : AppColors.accentLight,
+                      bgColor: selected
+                          ? AppColors.primary
+                          : AppColors.accentLight,
                     ),
                     const SizedBox(width: 12),
                     Expanded(
@@ -83,16 +81,25 @@ class _SwitchAccountScreenState extends State<SwitchAccountScreen> {
                           Text(
                             child['name'] as String,
                             style: AppTextStyles.heading3.copyWith(
-                              color: selected ? AppColors.primary : AppColors.textPrimary,
+                              color: selected
+                                  ? AppColors.primary
+                                  : AppColors.textPrimary,
                             ),
                           ),
                           const SizedBox(height: 2),
-                          Text(child['class'] as String, style: AppTextStyles.caption),
+                          Text(
+                            child['class'] as String,
+                            style: AppTextStyles.caption,
+                          ),
                         ],
                       ),
                     ),
                     if (selected)
-                      const Icon(Icons.check_circle, color: AppColors.primary, size: 22),
+                      const Icon(
+                        Icons.check_circle,
+                        color: AppColors.primary,
+                        size: 22,
+                      ),
                   ],
                 ),
               ),

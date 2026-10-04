@@ -1,5 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_privateclass_vision/features/teacher/classes/screens/classroom_service.dart'
+    show ClassroomService;
 
 import '../../../../core/constants/app_colors.dart';
 import '../../../../core/models/class_model.dart';
@@ -10,6 +12,8 @@ class ClassScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final ClassroomService classroomService = ClassroomService();
+
     return Scaffold(
       backgroundColor: AppColors.appBg,
       body: Column(
@@ -80,17 +84,28 @@ class ClassScreen extends StatelessWidget {
                       itemBuilder: (context, index) {
                         final data = docs[index].data() as Map<String, dynamic>;
                         final String docId = docs[index].id;
+                        final String roomId = (data['classroom_id'] ?? '')
+                            .toString();
 
-                        final ClassModel cls = ClassModel(
-                          id: docId,
-                          name: data['class_name'] ?? 'Lớp học',
-                          room: data['classroom_id'] ?? data['classroom_name'] ?? 'Chưa cập nhật',
-                          schedule: '',
-                          students: (data['class_size'] as num?)?.toInt() ?? 0,
-                          grade: (data['grade'] ?? '12').toString(),
+                        return FutureBuilder<String>(
+                          future: classroomService.getClassroomName(roomId),
+                          builder: (context, roomSnapshot) {
+                            final String displayRoom =
+                                roomSnapshot.data ?? roomId;
+
+                            final ClassModel cls = ClassModel(
+                              id: docId,
+                              name: data['class_name'] ?? 'Lớp học',
+                              room: displayRoom,
+                              schedule: '',
+                              students:
+                                  (data['class_size'] as num?)?.toInt() ?? 0,
+                              grade: (data['grade'] ?? '12').toString(),
+                            );
+
+                            return _buildClassCard(context, cls, docId);
+                          },
                         );
-
-                        return _buildClassCard(context, cls, docId);
                       },
                     );
                   },
@@ -213,10 +228,7 @@ class ClassScreen extends StatelessWidget {
                     ],
                   ),
                 ),
-                const Icon(
-                  Icons.chevron_right,
-                  color: Colors.black26,
-                ),
+                const Icon(Icons.chevron_right, color: Colors.black26),
               ],
             ),
           ),
