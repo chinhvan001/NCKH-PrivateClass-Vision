@@ -2,6 +2,10 @@
 .env
 .env.*
 !.env.example
+# Firebase service account keys: keep them outside the repo, point GOOGLE_APPLICATION_CREDENTIALS at them
+*firebase-adminsdk*.json
+*service-account*.json
+*service_account*.json
 
 # Python
 __pycache__/
@@ -30,3 +34,6 @@ Thumbs.db
 *.engine
 *.tflite
 *.task
+
+# graphify knowledge-graph output
+graphify-out/

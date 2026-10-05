@@ -10,3 +10,5 @@ opencv-python==4.11.0.86
 ultralytics==8.4.150
 firebase-admin==6.5.0
 python-dotenv==1.0.1
+# IANA timezone data for zoneinfo (schedule.timezone); Windows has no system tz database.
+tzdata==2026.5

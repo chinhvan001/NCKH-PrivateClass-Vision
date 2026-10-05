@@ -9,8 +9,13 @@ from .engagement_export import (
 )
 from .cloud_payload import CloudEngagementPayload, CloudPayloadError, make_cloud_payload
 from .alert_event import ALERT_TYPES, AlertEvent, AlertEventError, check_session_id, make_alert_event
+from .session_summary import SUMMARY_STATUSES, SeatSummary, SessionSummary, make_session_summary
 
 __all__ = [
+    "SUMMARY_STATUSES",
+    "SeatSummary",
+    "SessionSummary",
+    "make_session_summary",
     "ALERT_TYPES",
     "AlertEvent",
     "AlertEventError",

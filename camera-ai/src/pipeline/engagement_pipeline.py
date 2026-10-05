@@ -5,10 +5,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Callable, Dict, List, Optional, Protocol
 
-from src.capture import CameraCapture, CaptureConfig
+from src.capture import CameraCapture, CaptureConfig, Frame
 from src.detection.pose_detector import PersonPose
 from src.engagement.back_turn import BackTurnDetector, BackTurnEvent
-from src.engagement.engagement_score import SeatEngagementTracker, classify_posture_state
+from src.engagement.engagement_score import EngagementScore, SeatEngagementTracker, classify_posture_state
 from src.engagement.hand_activity import HandActivityMonitor
 from src.engagement.posture import CameraAngleType, compute_head_drop_ratio, compute_torso_vector_angle
 from src.engagement.posture_monitor import BaselineEstablisher, PostureMonitor, PostureThresholds, RollingSmoother
@@ -146,6 +146,10 @@ class EngagementEngine:
         ]
         return FrameResult(observations, back_turn_events, conversation_events, candidates)
 
+    def scores(self) -> List[EngagementScore]:
+        """Diem tich luy tu dau phien cua moi seat da tung thay nguoi (tong ket cuoi phien)."""
+        return [state.tracker.compute_score() for state in self._states.values()]
+
     def _state_for(self, seat_id: str) -> _SeatPipelineState:
         if seat_id not in self._states:
             self._states[seat_id] = _SeatPipelineState(
@@ -164,6 +168,29 @@ class PipelineRunResult:
     frames_processed: int
     records_emitted: int
     alerts_emitted: int
+
+
+def process_frame(
+    frame: Frame,
+    timestamp: float,
+    pose_provider: PoseProvider,
+    engine: EngagementEngine,
+    on_record: Callable[[AnonymizedEngagementRecord], None],
+    alert_manager: AlertManager | None = None,
+    on_alert: Callable[[AlertEvent], None] | None = None,
+) -> tuple[int, int]:
+    """Inference 1 frame roi day record/alert ra sink; tra ve (so record, so alert).
+    Frame LUON duoc dispose, ke ca khi inference hoac sink nem loi."""
+    try:
+        result = engine.process(timestamp, pose_provider.detect(frame.image))
+        for observation in result.observations:
+            on_record(observation.record)
+        alerts = alert_manager.update(timestamp, result.alert_candidates) if alert_manager is not None else []
+        for alert in alerts:
+            on_alert(alert)
+        return len(result.observations), len(alerts)
+    finally:
+        dispose_frame(frame)
 
 
 def run_pipeline(
@@ -217,19 +244,10 @@ def run_pipeline(
 
     with CameraCapture(capture_config) as capture:
         for frame in capture.frames():
-            try:
-                timestamp = frame.frame_index / capture_config.target_fps
-                poses = pose_provider.detect(frame.image)
-                result = engine.process(timestamp, poses)
-                for observation in result.observations:
-                    on_record(observation.record)
-                    records_emitted += 1
-                if alert_manager is not None:
-                    for alert in alert_manager.update(timestamp, result.alert_candidates):
-                        on_alert(alert)
-                        alerts_emitted += 1
-            finally:
-                dispose_frame(frame)
+            timestamp = frame.frame_index / capture_config.target_fps
+            records, alerts = process_frame(frame, timestamp, pose_provider, engine, on_record, alert_manager, on_alert)
+            records_emitted += records
+            alerts_emitted += alerts
             frames_processed += 1
             if max_frames is not None and frames_processed >= max_frames:
                 break
