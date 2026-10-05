@@ -13,6 +13,10 @@ The test deliberately replaces neural-model inference with a deterministic
 network access, model weights, webcam, or real student video. Model accuracy
 is evaluated separately on an approved, local validation dataset.
 
+`fake_firestore.py` is a helper, not a test. Its `FakeFirestore` replaces the
+Firestore client in memory, so `test_firestore_sink.py` needs no credentials,
+network access or `firebase_admin` (CI does not install it).
+
 `smoke_test.py` is excluded because it opens a physical webcam. The legacy
 facial `test_head_pose.py` is excluded because the privacy-preserving pipeline
 does not expose facial-landmark APIs.

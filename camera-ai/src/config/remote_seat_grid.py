@@ -8,6 +8,7 @@ from typing import Any, Protocol
 import threading
 
 from src.seating import SeatGrid, SeatGridError
+from src.sync import firestore_client_from_env
 
 CAMERA_ANGLE_TYPES = frozenset({"frontal", "top_down"})
 
@@ -82,12 +83,7 @@ class FirestoreSeatGridSource:
     @staticmethod
     def _firebase_get(path: str) -> dict[str, Any] | None:
         try:
-            import firebase_admin
-            from firebase_admin import firestore
-
-            if not firebase_admin._apps:
-                firebase_admin.initialize_app()
-            snapshot = firestore.client().document(path).get()
+            snapshot = firestore_client_from_env().document(path).get()
             return snapshot.to_dict() if snapshot.exists else None
         except Exception as error:
             raise RemoteSeatGridError(f"Khong doc duoc Firestore: {error}") from error

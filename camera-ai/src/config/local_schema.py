@@ -10,14 +10,16 @@ from __future__ import annotations
 import json
 import os
 from dataclasses import dataclass
-from datetime import time
+from datetime import datetime, time
 from pathlib import Path
 from typing import Any, Optional, Union
+from zoneinfo import ZoneInfo
 
 from src.capture.config import CaptureConfig
 
 SCHEMA_VERSION = 1
-_DAYS = {"mon", "tue", "wed", "thu", "fri", "sat", "sun"}
+_WEEKDAYS = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")  # thu tu cua datetime.weekday()
+_DAYS = set(_WEEKDAYS)
 
 
 class LocalConfigError(ValueError):
@@ -85,6 +87,15 @@ class ProcessingWindow:
 class ScheduleConfig:
     timezone: str
     windows: tuple[ProcessingWindow, ...]
+
+    def allows(self, moment: datetime) -> bool:
+        """``moment`` (co tzinfo) co nam trong 1 cua so xu ly, theo gio dia phuong cua lop."""
+        local = moment.astimezone(ZoneInfo(self.timezone))
+        day, clock = _WEEKDAYS[local.weekday()], local.time()
+        return any(
+            day in window.days and time.fromisoformat(window.start) <= clock < time.fromisoformat(window.end)
+            for window in self.windows
+        )
 
 
 @dataclass(frozen=True)
@@ -226,6 +237,10 @@ def _parse_schedule(value: Any) -> ScheduleConfig:
     _required(value, {"timezone", "windows"}, "schedule")
     if not isinstance(value["timezone"], str) or not value["timezone"].strip():
         raise LocalConfigError("schedule.timezone phai la chuoi khong rong.")
+    try:
+        ZoneInfo(value["timezone"])
+    except (KeyError, ValueError) as error:  # ZoneInfoNotFoundError la KeyError
+        raise LocalConfigError(f"schedule.timezone khong phai ten IANA hop le: {value['timezone']!r}") from error
     if not isinstance(value["windows"], list) or not value["windows"]:
         raise LocalConfigError("schedule.windows phai la danh sach khong rong.")
     windows = []

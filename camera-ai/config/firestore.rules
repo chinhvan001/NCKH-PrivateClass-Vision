@@ -1,0 +1,70 @@
+rules_version = '2';
+
+// DRAFT for review with the Firebase owner: see camera-ai/docs/firestore_security_review.md.
+// Covers only the paths camera-ai reads or writes. Merge it into the project's rules.
+//
+// The edge node uses the Admin SDK (service account), which bypasses these rules.
+// They govern the Flutter and web clients only.
+//
+// Assumptions to confirm:
+// - Firebase Auth custom claim `role` is 'admin', 'teacher' or 'parent'.
+// - classrooms/{classroomId} has `teacher_uids`, the teachers allowed to see that classroom.
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isAdmin() {
+      return request.auth != null && request.auth.token.role == 'admin';
+    }
+
+    function teaches(classroomId) {
+      return request.auth != null && request.auth.token.role == 'teacher'
+        && request.auth.uid in get(/databases/$(database)/documents/classrooms/$(classroomId)).data.teacher_uids;
+    }
+
+    match /classrooms/{classroomId} {
+      // Seat-grid calibration (UC01, UC10). Field allowlist mirrors config/remote_seat_grid.py.
+      match /camera_configs/{cameraId} {
+        allow read: if isAdmin() || teaches(classroomId);
+        allow create, update: if (isAdmin() || teaches(classroomId))
+          && request.resource.data.keys().hasOnly(['schema_version', 'config_version', 'camera_id',
+                                                   'classroom_id', 'camera_angle_type', 'seats', 'pose'])
+          && request.resource.data.classroom_id == classroomId
+          && request.resource.data.camera_id == cameraId;
+        allow delete: if isAdmin();
+      }
+
+      // Edge-node heartbeat (camera_ok, status). Written only by the edge node.
+      match /edge_nodes/{cameraId} {
+        allow read: if isAdmin() || teaches(classroomId);
+      }
+
+      // UC04: the teacher starts, pauses, resumes and ends; the edge node only reads `state`.
+      match /sessions/{sessionId} {
+        allow read: if isAdmin() || teaches(classroomId);
+        allow create: if teaches(classroomId) && request.resource.data.state == 'active';
+        allow update: if teaches(classroomId)
+          && resource.data.state != 'ended'
+          && request.resource.data.state in ['active', 'paused', 'ended'];
+        allow delete: if isAdmin();
+
+        // Written only by the edge node. Parents never read per-seat records.
+        match /engagement/{recordId} {
+          allow read: if isAdmin() || teaches(classroomId);
+        }
+
+        // End-of-session summary per camera (UC03, UC11). Written only by the edge node.
+        match /summaries/{cameraId} {
+          allow read: if isAdmin() || teaches(classroomId);
+        }
+
+        // UC09: the teacher may only acknowledge or dismiss an alert.
+        match /alerts/{alertId} {
+          allow read: if isAdmin() || teaches(classroomId);
+          allow update: if teaches(classroomId)
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status'])
+            && request.resource.data.status in ['acknowledged', 'dismissed'];
+        }
+      }
+    }
+    // Every path not matched above is denied.
+  }
+}

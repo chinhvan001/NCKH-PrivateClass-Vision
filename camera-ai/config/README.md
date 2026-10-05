@@ -1,21 +1,19 @@
-# Schema config cục bộ
+# Local config schema
 
-Sao chép `local_pipeline.example.json` thành một file local ngoài Git (ví dụ
-`local_pipeline.json`). Nguồn camera không nằm trong JSON: đặt nó trong biến
-môi trường có tên khai báo ở `camera.source_env`, ví dụ:
+Copy `local_pipeline.example.json` to a local file that stays out of Git (for example `local_pipeline.json`). The camera source is not in the JSON: put it in the environment variable named by `camera.source_env`, for example:
 
 ```powershell
 $env:CAMERA_ROOM_A_01_SOURCE = "rtsp://..."
 ```
 
-Schema gồm:
+Then start the edge node with `python -m src.main --config config/local_pipeline.json` (see `docs/edge_node.md`).
 
-- `camera`: camera ID, mã phòng/lớp, độ phân giải và **tên** biến môi trường
-  chứa nguồn camera.
-- `sampling`: FPS capture và số frame bỏ qua giữa các lần inference.
-- `thresholds`: ngưỡng pose/cảnh báo đã dùng trong demo.
-- `schedule`: timezone và cửa sổ ngày–giờ được xử lý.
-- `privacy`: bắt buộc buffer đúng 1 frame, cấm persistent output.
+Sections:
 
-Schema cố ý từ chối các trường lạ như `rtsp_url`, `student_id`, `name`, face
-model hoặc embedding, để các dữ liệu đó không thể vô tình đi vào config.
+- `camera`: camera ID, classroom ID, resolution, and the **name** of the environment variable holding the camera source.
+- `sampling`: capture FPS, and run pose inference on every n-th frame.
+- `thresholds`: pose and alert thresholds.
+- `schedule`: an IANA timezone and the weekday/time windows in which the camera may be opened. Outside them the edge node keeps the camera closed even if a session is active. The timezone is validated at load; on Windows this needs the `tzdata` package from `requirements.txt`.
+- `privacy`: a buffer of exactly one frame, and no persistent output.
+
+The schema rejects unknown keys such as `rtsp_url`, `student_id`, `name`, face models or embeddings, so that data cannot slip into the config by accident.
