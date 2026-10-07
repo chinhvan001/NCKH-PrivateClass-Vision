@@ -1,6 +1,6 @@
 # Firestore Access Review: Edge Node
 
-Prepared 2026-10-04 for the review with the Firebase owner. It covers how the camera-ai edge node authenticates to Firestore, and the Security Rules draft for the paths it uses (`config/firestore.rules`). Decisions from the review update `cloud_data_compliance_checklist.md` §3.7.
+Prepared 2026-10-04 for the review with the Firebase owner, updated 2026-10-07 for the web admin's session contract. It covers how the camera-ai edge node authenticates to Firestore, and the Security Rules draft for the paths it uses (`config/firestore.rules`). Decisions from the review update `cloud_data_compliance_checklist.md` §3.7.
 
 ## 1. Current setup
 
@@ -11,11 +11,13 @@ Prepared 2026-10-04 for the review with the Firebase owner. It covers how the ca
 | Path | Edge access | Data |
 |---|---|---|
 | `classrooms/{c}/camera_configs/{cam}` | read | Seat grid. No student data. |
-| `classrooms/{c}/sessions/{s}` | listen (collection query) | Session `state`, written by the teacher app |
-| `classrooms/{c}/sessions/{s}/engagement/{id}` | create | `AnonymizedEngagementRecord` |
-| `classrooms/{c}/sessions/{s}/alerts/{id}` | create | `AlertEvent` |
-| `classrooms/{c}/sessions/{s}/summaries/{cam}` | read once, overwrite | `SessionSummary` |
 | `classrooms/{c}/edge_nodes/{cam}` | overwrite | `EdgeHeartbeat`. Device status only. |
+| `sessions/{s}` | listen (query `classroom_id == c`) | Session `status`, written by the web admin. The document also holds `class_id`, `teacher_uid` and the schedule. |
+| `sessions/{s}/engagement/{id}` | create | `AnonymizedEngagementRecord` |
+| `sessions/{s}/alerts/{id}` | create | `AlertEvent` |
+| `sessions/{s}/summaries/{cam}` | read once, overwrite | `SessionSummary` |
+
+Since 2026-10-07 the session documents are the web admin's top-level `sessions` collection (`docs/web_admin_integration.md`), which lives in the same database as the web admin's `users` and `admins` collections.
 
 ## 2. Main finding: Security Rules do not restrict the edge node
 
@@ -29,7 +31,7 @@ So anyone who copies the key from a classroom edge box can read and write every 
 | B. Edge signs in as a Firebase Auth user | A trusted service mints a custom token with claims `{role: "edge", classroom_id}`. The edge exchanges it for an ID token and writes through the REST API, so Rules apply. | Rules can allow each node only `create` under its own classroom, with a field allowlist. | Medium. Token minting and refresh, plus a REST client behind the sink's `client` interface. |
 | C. Edge writes through the backend | Follows architecture §5.1 (edge → Flask backend → Firebase). Only the backend holds a service account. | The edge holds a revocable, classroom-scoped API token. | High. The backend does not exist yet. |
 
-Recommendation: A now, so no edge key can reach student data, and B or C before a multi-classroom pilot. Whatever is chosen:
+Recommendation: A now, so no edge key can reach student data, and B or C before a multi-classroom pilot. Because the edge node now listens to the web admin's `sessions` in the main database, A also needs the web backend to copy each session's `classroom_id` and `status` into the isolated database, and the edge node to write its output there, where the web backend reads it. Without that copy, A is not possible and B or C is needed sooner. Whatever is chosen:
 
 - Give each edge node its own service account, or at least its own key, so a lost device can be revoked alone.
 - Never grant Owner, Editor or `roles/firebase.admin`. Consider a custom role with only `datastore.entities.get`, `list`, `create` and `update` instead of `roles/datastore.user`; it drops `delete`. (`list` is needed for the session listener.) Verify the exact permission set with a test write and a test listen.
@@ -38,16 +40,18 @@ Recommendation: A now, so no edge key can reach student data, and B or C before 
 
 ## 3. Rules draft walkthrough
 
-`config/firestore.rules` covers only the paths above and must be merged into the project's rules. It assumes a custom claim `role` and a `teacher_uids` list on each classroom document; confirm or adapt both.
+`config/firestore.rules` covers only the paths above and must be merged into the project's rules. It assumes a custom claim `role` and a `teacher_uids` list on each classroom document; confirm or adapt both. The web admin reads and writes through its Flask backend, which uses the Admin SDK, so these Rules bind only the Flutter app and any browser code that reads Firestore directly.
 
 | Path | Admin | Teacher of the classroom | Parent | Edge (Admin SDK) |
 |---|---|---|---|---|
-| `camera_configs/{cam}` | read, write (field allowlist), delete | read, write (field allowlist) | none | read (bypasses Rules) |
-| `edge_nodes/{cam}` | read | read | none | overwrite (bypasses Rules) |
-| `sessions/{s}` | read, delete | read; create as `active`; move `state` between `active`, `paused`, `ended`, never out of `ended` | none | listen (bypasses Rules) |
+| `classrooms/{c}/camera_configs/{cam}` | read, write (field allowlist), delete | read, write (field allowlist) | none | read (bypasses Rules) |
+| `classrooms/{c}/edge_nodes/{cam}` | read | read | none | overwrite (bypasses Rules) |
+| `sessions/{s}` | read; create, edit and delete through the web backend | read; change only `status`, from `scheduled` to `live` or from `live` to `completed` | none | listen (bypasses Rules) |
 | `sessions/{s}/engagement/{id}` | read | read | none | create (bypasses Rules) |
 | `sessions/{s}/alerts/{id}` | read | read; update `status` to `acknowledged` or `dismissed` only | none | create (bypasses Rules) |
 | `sessions/{s}/summaries/{cam}` | read | read | none | read, overwrite (bypasses Rules) |
+
+"Teacher of the classroom" for a session means the classroom in its `classroom_id`. Client queries on `sessions` must filter on `classroom_id` so the rule can be checked.
 
 Parents get no per-seat data. Their view of their own child (UC03) should come from aggregates, which are not designed yet. Test the rules against the Firestore emulator with `@firebase/rules-unit-testing` before deploying; this repository's CI does not run them.
 

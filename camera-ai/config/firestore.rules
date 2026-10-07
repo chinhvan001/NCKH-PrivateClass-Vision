@@ -3,8 +3,8 @@ rules_version = '2';
 // DRAFT for review with the Firebase owner: see camera-ai/docs/firestore_security_review.md.
 // Covers only the paths camera-ai reads or writes. Merge it into the project's rules.
 //
-// The edge node uses the Admin SDK (service account), which bypasses these rules.
-// They govern the Flutter and web clients only.
+// The edge node and the web admin's Flask backend use the Admin SDK (service account), which
+// bypasses these rules. They govern the Flutter app and any browser code that reads Firestore.
 //
 // Assumptions to confirm:
 // - Firebase Auth custom claim `role` is 'admin', 'teacher' or 'parent'.
@@ -18,6 +18,10 @@ service cloud.firestore {
     function teaches(classroomId) {
       return request.auth != null && request.auth.token.role == 'teacher'
         && request.auth.uid in get(/databases/$(database)/documents/classrooms/$(classroomId)).data.teacher_uids;
+    }
+
+    function sessionClassroom(sessionId) {
+      return get(/databases/$(database)/documents/sessions/$(sessionId)).data.classroom_id;
     }
 
     match /classrooms/{classroomId} {
@@ -36,33 +40,35 @@ service cloud.firestore {
       match /edge_nodes/{cameraId} {
         allow read: if isAdmin() || teaches(classroomId);
       }
+    }
 
-      // UC04: the teacher starts, pauses, resumes and ends; the edge node only reads `state`.
-      match /sessions/{sessionId} {
-        allow read: if isAdmin() || teaches(classroomId);
-        allow create: if teaches(classroomId) && request.resource.data.state == 'active';
-        allow update: if teaches(classroomId)
-          && resource.data.state != 'ended'
-          && request.resource.data.state in ['active', 'paused', 'ended'];
-        allow delete: if isAdmin();
+    // Web admin sessions (camera-ai/docs/web_admin_integration.md). The web backend creates,
+    // edits and deletes them; the edge node only reads `classroom_id` and `status`.
+    // Client queries must filter on `classroom_id` so these rules can be checked.
+    match /sessions/{sessionId} {
+      allow read: if isAdmin() || teaches(resource.data.classroom_id);
+      // UC04: the teacher starts a scheduled session and ends a live one. Nothing else changes.
+      allow update: if teaches(resource.data.classroom_id)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status'])
+        && ((resource.data.status == 'scheduled' && request.resource.data.status == 'live')
+          || (resource.data.status == 'live' && request.resource.data.status == 'completed'));
 
-        // Written only by the edge node. Parents never read per-seat records.
-        match /engagement/{recordId} {
-          allow read: if isAdmin() || teaches(classroomId);
-        }
+      // Written only by the edge node. Parents never read per-seat records.
+      match /engagement/{recordId} {
+        allow read: if isAdmin() || teaches(sessionClassroom(sessionId));
+      }
 
-        // End-of-session summary per camera (UC03, UC11). Written only by the edge node.
-        match /summaries/{cameraId} {
-          allow read: if isAdmin() || teaches(classroomId);
-        }
+      // End-of-session summary per camera (UC03, UC11). Written only by the edge node.
+      match /summaries/{cameraId} {
+        allow read: if isAdmin() || teaches(sessionClassroom(sessionId));
+      }
 
-        // UC09: the teacher may only acknowledge or dismiss an alert.
-        match /alerts/{alertId} {
-          allow read: if isAdmin() || teaches(classroomId);
-          allow update: if teaches(classroomId)
-            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status'])
-            && request.resource.data.status in ['acknowledged', 'dismissed'];
-        }
+      // UC09: the teacher may only acknowledge or dismiss an alert.
+      match /alerts/{alertId} {
+        allow read: if isAdmin() || teaches(sessionClassroom(sessionId));
+        allow update: if teaches(sessionClassroom(sessionId))
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status'])
+          && request.resource.data.status in ['acknowledged', 'dismissed'];
       }
     }
     // Every path not matched above is denied.

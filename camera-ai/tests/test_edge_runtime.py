@@ -16,7 +16,7 @@ from src.sync import FirestoreSink
 from test_end_to_end_pipeline import _person
 from test_local_config import valid_config
 
-SESSION = "classrooms/ROOM-1/sessions/s1"
+SESSION = "sessions/s1"
 SUMMARY = f"{SESSION}/summaries/CAM-1"
 HEARTBEAT = "classrooms/ROOM-1/edge_nodes/CAM-1"
 MONDAY_9AM = datetime(2026, 10, 5, 9, 0, tzinfo=ZoneInfo("Asia/Ho_Chi_Minh"))  # trong lich mon-tue 07:00-17:00
@@ -89,6 +89,10 @@ class Harness:
         self.workers.append(FakeWorker(self.frames, fail=self.camera_fails))
         return self.workers[-1]
 
+    def set_status(self, status):
+        """Web admin doi ``status`` cua phien (``backend/routes/session_routes.py`` nhanh Web)."""
+        self.session.set({"classroom_id": "ROOM-1", "status": status})
+
     def steps(self, count):
         for _ in range(count):
             self.runtime.step()
@@ -103,22 +107,22 @@ def test_session_start_pause_resume_end_controls_camera_and_writes_summary():
     h.steps(1)
     assert h.workers == [] and h.doc(HEARTBEAT)["status"] == "idle"
 
-    h.session.set({"state": "active"})
+    h.set_status("live")
     h.steps(4)
     assert len(h.workers) == 1 and h.provider.calls == 4
     assert h.doc(SUMMARY)["status"] == "running"
     heartbeat = h.doc(HEARTBEAT)
     assert (heartbeat["status"], heartbeat["session_id"], heartbeat["camera_ok"]) == ("monitoring", "s1", True)
 
-    h.session.set({"state": "paused"})
+    h.set_status("paused")
     h.steps(1)
     assert h.workers[0].stopped and h.doc(HEARTBEAT)["status"] == "paused"
 
-    h.session.set({"state": "active"})  # 10 phut sau: worker moi, frame t=600
+    h.set_status("live")  # 10 phut sau: worker moi, frame t=600
     h.steps(2)
     assert len(h.workers) == 2 and h.provider.calls == 6
 
-    h.session.set({"state": "ended"})
+    h.set_status("completed")
     h.steps(1)
     assert h.workers[1].stopped
     summary = h.doc(SUMMARY)
@@ -133,7 +137,7 @@ def test_session_start_pause_resume_end_controls_camera_and_writes_summary():
 
 def test_camera_loss_reports_temporarily_unavailable_until_frames_return():
     h = Harness(timestamps=[0.0])
-    h.session.set({"state": "active"})
+    h.set_status("live")
     h.steps(1)
     assert h.doc(HEARTBEAT)["status"] == "monitoring"
 
@@ -149,7 +153,7 @@ def test_camera_loss_reports_temporarily_unavailable_until_frames_return():
 
 def test_camera_that_cannot_open_is_unavailable_and_retried_later():
     h = Harness(camera_fails=True)
-    h.session.set({"state": "active"})
+    h.set_status("live")
     h.steps(2)
     assert len(h.workers) == 1  # chua toi luc thu lai
     heartbeat = h.doc(HEARTBEAT)
@@ -162,16 +166,29 @@ def test_camera_that_cannot_open_is_unavailable_and_retried_later():
 
 def test_deleted_session_is_incomplete():
     h = Harness(timestamps=[0.0, 0.5])
-    h.session.set({"state": "active"})
+    h.set_status("live")
     h.steps(2)
     h.session.delete()
     h.steps(1)
     assert h.workers[0].stopped and h.doc(SUMMARY)["status"] == "incomplete"
 
 
+def test_other_classroom_is_ignored_and_cancelled_session_is_incomplete():
+    h = Harness(timestamps=[0.0, 0.5])
+    h.client.document("sessions/other").set({"classroom_id": "ROOM-2", "status": "live"})
+    h.steps(1)
+    assert h.workers == []
+
+    h.set_status("live")
+    h.steps(2)
+    h.set_status("cancelled")
+    h.steps(1)
+    assert h.workers[0].stopped and h.doc(SUMMARY)["status"] == "incomplete"
+
+
 def test_shutdown_mid_session_marks_incomplete_and_reports_offline():
     h = Harness(timestamps=[0.0, 0.5])
-    h.session.set({"state": "active"})
+    h.set_status("live")
     h.steps(2)
     h.runtime.close()
 
@@ -185,9 +202,9 @@ def test_shutdown_mid_session_marks_incomplete_and_reports_offline():
 def test_restart_mid_session_keeps_session_incomplete_even_when_ended_normally():
     h = Harness(timestamps=[0.0, 0.5])
     h.client.document(SUMMARY).set({"status": "running"})  # tien trinh truoc chet giua phien
-    h.session.set({"state": "active"})
+    h.set_status("live")
     h.steps(2)
-    h.session.set({"state": "ended"})
+    h.set_status("completed")
     h.steps(1)
     assert h.doc(SUMMARY)["status"] == "incomplete"
 
@@ -195,7 +212,7 @@ def test_restart_mid_session_keeps_session_incomplete_even_when_ended_normally()
 def test_active_session_outside_schedule_never_opens_camera():
     sunday = datetime(2026, 10, 4, 9, 0, tzinfo=ZoneInfo("Asia/Ho_Chi_Minh"))
     h = Harness(timestamps=[0.0], now=sunday)
-    h.session.set({"state": "active"})
+    h.set_status("live")
     h.steps(3)
     assert h.workers == [] and h.provider.calls == 0
     assert h.doc(HEARTBEAT)["status"] == "outside_schedule"
@@ -203,7 +220,7 @@ def test_active_session_outside_schedule_never_opens_camera():
 
 def test_only_every_nth_frame_is_inferred_and_every_frame_is_wiped():
     h = Harness(timestamps=[0.0, 0.25, 0.5, 0.75], inference_every_n_frames=2)
-    h.session.set({"state": "active"})
+    h.set_status("live")
     h.steps(4)
     assert h.provider.calls == 2
     assert all(not np.any(frame.image) for frame in h.all_frames)

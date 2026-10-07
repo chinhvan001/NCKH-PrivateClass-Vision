@@ -36,6 +36,10 @@ _COMMIT_TIMEOUT_SEC = 10.0
 # outside_schedule: phien dang chay ngoai cua so lich trong config, camera khong bat.
 EDGE_STATUSES = frozenset({"idle", "monitoring", "paused", "unavailable", "outside_schedule"})
 
+# ``status`` cua phien tren web admin -> trang thai EdgeRuntime dung. Gia tri khac giu
+# nguyen: ``paused`` van chay duoc; ``scheduled``/``cancelled`` khong phai phien song.
+WEB_STATUS_TO_STATE = {"live": "active", "completed": "ended"}
+
 
 @dataclass(frozen=True)
 class EdgeHeartbeat:
@@ -77,10 +81,17 @@ def firestore_client_from_env() -> Any:
     return firestore.client(app)
 
 
+def _session_state(data: dict | None) -> str | None:
+    """``status`` do web admin ghi -> trang thai cho EdgeRuntime; khong phai chuoi (document
+    sua tay hong) -> None, tuc khong phai phien song, thay vi lam chet listener."""
+    status = (data or {}).get("status")
+    return WEB_STATUS_TO_STATE.get(status, status) if isinstance(status, str) else None
+
+
 class FirestoreSink:
-    """Ghi du lieu cua 1 camera (edge node) vao ``classrooms/{classroom_id}``; layout
-    day du o ``src/sync/README.md``. ``client`` la ``firestore.Client`` (xem
-    ``firestore_client_from_env``) hoac fake trong test.
+    """Ghi du lieu cua 1 camera (edge node) vao ``sessions/{session_id}`` cua web admin
+    va heartbeat vao ``classrooms/{classroom_id}``; layout day du o ``src/sync/README.md``.
+    ``client`` la ``firestore.Client`` (xem ``firestore_client_from_env``) hoac fake trong test.
 
     Pipeline phat 1 record/ghe/frame; sink chi giu 1 record moi
     ``record_interval_sec`` cho moi ghe, hoac ngay khi ``posture_state`` doi.
@@ -118,7 +129,7 @@ class FirestoreSink:
         self.dropped = 0  # item bi bo do hang doi day hoac Firestore tu choi du lieu
         self.failures = 0  # so lan flush loi lien tiep, quyet dinh backoff
         self._client = client
-        self._root = f"classrooms/{classroom_id}"
+        self._classroom_id = classroom_id
         self._camera_id = camera_id
         # ponytail: hang doi chi nam trong RAM, mat khi tat tien trinh; ghi xuong dia
         # thi phai ma hoa (docs/cloud_data_compliance_checklist.md muc 3.5).
@@ -157,12 +168,12 @@ class FirestoreSink:
         ):
             return
         self._last_record[record.seat_id] = record
-        self._enqueue(self._records, f"{self._root}/sessions/{session_id}/engagement/{uuid.uuid4().hex}", record)
+        self._enqueue(self._records, f"sessions/{session_id}/engagement/{uuid.uuid4().hex}", record)
 
     def add_alert(self, alert: AlertEvent) -> None:
         if not isinstance(alert, AlertEvent):
             raise TypeError("Chi nhan AlertEvent (schema allowlist).")
-        self._enqueue(self._priority, f"{self._root}/sessions/{alert.session_id}/alerts/{uuid.uuid4().hex}", alert)
+        self._enqueue(self._priority, f"sessions/{alert.session_id}/alerts/{uuid.uuid4().hex}", alert)
         self._wake.set()  # gui ngay, khong doi chu ky flush (QA01: alert < 1s)
 
     def add_summary(self, summary: SessionSummary) -> None:
@@ -173,11 +184,12 @@ class FirestoreSink:
         self._wake.set()
 
     def set_heartbeat(self, heartbeat: EdgeHeartbeat) -> None:
-        """Ghi de ``edge_nodes/{camera_id}`` o lan flush ke tiep; heartbeat cu chua gui bi thay."""
+        """Ghi de ``classrooms/{classroom_id}/edge_nodes/{camera_id}`` o lan flush ke tiep;
+        heartbeat cu chua gui bi thay."""
         if not isinstance(heartbeat, EdgeHeartbeat):
             raise TypeError("Chi nhan EdgeHeartbeat.")
         with self._lock:
-            self._heartbeat = (f"{self._root}/edge_nodes/{self._camera_id}", heartbeat.to_dict())
+            self._heartbeat = (f"classrooms/{self._classroom_id}/edge_nodes/{self._camera_id}", heartbeat.to_dict())
 
     def summary_exists(self, session_id: str) -> bool:
         """Camera nay da tung xu ly phien chua (vd tien trinh truoc chet giua phien).
@@ -190,12 +202,15 @@ class FirestoreSink:
             return False
 
     def watch_sessions(self, on_change: Callable[[dict[str, Any]], None]) -> Any:
-        """Nghe ``classrooms/{classroom_id}/sessions``: goi ``on_change({session_id: state})``
+        """Nghe ``sessions`` cua web admin co ``classroom_id`` la lop nay: goi
+        ``on_change({session_id: state})`` (``status`` da doi qua ``WEB_STATUS_TO_STATE``)
         tren thread cua listener moi khi co thay doi. Tra ve watch co ``unsubscribe()``."""
-        # ponytail: nghe ca collection (khong where) de khong can FieldFilter/index; them
-        # where(state in [active, paused]) neu so phien moi lop lon toi muc dang ke.
-        return self._client.collection(f"{self._root}/sessions").on_snapshot(
-            lambda docs, changes, read_time: on_change({doc.id: (doc.to_dict() or {}).get("state") for doc in docs})
+        # where() positional thay vi FieldFilter: module khong import SDK, CI chay khong can no.
+        # ponytail: snapshot gom moi phien cua lop ke ca da xong (de thay ``completed``); loc
+        # them theo status thi phien vua xong bien mat -> runtime ghi ``incomplete`` thay vi ``completed``.
+        query = self._client.collection("sessions").where("classroom_id", "==", self._classroom_id)
+        return query.on_snapshot(
+            lambda docs, changes, read_time: on_change({doc.id: _session_state(doc.to_dict()) for doc in docs})
         )
 
     def flush(self) -> bool:
@@ -268,7 +283,7 @@ class FirestoreSink:
         self.close()
 
     def _summary_path(self, session_id: str) -> str:
-        return f"{self._root}/sessions/{session_id}/summaries/{self._camera_id}"
+        return f"sessions/{session_id}/summaries/{self._camera_id}"
 
     def _enqueue(self, queue: deque, path: str, item: Any) -> None:
         with self._lock:

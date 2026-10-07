@@ -1,6 +1,6 @@
 # Edge Node
 
-One edge node serves one camera. It waits for a monitoring session in Firestore and processes the camera only while that session is active and inside the configured schedule. It writes anonymized records, alerts, a heartbeat and an end-of-session summary. This page covers running it and the Firestore contract with the teacher and admin apps. Paths and delivery guarantees are in `src/sync/README.md`.
+One edge node serves one camera. It waits for a monitoring session in Firestore and processes the camera only while that session is live and inside the configured schedule. It writes anonymized records, alerts, a heartbeat and an end-of-session summary. This page covers running it and its side of the Firestore contract. Paths and delivery guarantees are in `src/sync/README.md`; the contract with the web admin, including what the web team still has to build, is in `docs/web_admin_integration.md`.
 
 ## Run
 
@@ -24,26 +24,28 @@ How each config section is used:
 
 | Section | Effect |
 |---|---|
-| `camera` | Classroom and camera IDs, which name the Firestore paths. The camera source is read from the environment variable named in `source_env`. |
+| `camera` | Classroom and camera IDs, which name the Firestore paths. The web admin allows one camera per classroom, so set both to the ID of the classroom's `classrooms` document. The camera source is read from the environment variable named in `source_env`. |
 | `sampling` | Capture FPS. Pose inference runs on every n-th frame; the other frames are wiped without processing. |
 | `thresholds` | Pose detector settings, side-conversation and back-turn detectors. Back-turn runs only for `frontal` cameras (from the Firestore seat grid). |
 | `schedule` | The camera opens only inside these local-time windows, even while a session is active. |
 | `privacy` | One-frame buffer, no persistent output. |
 
-## Session control (written by the teacher app)
+## Session control (written by the web admin)
 
-The edge node listens to `classrooms/{classroom_id}/sessions`. The app creates a session document and sets its `state` field (UC04):
+The edge node listens to the top-level `sessions` collection, filtered on `classroom_id` equal to `camera.classroom_id`. The web admin creates each session as `scheduled` and changes its `status` field (UC04):
 
-| `state` | Edge node |
+| `status` | Edge node |
 |---|---|
-| `active` | Starts the session if none is running, and opens the camera (inside the schedule). |
-| `paused` | Closes the camera and pauses alerts. |
-| back to `active` | Reopens the camera. Behaviour episodes start over. |
-| `ended` | Closes the camera and writes the summary as `completed`. |
-| document deleted, or any other value | Closes the camera and writes the summary as `incomplete`. |
+| `scheduled` | Ignored. |
+| `live` | Starts the session if none is running, and opens the camera (inside the schedule). |
+| `paused` | Closes the camera and pauses alerts. Going back to `live` reopens it, and behaviour episodes start over. The web admin does not offer pausing yet. |
+| `completed` | Closes the camera and writes the summary as `completed`. |
+| `cancelled`, document deleted, or any other value | Closes the camera and writes the summary as `incomplete`. |
 
-- Keep at most one `active` or `paused` session per classroom. If there are several, the edge node takes the one with the smallest ID.
-- Session IDs must match `[A-Za-z0-9_-]{1,64}`. Firestore auto-IDs do.
+The edge node reads only `classroom_id` and `status`. It ignores the session's `date`, `start` and `end`: the `schedule` windows in the local config bound when the camera may open.
+
+- Keep at most one `live` or `paused` session per classroom. If there are several, the edge node takes the one with the smallest ID.
+- Session IDs must match `[A-Za-z0-9_-]{1,64}`. Firestore auto-IDs, which the web admin uses, do.
 - Every camera of the classroom joins the same session, and each writes its own summary.
 - The seat grid is fixed when the session starts. A recalibration applies from the next session.
 
@@ -63,15 +65,15 @@ Written every 10 s and on every status change. Fields: `online`, `status`, `sess
 - `camera_ok` is null until the camera has been opened once. The edge node never opens the camera outside a session just to test it, so before a session `camera_ok` reflects the previous one.
 - UC04 step 3 (check before starting): the seat grid document exists, and the heartbeat is online and recent.
 
-## End-of-session summary: `classrooms/{classroom_id}/sessions/{session_id}/summaries/{camera_id}`
+## End-of-session summary: `sessions/{session_id}/summaries/{camera_id}`
 
 Fields: `session_id`, `status`, `class_average`, and `seats`, a list of `{seat_id, engagement_score, observed_sec, head_drop_events, slumping_events}`.
 
 | `status` | Meaning |
 |---|---|
 | `running` | Written when the session starts. |
-| `completed` | The teacher ended the session. |
-| `incomplete` | The session stopped without the teacher ending it (document deleted, edge node shut down), or the edge node restarted during it and the scores cover only the part after the restart (UC04 alternate flow). |
+| `completed` | The session was set to `completed`. |
+| `incomplete` | The session stopped without being set to `completed` (cancelled, document deleted, edge node shut down), or the edge node restarted during it and the scores cover only the part after the restart (UC04 alternate flow). |
 
 - A summary still `running` after the session ended means the edge node died without closing it; show it as incomplete.
 - `engagement_score` is the cumulative 0–100 score, or null if the seat was never scored. `observed_sec` is how long the seat was seen.

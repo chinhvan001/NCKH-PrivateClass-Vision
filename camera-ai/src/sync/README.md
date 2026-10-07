@@ -39,16 +39,16 @@ The Admin SDK bypasses Firestore Security Rules. See `docs/firestore_security_re
 
 ## Firestore layout
 
-All paths are under `classrooms/{classroom_id}`:
+Session documents belong to the web admin (`docs/web_admin_integration.md`). Everything else the edge node writes hangs under them, except the heartbeat, which describes the device:
 
 | Path | Edge node | Content |
 |---|---|---|
-| `camera_configs/{camera_id}` | reads | Seat grid, see `config/firestore_seat_grid.md` |
-| `sessions/{session_id}` | listens | `state`, written by the teacher app (`docs/edge_node.md`) |
+| `classrooms/{classroom_id}/camera_configs/{camera_id}` | reads | Seat grid, see `config/firestore_seat_grid.md` |
+| `classrooms/{classroom_id}/edge_nodes/{camera_id}` | overwrites | `EdgeHeartbeat.to_dict()` |
+| `sessions/{session_id}` | listens to those with its `classroom_id` | `status`, written by the web admin (`docs/edge_node.md`) |
 | `sessions/{session_id}/engagement/{doc_id}` | creates | `AnonymizedEngagementRecord.to_dict()` |
 | `sessions/{session_id}/alerts/{doc_id}` | creates | `AlertEvent.to_dict()` |
 | `sessions/{session_id}/summaries/{camera_id}` | reads once, overwrites | `SessionSummary.to_dict()` |
-| `edge_nodes/{camera_id}` | overwrites | `EdgeHeartbeat.to_dict()` |
 
 `doc_id` is a random UUID assigned when the item is queued. Documents contain exactly the schema's fields; the sink adds nothing.
 
@@ -64,7 +64,7 @@ All paths are under `classrooms/{classroom_id}`:
 | Rejected data | On HTTP 400 or a client-side encoding error, the batch is dropped and logged, so one bad batch cannot block the queue forever. | |
 | Offline queue (UC02 alternate flow) | At most `max_queue` items, in RAM. When full, the oldest record is dropped first; alerts and summaries are dropped only when no record is left (QA03). `dropped` counts every dropped item. | 20,000 (about 80 minutes for 40 seats) |
 | Heartbeat | Not queued: only the latest one waits for the next flush, so an outage never piles up stale heartbeats. | |
-| Session listener | A Firestore watch on the `sessions` collection. It dies when the network drops; the runtime subscribes again once flushes succeed (`docs/edge_node.md`, Known limits). | |
+| Session listener | A Firestore watch on `sessions` where `classroom_id` is this node's classroom. It maps the web `status` to the runtime's states (`live` → `active`, `completed` → `ended`, anything else unchanged). It dies when the network drops; the runtime subscribes again once flushes succeed (`docs/edge_node.md`, Known limits). | |
 | Logging | Only the error type and queue counters. Never document contents or server error messages, which may echo them. | |
 
 Limits:
