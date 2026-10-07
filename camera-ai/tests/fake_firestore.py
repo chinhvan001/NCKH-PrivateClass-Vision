@@ -1,7 +1,7 @@
 """Firestore gia trong RAM: test sync chay khong can credential, mang hay firebase_admin.
 
 Chi mo phong phan API ma ``src.sync`` dung (``document(path)`` voi ``get/set/delete``,
-``collection(path).on_snapshot``, ``batch()`` voi ``set/commit``) cung cac rang
+``collection(path)`` voi ``where(field, "==", value)`` va ``on_snapshot``, ``batch()`` voi ``set/commit``) cung cac rang
 buoc khien Firestore that tu choi ghi: toi da 500 write/batch, duong dan
 document/collection dung so doan, gia tri encode duoc. Listener duoc goi dong bo
 ngay khi ghi. Loi commit duoc tiem bang ``fail_next``.
@@ -28,7 +28,7 @@ class FakeFirestore:
         self.docs: dict[str, dict] = {}
         self.commits: list[list[str]] = []  # duong dan document cua moi commit da ghi
         self._failures: list[tuple[Exception, bool]] = []
-        self._listeners: list[tuple[str, object, FakeWatch]] = []
+        self._listeners: list[tuple[FakeCollection, object, FakeWatch]] = []
 
     def fail_next(self, error: Exception, *, after_write: bool = False) -> None:
         """Lan commit ke tiep nem ``error``; ``after_write=True``: server DA ghi
@@ -54,9 +54,9 @@ class FakeFirestore:
             else:
                 self.docs[path] = data
         changed = {path.rsplit("/", 1)[0] for path, _ in writes}
-        for collection, callback, watch in list(self._listeners):
-            if collection in changed and watch.is_active:
-                callback(self._snapshots(collection), [], None)
+        for query, callback, watch in list(self._listeners):
+            if query.path in changed and watch.is_active:
+                callback(query._snapshots(), [], None)
 
     def _snapshots(self, collection: str) -> list["FakeSnapshot"]:
         return [
@@ -107,16 +107,31 @@ class FakeWatch:
 
 
 class FakeCollection:
-    def __init__(self, client: FakeFirestore, path: str) -> None:
+    """Collection, hoac query ``where`` tren no (giong ``Query`` that, ``where`` tra ve ban moi)."""
+
+    def __init__(self, client: FakeFirestore, path: str, filters: tuple = ()) -> None:
         self._client = client
         self.path = path
+        self._filters = filters
+
+    def where(self, field: str, op: str, value) -> "FakeCollection":
+        if op != "==":
+            raise NotImplementedError(f"FakeFirestore chi ho tro '==', khong ho tro {op!r}.")
+        return FakeCollection(self._client, self.path, self._filters + ((field, value),))
 
     def on_snapshot(self, callback) -> FakeWatch:
         """Nhu Firestore: goi ``callback(docs, changes, read_time)`` ngay voi snapshot dau tien."""
         watch = FakeWatch()
-        self._client._listeners.append((self.path, callback, watch))
-        callback(self._client._snapshots(self.path), [], None)
+        self._client._listeners.append((self, callback, watch))
+        callback(self._snapshots(), [], None)
         return watch
+
+    def _snapshots(self) -> list[FakeSnapshot]:
+        return [
+            snapshot
+            for snapshot in self._client._snapshots(self.path)
+            if all(snapshot._data.get(field) == value for field, value in self._filters)
+        ]
 
 
 class FakeWriteBatch:

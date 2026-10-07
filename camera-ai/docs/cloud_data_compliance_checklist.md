@@ -1,6 +1,6 @@
 # Cloud Data Compliance Checklist
 
-Last reviewed: 2026-10-04, against branch `camera-ai`.
+Last reviewed: 2026-10-07, against branch `camera-ai`; §3 item 12 against branch `Web`.
 
 Requirement sources:
 
@@ -47,7 +47,7 @@ Never sent:
 |---|---|---|
 | No frame is written to disk by production code (`imwrite`, `VideoWriter`, `imencode` are banned in `src/`) | `src/` | `tests/test_privacy_guards.py::test_production_code_never_writes_frames` |
 | Each frame's pixel buffer is zeroed after inference, including when inference throws; frames skipped by `inference_every_n_frames` are zeroed unprocessed | `pipeline.process_frame()` → `dispose_frame()` in `finally`, used by `run_pipeline` and `EdgeRuntime` | `test_privacy_guards.py::test_pipeline_wipes_every_frame_after_inference`, `test_frame_wiped_even_when_inference_fails`; `test_edge_runtime.py::test_only_every_nth_frame_is_inferred_and_every_frame_is_wiped` |
-| The camera is open only while a session is `active` and inside the config's schedule windows; pause, end and shutdown close it | `pipeline/edge_runtime.py` | `test_edge_runtime.py::test_session_start_pause_resume_end_controls_camera_and_writes_summary`, `test_active_session_outside_schedule_never_opens_camera` |
+| The camera is open only while a session is `live` and inside the config's schedule windows; pause, end and shutdown close it | `pipeline/edge_runtime.py` | `test_edge_runtime.py::test_session_start_pause_resume_end_controls_camera_and_writes_summary`, `test_active_session_outside_schedule_never_opens_camera` |
 | Any preview or debug image is anonymized (face blur + full-frame pixelation) | `privacy.anonymize_preview()`; the demo refuses `--output` without `--allow-persistent-output` | `tests/test_privacy_anonymize.py`; code review of `tests/demo_camera_ai.py` |
 | Export schemas are exact allowlists | `privacy/`, `sync.EdgeHeartbeat` | `test_engagement_export.py`, `test_alert_event.py`, `test_cloud_payload.py`, `test_session_summary.py`, `test_firestore_sink.py::test_heartbeat_keeps_only_latest_and_survives_failed_flush`, schema asserts in `test_end_to_end_pipeline.py` and `test_demo_camera_ai.py` |
 | Local config rejects every unknown key (so `rtsp_url`, `student_id`, `name` cannot be stored) and privacy overrides (`allow_persistent_output`, `frame_buffer_size`); the camera source is referenced by env var name only | `config/local_schema.py` | `tests/test_local_config.py` (covers `rtsp_url` and the two overrides) |
@@ -75,6 +75,7 @@ Never sent:
 | 9 | **Frame wipe is best-effort.** `dispose_frame()` zeroes the frame buffer we own. Copies made inside OpenCV, Ultralytics or torch (resized or letterboxed tensors, GPU memory) are not wiped. | Medium | Word the QA02 claim as "no reference to the frame is retained; the source buffer is zeroed best-effort", not "100% purged from memory". |
 | 10 | **Legacy face code is still in the repo:** `detection/face_detector.py`, `detection/face_landmarker.py`, `engagement/head_pose.py` and `tests/test_head_pose.py`. They are not exported, but their presence makes "no face detection" harder to audit. | Low | Delete them, or move them out of `src/`. |
 | 11 | **Logs on disk** (`logs/camera-ai.log`, rotating). No payload bodies are logged. The Firestore sink logs only error types and counters, covered by `test_failure_logs_never_echo_payload`. | Closed | Keep the same rule for future sinks (FCM). |
+| 12 | **The web admin stores camera RTSP URLs, credentials included, in Firestore** (`classrooms/{id}.rtsp_url`, written by `backend/routes/camera_routes.py` and `classroom_routes.py` on branch `Web`) and returns them in its camera and classroom APIs. Anyone who can read `classrooms` and reach the camera's network can watch live video, which bypasses every control in §2. The root `firestore.rules` draft lets teachers and parents read `classrooms`. camera-ai never reads the field; the edge node takes its source from an environment variable. | High | Web team: move camera credentials to a document no client rule can read, or to a secret on the web server; mask the password in API responses. See `docs/web_admin_integration.md`. |
 
 ## 4. Release checklist
 
@@ -95,3 +96,4 @@ Never sent:
 | Offline queue bounded and RAM-only (§3.8) | `test_firestore_sink.py` | [x] |
 | Sinks do not log payloads (§3.11) | `test_firestore_sink.py::test_failure_logs_never_echo_payload` | [x] |
 | Legacy face code removed (§3.10) | Commit | [ ] |
+| Camera credentials not readable from Firestore by clients (§3.12) | Web backend change and Rules | [ ] |

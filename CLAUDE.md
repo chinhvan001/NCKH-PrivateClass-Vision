@@ -14,6 +14,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
   ## <Checklist item 2>
   ```
 
+## Edit scope
+
+- Only modify files under `camera-ai/` and `.github/`, plus `.env`, `.env.example`, `.gitignore` and `CLAUDE.md`. Do not touch anything else in the repo (e.g. `Web`, `flutter_privateclass_vision`).
+
 ## Git rules
 
 - Commit messages must NOT include a `Co-Authored-By: Claude ...` trailer (or any other Claude/AI attribution line). PR descriptions must not include a "Generated with Claude Code" line either.
@@ -77,11 +81,12 @@ capture (CameraCapture / CaptureWorker + FrameBuffer)
 - `config/`: `local_schema.py` is a strict JSON schema (`config/local_pipeline.example.json`) that **rejects unknown keys** such as `rtsp_url`, `student_id`, `name`. The camera source is referenced by env var name (`camera.source_env`), never stored inline. `remote_seat_grid.py` loads seat grids from Firestore at `classrooms/{classroom_id}/camera_configs/{camera_id}`, imports `firebase_admin` lazily, keeps the grid in RAM only, and only accepts a newer `config_version`.
 - `pipeline/edge_runtime.py`: the Firestore listener only stores `{session_id: state}`; every decision (camera on/off, session start/end, heartbeat, summary) happens in `step()` on the main thread. Records and alerts use monitored seconds since the session start, not wall-clock. Session contract, statuses and limits: `camera-ai/docs/edge_node.md`.
 - `sync/`: one `FirestoreSink` per edge node for the whole process (not per session). `add_*`/`set_heartbeat` run inside the frame loop, so they only update a bounded RAM queue; a background thread commits it in batches with backoff. Credentials come only from `GOOGLE_APPLICATION_CREDENTIALS` via `firestore_client_from_env()`, shared with `remote_seat_grid.py`. The Admin SDK bypasses Security Rules: read `camera-ai/docs/firestore_security_review.md` before changing Firestore access. Details: `camera-ai/src/sync/README.md`.
+- Sessions belong to the web admin (branch `Web`, Flask + React on the school server); the two sides talk only through Firestore. The edge node listens to top-level `sessions` filtered on `classroom_id`, maps `status` with `sync/firestore_sink.py::WEB_STATUS_TO_STATE` (`live` -> `active`, `completed` -> `ended`), and writes engagement/alerts/summaries under `sessions/{session_id}/`. Contract and open web-side tasks: `camera-ai/docs/web_admin_integration.md`.
 
 ## Privacy invariants (enforced by tests, don't break)
 
 - Never write frames to disk: no `cv2.imwrite`/`VideoWriter` in production paths, and no frames in logs or caches. Call `src.privacy.dispose_frame(frame)` in a `finally` after inference (`pipeline.process_frame` does this).
-- The edge node opens the camera only while a session is `active` and inside the config's `schedule` windows; pause, end and shutdown close it.
+- The edge node opens the camera only while a session is `live` and inside the config's `schedule` windows; pause, end and shutdown close it.
 - Any preview or debug display/write must go through `src.privacy.anonymize_preview()` first. The demo blocks video output unless `--allow-persistent-output` is passed.
 - No face detection, facial landmarks, embeddings, names, or student IDs in runtime output.
 - Never log or put the raw camera source in error messages (RTSP URLs carry credentials); wrap it in `capture.camera_capture.redact_source()`.

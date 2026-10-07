@@ -20,7 +20,7 @@ from src.seating.seat_grid import Seat, SeatGrid
 from src.sync import EdgeHeartbeat, FirestoreSink, firestore_client_from_env
 from test_end_to_end_pipeline import AlertScenarioProvider, _video
 
-PREFIX = "classrooms/room-1/sessions/s1"
+PREFIX = "sessions/s1"
 HEARTBEAT = "classrooms/room-1/edge_nodes/cam-1"
 RECORD_KEYS = {"seat_id", "observed_at_sec", "engagement_score", "posture_state", "head_drop_events", "slumping_events"}
 ALERT_KEYS = {"session_id", "seat_id", "type", "start_sec", "duration_sec"}
@@ -159,7 +159,7 @@ def test_records_are_throttled_per_seat_unless_posture_changes():
         sink.add_record(session_id, _record(seat_id, t, state))
 
     assert sink.flush()
-    sent = sorted((path.split("/")[3], doc["seat_id"], doc["observed_at_sec"]) for path, doc in client.docs.items())
+    sent = sorted((path.split("/")[1], doc["seat_id"], doc["observed_at_sec"]) for path, doc in client.docs.items())
     assert sent == [("s1", "A1", 0.0), ("s1", "A1", 6.0), ("s1", "A1", 16.0), ("s1", "B1", 5.0), ("s2", "A1", 1.0)]
 
 
@@ -187,17 +187,28 @@ def test_heartbeat_keeps_only_latest_and_survives_failed_flush():
         _heartbeat("recording")
 
 
-def test_watch_sessions_reports_state_by_session_id_and_summary_exists():
+def test_watch_sessions_maps_web_status_for_own_classroom_and_summary_exists():
     client = FakeFirestore()
     sink = _sink(client)
     seen = []
     watch = sink.watch_sessions(seen.append)
-    client.document("classrooms/room-1/sessions/s1").set({"state": "active", "teacher": "ignored"})
-    client.document("classrooms/room-1/sessions/s0").set({"state": "ended"})
+    for session_id, classroom_id, status in [
+        ("s1", "room-1", "live"),
+        ("s2", "room-1", "completed"),
+        ("s3", "room-1", "paused"),
+        ("s4", "room-1", "cancelled"),
+        ("s5", "room-1", "scheduled"),
+        ("s6", "room-1", ["live"]),  # document sua tay hong: khong lam chet listener
+        ("s7", "room-2", "live"),  # lop khac
+    ]:
+        client.document(f"sessions/{session_id}").set(
+            {"classroom_id": classroom_id, "status": status, "teacher_uid": "ignored"}
+        )
     watch.unsubscribe()
-    client.document("classrooms/room-1/sessions/s1").set({"state": "paused"})
+    client.document("sessions/s1").set({"classroom_id": "room-1", "status": "completed"})
 
-    assert seen == [{}, {"s1": "active"}, {"s0": "ended", "s1": "active"}]
+    assert seen[0] == {}
+    assert seen[-1] == {"s1": "active", "s2": "ended", "s3": "paused", "s4": "cancelled", "s5": "scheduled", "s6": None}
     assert not sink.summary_exists("s1")
     client.document(f"{PREFIX}/summaries/cam-1").set({"status": "running"})
     assert sink.summary_exists("s1")
