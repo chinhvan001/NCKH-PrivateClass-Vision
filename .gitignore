@@ -18,6 +18,9 @@ venv/
 *.mp4
 *.avi
 
+# Team documents carry members' phone numbers and emails: keep them on the team Drive
+camera-ai/docs/C1SE31-*.pdf
+
 # Runtime logs
 logs/
 *.log
