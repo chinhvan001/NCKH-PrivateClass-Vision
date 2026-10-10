@@ -19,7 +19,6 @@ Only these schemas may leave the edge node. Each is built by a single function o
 | `AlertEvent` | `privacy.make_alert_event()` | `session_id`, `seat_id`, `type`, `start_sec`, `duration_sec` | `run_pipeline(on_alert=...)` → `sync.FirestoreSink`; FCM not built | Firestore sink built, not enabled |
 | `SessionSummary` | `privacy.make_session_summary()` | `session_id`, `status`, `class_average`, `seats` (each: `seat_id`, `engagement_score`, `observed_sec`, `head_drop_events`, `slumping_events`) | `EdgeRuntime` → `sync.FirestoreSink.add_summary()` | Built, not enabled |
 | `EdgeHeartbeat` (device status, no student data) | `sync.EdgeHeartbeat` | `online`, `status`, `session_id`, `fps`, `camera_ok`, `last_frame_at`, `updated_at` | `EdgeRuntime` → `sync.FirestoreSink.set_heartbeat()` | Built, not enabled |
-| `CloudEngagementPayload` | `privacy.make_cloud_payload()` | `seat_id`, `keypoints` (`[x, y]` only), `engagement_score` | None (not called by the pipeline) | See §3 item 3 |
 
 Field rules:
 
@@ -34,7 +33,7 @@ Never sent:
 
 - Frames, crops or previews.
 - Face data or embeddings.
-- Bounding boxes or keypoint confidences.
+- Body keypoints, keypoint confidences or bounding boxes.
 - Track IDs.
 - Names or student IDs.
 - Camera URLs or credentials.
@@ -49,7 +48,7 @@ Never sent:
 | Each frame's pixel buffer is zeroed after inference, including when inference throws; frames skipped by `inference_every_n_frames` are zeroed unprocessed | `pipeline.process_frame()` → `dispose_frame()` in `finally`, used by `run_pipeline` and `EdgeRuntime` | `test_privacy_guards.py::test_pipeline_wipes_every_frame_after_inference`, `test_frame_wiped_even_when_inference_fails`; `test_edge_runtime.py::test_only_every_nth_frame_is_inferred_and_every_frame_is_wiped` |
 | The camera is open only while a session is `live` and inside the config's schedule windows; pause, end and shutdown close it | `pipeline/edge_runtime.py` | `test_edge_runtime.py::test_session_start_pause_resume_end_controls_camera_and_writes_summary`, `test_active_session_outside_schedule_never_opens_camera` |
 | Any preview or debug image is anonymized (face blur + full-frame pixelation) | `privacy.anonymize_preview()`; the demo refuses `--output` without `--allow-persistent-output` | `tests/test_privacy_anonymize.py`; code review of `tests/demo_camera_ai.py` |
-| Export schemas are exact allowlists | `privacy/`, `sync.EdgeHeartbeat` | `test_engagement_export.py`, `test_alert_event.py`, `test_cloud_payload.py`, `test_session_summary.py`, `test_firestore_sink.py::test_heartbeat_keeps_only_latest_and_survives_failed_flush`, schema asserts in `test_end_to_end_pipeline.py` and `test_demo_camera_ai.py` |
+| Export schemas are exact allowlists | `privacy/`, `sync.EdgeHeartbeat` | `test_engagement_export.py`, `test_alert_event.py`, `test_session_summary.py`, `test_firestore_sink.py::test_heartbeat_keeps_only_latest_and_survives_failed_flush`, schema asserts in `test_end_to_end_pipeline.py` and `test_demo_camera_ai.py` |
 | Local config rejects every unknown key (so `rtsp_url`, `student_id`, `name` cannot be stored) and privacy overrides (`allow_persistent_output`, `frame_buffer_size`); the camera source is referenced by env var name only | `config/local_schema.py` | `tests/test_local_config.py` (covers `rtsp_url` and the two overrides) |
 | Camera credentials are redacted from logs and error messages (`rtsp://user:pass@` → `rtsp://***@`) | `capture.camera_capture.redact_source()` | `test_privacy_guards.py::test_redact_source_*`, `test_camera_open_failure_does_not_leak_credentials` |
 | Seat grid fetched from Firestore is kept in RAM only, never cached to disk | `config/remote_seat_grid.py` | `tests/test_remote_seat_grid.py`; code review |
@@ -66,7 +65,7 @@ Never sent:
 |---|---|---|---|
 | 1 | **Real CCTV footage with identifiable faces is in git history.** `camera-ai/simulated_data/test2.mp4` (third-party watermark) was added in commit `4f948e64`, which is pushed to `origin/camera-ai`. It is untracked now but still downloadable from history. | Blocker | Rewrite history (`git filter-repo --path camera-ai/simulated_data/test2.mp4 --invert-paths`), force-push, have the team re-clone, and ask GitHub to purge cached views. At minimum, confirm the repo is private. |
 | 2 | **`seat_id` is pseudonymous, not anonymous.** UC01 maps student accounts to seat IDs in Firestore, and UC03 lets parents view their child's data. The previous version of this checklist said no cloud service may hold that mapping, which contradicts the architecture. | Blocker | Store the seat→student mapping in its own collection, readable only by the class teacher and admin, with parents reaching it only through their linked child. Telemetry and alert collections must never contain a student ID. Firestore Rules must enforce all of this (item 7). |
-| 3 | **`CloudEngagementPayload` carries body keypoints.** The architecture says parents see no skeletal information. Records and alerts already cover UC02, UC03, UC07 and UC09 without keypoints. | High | Decide as a team. Recommendation: do not send keypoints to the cloud, and delete `make_cloud_payload` or restrict it to consented research data. |
+| 3 | **Body keypoints in the cloud.** `CloudEngagementPayload` (`privacy.make_cloud_payload()`) carried keypoints, while the architecture says parents see no skeletal information. Records and alerts already cover UC02, UC03, UC07 and UC09 without keypoints. | Closed | Team decision recorded 2026-10-10: no keypoints leave the edge node. `make_cloud_payload` and its test are deleted. |
 | 4 | **Timestamp precision.** `observed_at_sec` was rounded to 1 ms. Upload volume is solved: `FirestoreSink` sends at most one record per seat every 10 s, plus posture changes. | Closed | `privacy.anonymize_engagement()` rounds records to whole seconds (half up); alert times stay at 0.1 s. Covered by `test_engagement_export.py` and `test_end_to_end_pipeline.py`. |
 | 5 | **Encryption (QA02).** Firestore encrypts at rest (AES-256) and the SDK uses TLS by default, but no evidence is recorded. Edge-local files (JSONL exports, `logs/camera-ai.log`) are unencrypted. The offline queue is RAM-only. | High | Save Google's encryption documentation as release evidence and check the TLS version the edge client negotiates. Enable full-disk encryption on edge nodes (BitLocker or LUKS). |
 | 6 | **Retention.** No TTL is configured for records or alerts. | Medium | Set a Firestore TTL policy and agree the retention period with the mentor. |
@@ -87,7 +86,7 @@ Never sent:
 | Camera credentials not logged | `test_privacy_guards.py` | [x] |
 | Real footage purged from git history (§3.1) | Rewritten history; GitHub purge confirmation | [ ] |
 | Seat→student mapping isolated and rule-protected (§3.2) | Firestore Rules file and rule tests | [ ] |
-| Keypoint upload decision (§3.3) | Team decision record | [ ] |
+| Keypoint upload decision (§3.3) | Team decision 2026-10-10 (no keypoints); `make_cloud_payload` deleted | [x] |
 | Upload rate (§3.4) | `FirestoreSink` throttle; `test_records_are_throttled_per_seat_unless_posture_changes` | [x] |
 | Timestamp granularity (§3.4) | `anonymize_engagement()` rounding; `test_engagement_export.py` | [x] |
 | Encryption in transit and at rest (§3.5) | Provider docs, TLS check, edge disk encryption | [ ] |
