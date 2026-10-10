@@ -202,8 +202,8 @@ def test_occluded_frames_do_not_replay_last_pose(tmp_path):
         calibration_duration_sec=0.0,
     )
     # SeatTracker giu seat A1 qua frame bi che, nhung pipeline chi xu ly
-    # quan sat moi: 4 frame le -> 4 record, khong phai 8.
-    assert [record.observed_at_sec for record in records] == [0.5, 1.5, 2.5, 3.5]
+    # quan sat moi: 4 frame le (0.5s, 1.5s, ...) -> 4 record, khong phai 8.
+    assert [record.observed_at_sec for record in records] == [1, 2, 3, 4]
 
 
 def test_records_are_streamed_to_sink_during_run_not_buffered(tmp_path):

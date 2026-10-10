@@ -82,7 +82,7 @@ Fields: `session_id`, `status`, `class_average`, and `seats`, a list of `{seat_i
 
 ## Timing
 
-`observed_at_sec` (records) and `start_sec` (alerts) count seconds of monitored time since the session started. A pause or a camera outage advances that clock by at most 5 s, so it is not wall-clock time since the start.
+`observed_at_sec` (records) and `start_sec` (alerts) count seconds of monitored time since the session started. A pause or a camera outage advances that clock by at most 5 s, so it is not wall-clock time since the start. Records are rounded to whole seconds, alert times to 0.1 s.
 
 ## Known limits
 

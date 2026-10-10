@@ -12,7 +12,7 @@ def test_anonymized_export_has_only_allowlisted_metrics(tmp_path):
 
     assert record.to_dict() == {
         "seat_id": "A1",
-        "observed_at_sec": 123.457,
+        "observed_at_sec": 123,
         "engagement_score": 82.34,
         "posture_state": "NORMAL",
         "head_drop_events": 3,

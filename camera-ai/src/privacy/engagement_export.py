@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Optional
@@ -33,7 +34,8 @@ def anonymize_engagement(score: EngagementScore, timestamp: float, posture_state
     """Chuyen ket qua noi bo thanh schema xuat toi thieu da cho phep."""
     return AnonymizedEngagementRecord(
         seat_id=score.seat_id,
-        observed_at_sec=round(float(timestamp), 3),
+        # Lam tron nua len toi giay (checklist 3.4): moc thoi gian min hon de lo nhip hanh vi tung ghe.
+        observed_at_sec=math.floor(float(timestamp) + 0.5),
         engagement_score=None if score.score is None else round(float(score.score), 2),
         posture_state=posture_state,
         head_drop_events=score.head_drop_count,
