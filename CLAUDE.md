@@ -43,7 +43,7 @@ python -c "from ultralytics.utils.downloads import attempt_download_asset as d; 
 python -m src.main --config config/local_pipeline.json
 
 # Same as CI (.github/workflows/camera-ai-ci.yml, matrix 3.12 + 3.14, only pytest/numpy/opencv-headless/tzdata + lint tools installed; lint runs on 3.12 only)
-python -m pytest tests -q --ignore=tests/smoke_test.py --ignore=tests/test_head_pose.py
+python -m pytest tests -q --ignore=tests/smoke_test.py
 
 # Single test
 python -m pytest tests/test_seat_tracker.py::test_name -q
@@ -56,7 +56,7 @@ black src tests tools
 python tests/demo_camera_ai.py <video> --seats config/seat_grid.json --engagement-jsonl engagement.jsonl
 ```
 
-CI excludes `smoke_test.py` (opens a real webcam) and `test_head_pose.py` (legacy facial API). Tests must stay headless: no webcam, GPU, network, model weights, or Firebase credentials (test Firestore code against `tests/fake_firestore.py`). Tests are flat in `tests/test_*.py`; module READMEs that mention `tests/capture/` or `tests/seating/` are outdated.
+CI excludes `smoke_test.py` (opens a real webcam). Tests must stay headless: no webcam, GPU, network, model weights, or Firebase credentials (test Firestore code against `tests/fake_firestore.py`). Tests are flat in `tests/test_*.py`; module READMEs that mention `tests/capture/` or `tests/seating/` are outdated.
 
 `tests/demo_camera_ai.py` is a script, not a test (pytest skips it since it isn't named `test_*`). Other tools live in `tools/` (synthetic classroom video generator, SCB-Dataset person-detection evaluation); see `tools/README.md`.
 
@@ -75,7 +75,7 @@ capture (CameraCapture / CaptureWorker + FrameBuffer)
 
 - `PoseProvider` is a Protocol: tests inject a deterministic `ReplayPoseProvider` instead of real inference. Keep new pipeline stages injectable the same way.
 - `capture/`: `CaptureWorker` reads on a background thread into a drop-oldest `FrameBuffer` (default size 1). `start()` opens the camera synchronously so `CameraOpenError` surfaces to the caller; transient read failures reconnect with backoff and return `None` instead of raising. Config via `CaptureConfig.from_env()` (`CAMERA_SOURCE`, `CAMERA_FPS`, ...; see `.env.example`).
-- `detection/`: the public API exports only `PoseDetector` and `PersonDetector` (YOLO11 person boxes, used for head-count coverage only). `face_detector.py`/`face_landmarker.py` are legacy and deliberately not exported.
+- `detection/`: the public API exports only `PoseDetector` and `PersonDetector` (YOLO11 person boxes, used for head-count coverage only). There is no face detection code; `tests/test_privacy_guards.py` fails if `src/` imports a face-detection library.
 - `engagement/`: `posture.py` computes head-drop ratio and torso angle; `posture_monitor.py` handles per-seat baseline calibration, smoothing, and thresholds; `engagement_score.py` turns time spent in each state into a 0–100 score (`rolling_engagement.py` is the windowed variant). `side_conversation.py`, `back_turn.py`, and `hand_activity.py` are optional pose-only alert detectors; back-turn is only valid for `frontal` cameras.
 - `seating/`: a `SeatGrid` is tied to one camera mount and must be recalibrated if the camera moves. Use `SeatTracker` for video (continuity + occlusion tolerance) and `assign_seats` for single frames.
 - `config/`: `local_schema.py` is a strict JSON schema (`config/local_pipeline.example.json`) that **rejects unknown keys** such as `rtsp_url`, `student_id`, `name`. The camera source is referenced by env var name (`camera.source_env`), never stored inline. `remote_seat_grid.py` loads seat grids from Firestore at `classrooms/{classroom_id}/camera_configs/{camera_id}`, imports `firebase_admin` lazily, keeps the grid in RAM only, and only accepts a newer `config_version`.
@@ -90,5 +90,5 @@ capture (CameraCapture / CaptureWorker + FrameBuffer)
 - Any preview or debug display/write must go through `src.privacy.anonymize_preview()` first. The demo blocks video output unless `--allow-persistent-output` is passed.
 - No face detection, facial landmarks, embeddings, names, or student IDs in runtime output.
 - Never log or put the raw camera source in error messages (RTSP URLs carry credentials); wrap it in `capture.camera_capture.redact_source()`.
-- Guard tests live in `tests/test_privacy_guards.py` (no frame-writing calls in `src/`, frames wiped after inference, credential redaction). Open compliance items: `docs/cloud_data_compliance_checklist.md` section 3.
+- Guard tests live in `tests/test_privacy_guards.py` (no frame-writing calls or face-detection imports in `src/`, frames wiped after inference, credential redaction). Open compliance items: `docs/cloud_data_compliance_checklist.md` section 3.
 - Output schemas are allowlists. The local export is `AnonymizedEngagementRecord` (no bbox or keypoints). The cloud export is `privacy/cloud_payload.py::make_cloud_payload` (seat_id, keypoints, score in [0,100]). Alerts use `privacy/alert_event.py::make_alert_event` (session_id, seat_id, type in `ALERT_TYPES`, start_sec, duration_sec; session-relative seconds, no wall-clock). End-of-session summaries use `privacy/session_summary.py::make_session_summary`; the device heartbeat is `sync.EdgeHeartbeat`, the only schema allowed wall-clock fields. Add fields only deliberately; see `docs/cloud_data_compliance_checklist.md`.

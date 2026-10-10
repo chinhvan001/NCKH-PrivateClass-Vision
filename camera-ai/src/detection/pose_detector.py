@@ -309,8 +309,7 @@ class PoseDetector:
         ung voi 1 anh dau vao) sang danh sach PersonPose.
 
         Tach rieng thanh staticmethod thuan de unit test duoc bang doi tuong
-        gia lap (khong can model that) -- cung pattern da dung cho
-        FaceDetector._parse_result / FaceLandmarker._parse_result.
+        gia lap (khong can model that).
         """
         people: List[PersonPose] = []
         if not results:

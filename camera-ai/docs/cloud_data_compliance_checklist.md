@@ -57,7 +57,7 @@ Never sent:
 | The offline queue is bounded and RAM-only; when full it drops the oldest records before any alert or summary | `sync.FirestoreSink` | `test_firestore_sink.py::test_full_queue_drops_oldest_records_but_keeps_alerts_and_summaries`, `test_offline_queue_stays_bounded_and_drops_oldest_first` |
 | Sink logs carry only error types and counters, never document contents or server messages | `sync.FirestoreSink.flush()` | `test_firestore_sink.py::test_failure_logs_never_echo_payload` |
 | The service account key is read only from `GOOGLE_APPLICATION_CREDENTIALS`; key file names are git-ignored | `sync.firestore_client_from_env()`, `.gitignore` | `test_firestore_sink.py::test_firestore_client_requires_service_account_key_file` |
-| No face detection or landmarks at runtime | `detection/__init__.py` exports only `PoseDetector` and `PersonDetector` | Code review (see §3 item 10) |
+| No face detection or landmarks at runtime | The legacy MediaPipe face modules are deleted; `src/` imports no face-detection library | `test_privacy_guards.py::test_production_code_has_no_face_detection` |
 | Video files and model weights cannot be committed | `.gitignore` (`*.mp4`, `*.avi`, `*.pt`, `*.tflite`, ...) | `.gitignore` |
 
 ## 3. Open issues
@@ -73,7 +73,7 @@ Never sent:
 | 7 | **Firestore Rules and IAM are not deployed.** A draft for the camera-ai paths is in `config/firestore.rules`. The edge node uses the Admin SDK, which bypasses Rules, and IAM cannot limit it to one classroom: an edge key can read every document, including the seat→student mapping. | Blocker for sync | Review `docs/firestore_security_review.md` with the Firebase owner and pick option A, B or C there. Rules reject unknown fields. Parents may read only their linked child's aggregates (QA02 RBAC). |
 | 8 | **Offline queue** (UC02 alternate flow): built as a bounded RAM queue in `sync.FirestoreSink`. Items still queued when the process exits are lost. | Closed | Persist to disk only if item 5's encryption is in place. |
 | 9 | **Frame wipe is best-effort.** `dispose_frame()` zeroes the frame buffer we own. Copies made inside OpenCV, Ultralytics or torch (resized or letterboxed tensors, GPU memory) are not wiped. | Medium | Word the QA02 claim as "no reference to the frame is retained; the source buffer is zeroed best-effort", not "100% purged from memory". |
-| 10 | **Legacy face code is still in the repo:** `detection/face_detector.py`, `detection/face_landmarker.py`, `engagement/head_pose.py` and `tests/test_head_pose.py`. They are not exported, but their presence makes "no face detection" harder to audit. | Low | Delete them, or move them out of `src/`. |
+| 10 | **Legacy face code** (`detection/face_detector.py`, `detection/face_landmarker.py`, `detection/config.py`, `engagement/head_pose.py`, `tests/test_head_pose.py`) made "no face detection" harder to audit. | Closed | Deleted. `test_privacy_guards.py::test_production_code_has_no_face_detection` fails if `src/` imports MediaPipe or an OpenCV face detector again. |
 | 11 | **Logs on disk** (`logs/camera-ai.log`, rotating). No payload bodies are logged. The Firestore sink logs only error types and counters, covered by `test_failure_logs_never_echo_payload`. | Closed | Keep the same rule for future sinks (FCM). |
 | 12 | **The web admin stores camera RTSP URLs, credentials included, in Firestore** (`classrooms/{id}.rtsp_url`, written by `backend/routes/camera_routes.py` and `classroom_routes.py` on branch `Web`) and returns them in its camera and classroom APIs. Anyone who can read `classrooms` and reach the camera's network can watch live video, which bypasses every control in §2. The root `firestore.rules` draft lets teachers and parents read `classrooms`. camera-ai never reads the field; the edge node takes its source from an environment variable. | High | Web team: move camera credentials to a document no client rule can read, or to a secret on the web server; mask the password in API responses. See `docs/web_admin_integration.md`. |
 
@@ -95,5 +95,5 @@ Never sent:
 | Least-privilege Rules and IAM (§3.7) | `config/firestore.rules` deployed with emulator tests; IAM decision from `docs/firestore_security_review.md` | [ ] |
 | Offline queue bounded and RAM-only (§3.8) | `test_firestore_sink.py` | [x] |
 | Sinks do not log payloads (§3.11) | `test_firestore_sink.py::test_failure_logs_never_echo_payload` | [x] |
-| Legacy face code removed (§3.10) | Commit | [ ] |
+| Legacy face code removed (§3.10) | Commit; `test_production_code_has_no_face_detection` | [x] |
 | Camera credentials not readable from Firestore by clients (§3.12) | Web backend change and Rules | [ ] |

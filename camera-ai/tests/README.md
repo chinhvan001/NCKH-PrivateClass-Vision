@@ -17,6 +17,4 @@ is evaluated separately on an approved, local validation dataset.
 Firestore client in memory, so `test_firestore_sink.py` needs no credentials,
 network access or `firebase_admin` (CI does not install it).
 
-`smoke_test.py` is excluded because it opens a physical webcam. The legacy
-facial `test_head_pose.py` is excluded because the privacy-preserving pipeline
-does not expose facial-landmark APIs.
+`smoke_test.py` is excluded because it opens a physical webcam.

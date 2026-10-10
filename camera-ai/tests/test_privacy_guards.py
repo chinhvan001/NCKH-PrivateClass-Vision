@@ -1,5 +1,5 @@
-"""Guard test cho privacy invariant: khong ghi frame ra dia, frame duoc xoa
-sau inference, log khong lo credential camera."""
+"""Guard test cho privacy invariant: khong ghi frame ra dia, khong nhan dien
+khuon mat, frame duoc xoa sau inference, log khong lo credential camera."""
 
 import logging
 import re
@@ -17,16 +17,27 @@ from src.seating.seat_grid import Seat, SeatGrid
 SRC = Path(__file__).resolve().parents[1] / "src"
 # Ghi anh/video ra dia. Demo (tests/) va tools/ duoc phep co VideoWriter co gate rieng.
 _FRAME_WRITE = re.compile(r"\b(imwrite|VideoWriter|imencode)\b")
+# Thu vien phat hien/landmark khuon mat. Vung mat chi duoc suy ra tu keypoint pose de lam mo.
+_FACE_DETECTION = re.compile(
+    r"^\s*(import|from)\s+(mediapipe|face_recognition|dlib)\b|CascadeClassifier|FaceDetectorYN"
+)
 
 
-def test_production_code_never_writes_frames():
-    offenders = [
+def _src_lines_matching(pattern):
+    return [
         f"{path.relative_to(SRC)}:{number}"
         for path in SRC.rglob("*.py")
         for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1)
-        if _FRAME_WRITE.search(line)
+        if pattern.search(line)
     ]
-    assert offenders == []
+
+
+def test_production_code_never_writes_frames():
+    assert _src_lines_matching(_FRAME_WRITE) == []
+
+
+def test_production_code_has_no_face_detection():
+    assert _src_lines_matching(_FACE_DETECTION) == []
 
 
 class _KeepFrames:

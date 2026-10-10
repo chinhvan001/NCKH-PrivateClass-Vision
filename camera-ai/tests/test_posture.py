@@ -1,9 +1,8 @@
 """
 test_posture.py -- Unit test cho posture.py (src/engagement/posture.py)
 
-Chien luoc kiem thu: giong cach da lam voi head_pose.py -- dung toa do BIET
-TRUOC (khong phai model that), tinh ket qua ky vong bang tay/cong thuc doc
-lap, roi so sanh voi ket qua ham tra ve.
+Chien luoc kiem thu: dung toa do BIET TRUOC (khong phai model that), tinh ket
+qua ky vong bang tay/cong thuc doc lap, roi so sanh voi ket qua ham tra ve.
 """
 
 import pytest
