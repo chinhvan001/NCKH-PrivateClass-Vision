@@ -53,7 +53,9 @@ Recommendation: A now, so no edge key can reach student data, and B or C before 
 
 "Teacher of the classroom" for a session means the classroom in its `classroom_id`. Client queries on `sessions` must filter on `classroom_id` so the rule can be checked.
 
-Parents get no per-seat data. Their view of their own child (UC03) should come from aggregates, which are not designed yet. Test the rules against the Firestore emulator with `@firebase/rules-unit-testing` before deploying; this repository's CI does not run them.
+Parents get no per-seat data. Their view of their own child (UC03) should come from aggregates, which are not designed yet.
+
+`rules-tests/` checks every cell of this table, plus the `classroom_id` query filter, on the Firestore emulator with `@firebase/rules-unit-testing`. CI runs it on every change under `camera-ai/`; locally run `npm ci` and `npm test` in that folder (Node 24 and Java 21 required). The merged project rules need the same tests before they are deployed.
 
 ## 4. Decisions needed
 

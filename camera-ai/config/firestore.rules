@@ -2,6 +2,7 @@ rules_version = '2';
 
 // DRAFT for review with the Firebase owner: see camera-ai/docs/firestore_security_review.md.
 // Covers only the paths camera-ai reads or writes. Merge it into the project's rules.
+// Tests: camera-ai/rules-tests (Firestore emulator, run in CI).
 //
 // The edge node and the web admin's Flask backend use the Admin SDK (service account), which
 // bypasses these rules. They govern the Flutter app and any browser code that reads Firestore.

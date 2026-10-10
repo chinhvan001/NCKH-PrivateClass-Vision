@@ -39,3 +39,24 @@ jobs:
         run: >-
           python -m pytest tests -q
           --ignore=tests/smoke_test.py
+
+  firestore-rules:
+    # config/firestore.rules on the Firestore emulator; firebase-tools needs Java 21+.
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: camera-ai/rules-tests
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: camera-ai/rules-tests/package-lock.json
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - run: npm ci
+      - name: Rules tests on the Firestore emulator
+        run: npm test

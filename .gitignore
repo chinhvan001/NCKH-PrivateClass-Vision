@@ -21,9 +21,12 @@ venv/
 # Team documents carry members' phone numbers and emails: keep them on the team Drive
 camera-ai/docs/C1SE31-*.pdf
 
-# Runtime logs
+# Runtime logs (also the emulator's firestore-debug.log)
 logs/
 *.log
+
+# Node (camera-ai/rules-tests)
+node_modules/
 
 # IDE / OS
 .vscode/

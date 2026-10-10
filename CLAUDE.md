@@ -48,6 +48,9 @@ python -m pytest tests -q --ignore=tests/smoke_test.py
 # Single test
 python -m pytest tests/test_seat_tracker.py::test_name -q
 
+# Firestore rules tests: config/firestore.rules on the emulator (Node 24 + Java 21; CI job firestore-rules)
+cd rules-tests; npm ci; npm test
+
 # Lint/format (pinned in requirements-dev.txt; config in pyproject.toml + .flake8, line length 120; CI runs both)
 flake8 src tests tools
 black src tests tools
