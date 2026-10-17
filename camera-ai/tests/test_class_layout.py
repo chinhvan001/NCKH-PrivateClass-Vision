@@ -40,9 +40,10 @@ def test_missing_class_bad_counts_and_read_failures_raise_class_layout_error():
     client = FakeFirestore()
     with pytest.raises(ClassLayoutError, match="classes/c1"):
         load_class_seat_grid(client, "c1", CORNERS)
-    client.document("classes/c1").set({"row_count": 0, "column_count": 3})
-    with pytest.raises(ClassLayoutError, match="hang/cot"):
-        load_class_seat_grid(client, "c1", CORNERS)
+    for rows in (0, 10**9):  # 10**9: document hong khong duoc bat edge sinh hang ty ghe
+        client.document("classes/c1").set({"row_count": rows, "column_count": 3})
+        with pytest.raises(ClassLayoutError, match="hang/cot"):
+            load_class_seat_grid(client, "c1", CORNERS)
 
     class Offline(FakeFirestore):
         def document(self, path):
