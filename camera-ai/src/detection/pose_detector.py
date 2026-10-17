@@ -21,7 +21,6 @@ nguoi, nhieu anh chua hang chuc nguoi/anh) -- phu hop truc tiep voi lop hoc
 """
 
 import logging
-import threading
 from dataclasses import dataclass
 from typing import List, Optional, Tuple
 
@@ -130,32 +129,6 @@ class PoseDetector:
         self._tile_size = tile_size
         self._tile_overlap = tile_overlap
         self._model = None
-        self._config_lock = threading.RLock()
-
-    def apply_runtime_config(
-        self,
-        *,
-        min_confidence: float,
-        iou_threshold: float,
-        image_size: int,
-        max_detections: int,
-        tile_size: Optional[int],
-        tile_overlap: float,
-    ) -> None:
-        """Ap dung tham so moi giua hai frame, khong nap lai model."""
-        if (
-            image_size <= 0
-            or max_detections <= 0
-            or not 0 < min_confidence <= 1
-            or not 0 < iou_threshold <= 1
-            or (tile_size is not None and tile_size <= 0)
-            or not 0 <= tile_overlap < 1
-        ):
-            raise ValueError("Pose runtime config khong hop le.")
-        with self._config_lock:
-            self._min_confidence, self._iou_threshold = min_confidence, iou_threshold
-            self._image_size, self._max_detections = image_size, max_detections
-            self._tile_size, self._tile_overlap = tile_size, tile_overlap
 
     # ------------------------------------------------------------------
     # Vong doi (lifecycle)
@@ -221,20 +194,19 @@ class PoseDetector:
         if self._model is None:
             raise RuntimeError("PoseDetector chua duoc mo. Goi open() truoc, hoac dung 'with'.")
 
-        with self._config_lock:
-            if self._tile_size is None:
-                return self._predict(image_bgr)
+        if self._tile_size is None:
+            return self._predict(image_bgr)
 
-            height, width = image_bgr.shape[:2]
-            # Khong chia o cho khung nho hon tile: tranh lap lai inference vo ich.
-            if width <= self._tile_size and height <= self._tile_size:
-                return self._predict(image_bgr)
+        height, width = image_bgr.shape[:2]
+        # Khong chia o cho khung nho hon tile: tranh lap lai inference vo ich.
+        if width <= self._tile_size and height <= self._tile_size:
+            return self._predict(image_bgr)
 
-            people: List[PersonPose] = []
-            for x, y, tile in self._iter_tiles(image_bgr):
-                for person in self._predict(tile):
-                    people.append(self._translate_pose(person, x, y))
-            return self._deduplicate(people)
+        people: List[PersonPose] = []
+        for x, y, tile in self._iter_tiles(image_bgr):
+            for person in self._predict(tile):
+                people.append(self._translate_pose(person, x, y))
+        return self._deduplicate(people)
 
     def _predict(self, image_bgr: "np.ndarray") -> List[PersonPose]:
         results = self._model.predict(

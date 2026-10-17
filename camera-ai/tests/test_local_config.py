@@ -11,13 +11,22 @@ from src.config import LocalConfigError, LocalPipelineConfig
 
 def valid_config():
     return {
-        "schema_version": 1,
+        "schema_version": 2,
         "camera": {
             "camera_id": "CAM-1",
-            "classroom_id": "ROOM-1",
+            "class_id": "CLASS-1",
             "source_env": "CAMERA_1_SOURCE",
             "width": 1280,
             "height": 720,
+            "angle_type": "frontal",
+        },
+        "seating": {
+            "corner_seats": {
+                "first_row_first_column": [90, 100],
+                "first_row_last_column": [230, 100],
+                "last_row_last_column": [230, 300],
+                "last_row_first_column": [90, 300],
+            }
         },
         "sampling": {"capture_fps": 10, "inference_every_n_frames": 2},
         "thresholds": {
@@ -36,7 +45,7 @@ def valid_config():
             "timezone": "Asia/Ho_Chi_Minh",
             "windows": [{"days": ["mon", "tue"], "start": "07:00", "end": "17:00"}],
         },
-        "privacy": {"frame_buffer_size": 1, "allow_persistent_output": False},
+        "privacy": {"frame_buffer_size": 1, "allow_persistent_output": False, "retention_days": 365},
     }
 
 
@@ -55,6 +64,11 @@ def test_parses_valid_config_and_reads_camera_source_from_environment(monkeypatc
         (("camera", "rtsp_url"), "rtsp://user:password@camera/stream"),
         (("privacy", "allow_persistent_output"), True),
         (("privacy", "frame_buffer_size"), 5),
+        (("privacy", "retention_days"), 0),
+        (("camera", "class_id"), "classes/CLASS-1"),  # thanh duong dan Firestore khac
+        (("camera", "angle_type"), "side"),
+        (("seating", "corner_seats"), {"first_row_first_column": [90, 100]}),
+        (("seating", "student_map"), {"A1": "SV001"}),
     ],
 )
 def test_rejects_credentials_and_privacy_policy_violations(path, value):
@@ -68,6 +82,14 @@ def test_can_load_example_schema_file():
     path = __import__("pathlib").Path(__file__).parents[1] / "config" / "local_pipeline.example.json"
     config = LocalPipelineConfig.from_dict(json.loads(path.read_text(encoding="utf-8")))
     assert config.schedule.windows[0].start == "07:00"
+    assert config.seating.corner_seats.last_row_last_column == (950.0, 260.0)
+
+
+def test_rejects_corner_seat_that_is_not_a_pixel_pair():
+    data = valid_config()
+    data["seating"]["corner_seats"]["last_row_first_column"] = [90, -1]
+    with pytest.raises(LocalConfigError, match="last_row_first_column"):
+        LocalPipelineConfig.from_dict(data)
 
 
 @pytest.mark.parametrize(

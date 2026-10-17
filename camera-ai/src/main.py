@@ -12,13 +12,7 @@ import sys
 from pathlib import Path
 
 from src.capture import CaptureWorker
-from src.config import (
-    FirestoreSeatGridSource,
-    LocalConfigError,
-    LocalPipelineConfig,
-    RuntimeConfigPoller,
-    SeatGridResolver,
-)
+from src.config import LocalConfigError, LocalPipelineConfig, load_class_seat_grid
 from src.detection import PoseDetector
 from src.logging_config import setup_logging
 from src.pipeline import EdgeRuntime
@@ -29,7 +23,6 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(prog="python -m src.main", description="Chay edge node camera-ai.")
     parser.add_argument("--config", type=Path, required=True, help="Config local JSON (config/README.md).")
     parser.add_argument("--model", default="models/yolov8n-pose.pt", help="Model YOLOv8-pose.")
-    parser.add_argument("--seats", type=Path, help="Seat grid JSON du phong khi chua doc duoc tu Firestore.")
     return parser.parse_args(argv)
 
 
@@ -53,14 +46,11 @@ def main(argv: list[str] | None = None) -> int:
         tile_size=thresholds.tile_size,
         tile_overlap=thresholds.tile_overlap,
     )
-    poller = RuntimeConfigPoller(
-        SeatGridResolver(FirestoreSeatGridSource(), camera.camera_id, camera.classroom_id, args.seats), detector
-    )
     try:
-        sink = FirestoreSink(firestore_client_from_env(), camera.classroom_id, camera.camera_id)
+        client = firestore_client_from_env()
+        sink = FirestoreSink(client, camera.class_id, camera.camera_id, retention_days=config.privacy.retention_days)
         detector.open()
-        poller.start()  # nap seat grid lan dau: Firestore, hoac file --seats
-    except RuntimeError as error:  # thieu credential, model hoac seat grid
+    except RuntimeError as error:  # thieu credential hoac model
         print(error, file=sys.stderr)
         return 1
 
@@ -68,7 +58,7 @@ def main(argv: list[str] | None = None) -> int:
     runtime = EdgeRuntime(
         config,
         detector,
-        poller.snapshot,
+        lambda: load_class_seat_grid(client, camera.class_id, config.seating.corner_seats),
         sink,
         lambda: CaptureWorker(capture_config, buffer_size=config.privacy.frame_buffer_size),
     )
@@ -78,7 +68,6 @@ def main(argv: list[str] | None = None) -> int:
     except KeyboardInterrupt:
         pass
     finally:
-        poller.stop()
         sink.close()
         detector.close()
     return 0

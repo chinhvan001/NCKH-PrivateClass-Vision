@@ -10,10 +10,13 @@ Theo doi on dinh qua nhieu khung hinh (tracking) la phan viec tiep theo
 """
 
 from .seat_grid import Seat, SeatGrid, SeatGridError
+from .seat_layout import CornerSeats, layout_seat_grid
 from .seat_mapper import SeatAssignment, assign_seats, shoulder_midpoint
 from .seat_tracker import SeatTracker
 
 __all__ = [
+    "CornerSeats",
+    "layout_seat_grid",
     "Seat",
     "SeatGrid",
     "SeatGridError",

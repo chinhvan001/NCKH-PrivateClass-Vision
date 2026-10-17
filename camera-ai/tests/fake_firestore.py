@@ -1,10 +1,12 @@
 """Firestore gia trong RAM: test sync chay khong can credential, mang hay firebase_admin.
 
-Chi mo phong phan API ma ``src.sync`` dung (``document(path)`` voi ``get/set/delete``,
-``collection(path)`` voi ``where(field, "==", value)`` va ``on_snapshot``, ``batch()`` voi ``set/commit``) cung cac rang
+Chi mo phong phan API ma ``src.sync`` va ``src.config`` dung (``document(path)`` voi
+``get(field_paths=...)/set/delete``, ``collection(path)`` voi ``where(field, "==", value)``,
+``select(fields)``, ``stream()`` va ``on_snapshot``, ``batch()`` voi ``set/commit``) cung cac rang
 buoc khien Firestore that tu choi ghi: toi da 500 write/batch, duong dan
-document/collection dung so doan, gia tri encode duoc. Listener duoc goi dong bo
-ngay khi ghi. Loi commit duoc tiem bang ``fail_next``.
+document/collection dung so doan, gia tri encode duoc. ``field_paths``/``select`` chi tra
+cac field duoc chon, nhu Firestore that. Listener duoc goi dong bo ngay khi ghi. Loi commit
+duoc tiem bang ``fail_next``.
 """
 
 from __future__ import annotations
@@ -27,6 +29,7 @@ class FakeFirestore:
     def __init__(self) -> None:
         self.docs: dict[str, dict] = {}
         self.commits: list[list[str]] = []  # duong dan document cua moi commit da ghi
+        self.reads: list[dict] = []  # du lieu client nhan duoc qua get()/stream(), sau projection
         self._failures: list[tuple[Exception, bool]] = []
         self._listeners: list[tuple[FakeCollection, object, FakeWatch]] = []
 
@@ -85,8 +88,11 @@ class FakeDocument:
         self.path = path
         self.id = path.rsplit("/", 1)[1]
 
-    def get(self, retry=None, timeout=None) -> FakeSnapshot:
-        return FakeSnapshot(self.id, self._client.docs.get(self.path))
+    def get(self, field_paths=None, retry=None, timeout=None) -> FakeSnapshot:
+        data = _project(self._client.docs.get(self.path), field_paths)
+        if data is not None:
+            self._client.reads.append(copy.deepcopy(data))
+        return FakeSnapshot(self.id, data)
 
     def set(self, data: dict) -> None:
         _check_value(data)
@@ -109,15 +115,24 @@ class FakeWatch:
 class FakeCollection:
     """Collection, hoac query ``where`` tren no (giong ``Query`` that, ``where`` tra ve ban moi)."""
 
-    def __init__(self, client: FakeFirestore, path: str, filters: tuple = ()) -> None:
+    def __init__(self, client: FakeFirestore, path: str, filters: tuple = (), fields=None) -> None:
         self._client = client
         self.path = path
         self._filters = filters
+        self._fields = fields
 
     def where(self, field: str, op: str, value) -> "FakeCollection":
         if op != "==":
             raise NotImplementedError(f"FakeFirestore chi ho tro '==', khong ho tro {op!r}.")
-        return FakeCollection(self._client, self.path, self._filters + ((field, value),))
+        return FakeCollection(self._client, self.path, self._filters + ((field, value),), self._fields)
+
+    def select(self, field_paths) -> "FakeCollection":
+        return FakeCollection(self._client, self.path, self._filters, list(field_paths))
+
+    def stream(self, retry=None, timeout=None):
+        snapshots = self._snapshots()
+        self._client.reads += [snapshot.to_dict() for snapshot in snapshots]
+        return iter(snapshots)
 
     def on_snapshot(self, callback) -> FakeWatch:
         """Nhu Firestore: goi ``callback(docs, changes, read_time)`` ngay voi snapshot dau tien."""
@@ -128,7 +143,7 @@ class FakeCollection:
 
     def _snapshots(self) -> list[FakeSnapshot]:
         return [
-            snapshot
+            FakeSnapshot(snapshot.id, _project(snapshot._data, self._fields))
             for snapshot in self._client._snapshots(self.path)
             if all(snapshot._data.get(field) == value for field, value in self._filters)
         ]
@@ -152,6 +167,14 @@ class FakeWriteBatch:
             self._client.commits.append([path for path, _ in self._writes])
         if error is not None:
             raise error
+
+
+def _project(data: dict | None, field_paths) -> dict | None:
+    """Chi giu cac field top-level duoc chon (``None``: lay het), nhu projection cua Firestore."""
+    if data is None or field_paths is None:
+        return data
+    wanted = set(field_paths)
+    return {key: value for key, value in data.items() if key in wanted}
 
 
 def _check_path(path: str, *, document: bool) -> None:

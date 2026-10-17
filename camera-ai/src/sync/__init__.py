@@ -1,4 +1,4 @@
-"""Dong bo du lieu an danh (record, alert, tong ket phien) va heartbeat edge node voi Firestore."""
+"""Dong bo du lieu an danh (ket qua phien, tong hop tung ghe, alert) va heartbeat edge node voi Firestore."""
 
 from .firestore_sink import EDGE_STATUSES, EdgeHeartbeat, FirestoreSink, firestore_client_from_env
 

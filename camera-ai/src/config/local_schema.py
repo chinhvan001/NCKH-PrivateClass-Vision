@@ -2,7 +2,8 @@
 
 Schema co chu dich khong co ten hoc sinh, student ID, face model, embedding,
 hay URL RTSP. Nguon camera duoc tham chieu bang ten bien moi truong de credential
-khong nam trong file config co the bi commit/chia se.
+khong nam trong file config co the bi commit/chia se. Toa do 4 ghe goc (vi tri
+ghe tren anh) cung nam o day vi phu thuoc cach lap camera, khong dua len Firestore.
 """
 
 from __future__ import annotations
@@ -16,10 +17,13 @@ from typing import Any, Optional, Union
 from zoneinfo import ZoneInfo
 
 from src.capture.config import CaptureConfig
+from src.seating import CornerSeats
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 _WEEKDAYS = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")  # thu tu cua datetime.weekday()
 _DAYS = set(_WEEKDAYS)
+_CAMERA_ANGLE_TYPES = ("frontal", "top_down")
+_CORNER_KEYS = ("first_row_first_column", "first_row_last_column", "last_row_last_column", "last_row_first_column")
 
 
 class LocalConfigError(ValueError):
@@ -49,11 +53,17 @@ def _unit(value: Any, path: str, *, allow_zero: bool = False) -> float:
 
 @dataclass(frozen=True)
 class CameraLocalConfig:
-    camera_id: str
-    classroom_id: str
+    camera_id: str  # vd "Camera 201", ten document edge_nodes/{camera_id}
+    class_id: str  # document classes/{class_id}: 1 lop = 1 phong = 1 camera
     source_env: str
     width: Optional[int]
     height: Optional[int]
+    angle_type: str  # frontal | top_down; back-turn chi chay voi frontal
+
+
+@dataclass(frozen=True)
+class SeatingConfig:
+    corner_seats: CornerSeats
 
 
 @dataclass(frozen=True)
@@ -102,6 +112,7 @@ class ScheduleConfig:
 class PrivacyConfig:
     frame_buffer_size: int
     allow_persistent_output: bool
+    retention_days: int  # expire_at cua document phien edge ghi; Firestore TTL xoa khi het han
 
 
 @dataclass(frozen=True)
@@ -110,6 +121,7 @@ class LocalPipelineConfig:
 
     schema_version: int
     camera: CameraLocalConfig
+    seating: SeatingConfig
     sampling: SamplingConfig
     thresholds: ThresholdConfig
     schedule: ScheduleConfig
@@ -130,13 +142,15 @@ class LocalPipelineConfig:
     def from_dict(cls, data: Any) -> "LocalPipelineConfig":
         if not isinstance(data, dict):
             raise LocalConfigError("Config goc phai la JSON object.")
-        _only_keys(data, {"schema_version", "camera", "sampling", "thresholds", "schedule", "privacy"}, "root")
-        _required(data, {"schema_version", "camera", "sampling", "thresholds", "schedule", "privacy"}, "root")
+        sections = {"schema_version", "camera", "seating", "sampling", "thresholds", "schedule", "privacy"}
+        _only_keys(data, sections, "root")
+        _required(data, sections, "root")
         if data["schema_version"] != SCHEMA_VERSION:
             raise LocalConfigError(f"schema_version phai la {SCHEMA_VERSION}.")
         return cls(
             schema_version=SCHEMA_VERSION,
             camera=_parse_camera(data["camera"]),
+            seating=_parse_seating(data["seating"]),
             sampling=_parse_sampling(data["sampling"]),
             thresholds=_parse_thresholds(data["thresholds"]),
             schedule=_parse_schedule(data["schedule"]),
@@ -171,10 +185,13 @@ def _object(value: Any, path: str, keys: set[str]) -> dict:
 
 
 def _parse_camera(value: Any) -> CameraLocalConfig:
-    data = _object(value, "camera", {"camera_id", "classroom_id", "source_env", "width", "height"})
-    for key in ("camera_id", "classroom_id", "source_env"):
+    data = _object(value, "camera", {"camera_id", "class_id", "source_env", "width", "height", "angle_type"})
+    for key in ("camera_id", "class_id", "source_env"):
         if not isinstance(data[key], str) or not data[key].strip():
             raise LocalConfigError(f"camera.{key} phai la chuoi khong rong.")
+    for key in ("camera_id", "class_id"):
+        if "/" in data[key]:
+            raise LocalConfigError(f"camera.{key} la ten document Firestore, khong duoc chua '/'.")
     if not data["source_env"].isidentifier():
         raise LocalConfigError("camera.source_env phai la ten bien moi truong hop le.")
     width, height = data["width"], data["height"]
@@ -182,7 +199,25 @@ def _parse_camera(value: Any) -> CameraLocalConfig:
         raise LocalConfigError("camera.width va camera.height phai cung dat hoac cung null.")
     if width is not None and (not isinstance(width, int) or not isinstance(height, int) or width <= 0 or height <= 0):
         raise LocalConfigError("camera.width/height phai la so nguyen duong hoac null.")
-    return CameraLocalConfig(data["camera_id"], data["classroom_id"], data["source_env"], width, height)
+    if data["angle_type"] not in _CAMERA_ANGLE_TYPES:
+        raise LocalConfigError("camera.angle_type chi duoc la frontal hoac top_down.")
+    return CameraLocalConfig(data["camera_id"], data["class_id"], data["source_env"], width, height, data["angle_type"])
+
+
+def _parse_seating(value: Any) -> SeatingConfig:
+    data = _object(value, "seating", {"corner_seats"})
+    corners = _object(data["corner_seats"], "seating.corner_seats", set(_CORNER_KEYS))
+    points = {}
+    for key in _CORNER_KEYS:
+        point = corners[key]
+        if (
+            not isinstance(point, list)
+            or len(point) != 2
+            or not all(isinstance(v, (int, float)) and not isinstance(v, bool) and v >= 0 for v in point)
+        ):
+            raise LocalConfigError(f"seating.corner_seats.{key} phai la [x, y] pixel >= 0.")
+        points[key] = (float(point[0]), float(point[1]))
+    return SeatingConfig(CornerSeats(**points))
 
 
 def _parse_sampling(value: Any) -> SamplingConfig:
@@ -259,9 +294,12 @@ def _parse_schedule(value: Any) -> ScheduleConfig:
 
 
 def _parse_privacy(value: Any) -> PrivacyConfig:
-    data = _object(value, "privacy", {"frame_buffer_size", "allow_persistent_output"})
+    data = _object(value, "privacy", {"frame_buffer_size", "allow_persistent_output", "retention_days"})
     if data["frame_buffer_size"] != 1:
         raise LocalConfigError("privacy.frame_buffer_size phai la 1 de chi giu mot frame trong RAM.")
     if data["allow_persistent_output"] is not False:
         raise LocalConfigError("privacy.allow_persistent_output phai la false trong config production.")
-    return PrivacyConfig(frame_buffer_size=1, allow_persistent_output=False)
+    retention = data["retention_days"]
+    if not isinstance(retention, int) or isinstance(retention, bool) or retention < 1:
+        raise LocalConfigError("privacy.retention_days phai la so nguyen >= 1.")
+    return PrivacyConfig(frame_buffer_size=1, allow_persistent_output=False, retention_days=retention)

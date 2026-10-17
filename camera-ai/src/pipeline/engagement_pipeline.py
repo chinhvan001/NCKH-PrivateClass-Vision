@@ -8,15 +8,21 @@ from typing import Callable, Dict, List, Optional, Protocol
 from src.capture import CameraCapture, CaptureConfig, Frame
 from src.detection.pose_detector import PersonPose
 from src.engagement.back_turn import BackTurnDetector, BackTurnEvent
-from src.engagement.engagement_score import EngagementScore, SeatEngagementTracker, classify_posture_state
+from src.engagement.engagement_score import SeatEngagementTracker, classify_posture_state
 from src.engagement.hand_activity import HandActivityMonitor
 from src.engagement.posture import CameraAngleType, compute_head_drop_ratio, compute_torso_vector_angle
 from src.engagement.posture_monitor import BaselineEstablisher, PostureMonitor, PostureThresholds, RollingSmoother
+from src.engagement.rolling_engagement import RollingSeatEngagementTracker
 from src.engagement.side_conversation import SideConversationDetector, SideConversationEvent
 from src.pipeline.alert_manager import AlertCandidate, AlertManager
 from src.privacy import AlertEvent, AnonymizedEngagementRecord, anonymize_engagement, dispose_frame
 from src.seating.seat_grid import SeatGrid
 from src.seating.seat_tracker import SeatTracker
+
+
+CONCENTRATION_WINDOW_SEC = 60.0  # ``concentration`` = diem trong cua so nay
+AWAY_AFTER_SEC = 30.0  # khong thay nguoi lau hon -> ghe "away"
+BEHAVIOUR_HOLD_SEC = 5.0  # quay lung/noi chuyen rieng vua xay ra trong khoang nay -> "distracted"
 
 
 class PoseProvider(Protocol):
@@ -28,11 +34,26 @@ class PoseProvider(Protocol):
 @dataclass
 class _SeatPipelineState:
     tracker: SeatEngagementTracker
+    rolling: RollingSeatEngagementTracker
     baseline: BaselineEstablisher
     monitor: PostureMonitor
     hands: HandActivityMonitor
     head_smoother: RollingSmoother
     deviation_smoother: RollingSmoother
+    last_seen: float = 0.0
+    posture_state: str = "normal"
+    behaviour_at: Optional[float] = None  # lan cuoi quay lung/noi chuyen rieng
+
+
+@dataclass(frozen=True)
+class SeatState:
+    """Trang thai 1 ghe cho ``session_results``/``session_evaluations`` (so dem alert do runtime giu)."""
+
+    seat_id: str
+    concentration: Optional[int]  # diem CONCENTRATION_WINDOW_SEC gan nhat; None khi ghe "away"
+    avg_concentration: Optional[int]  # diem tu dau phien
+    observed_sec: int
+    status: str
 
 
 @dataclass(frozen=True)
@@ -121,7 +142,9 @@ class EngagementEngine:
             # da du mau ngay khi head_event bat dau.
             hand_activity = state.hands.update(timestamp, assignment.person)
             state.tracker.update(timestamp, head_event, slump_event, hand_activity)
+            state.rolling.update(timestamp, head_event, slump_event, hand_activity)
             posture_state = classify_posture_state(head_event, slump_event, hand_activity)
+            state.last_seen, state.posture_state = timestamp, posture_state
             record = anonymize_engagement(state.tracker.compute_score(), timestamp, posture_state)
             observations.append(SeatObservation(assignment.seat_id, assignment.person, head_signal, record))
             if posture_state == "head_drop":
@@ -144,16 +167,41 @@ class EngagementEngine:
             for event in conversation_events
             for seat_id in (event.first_seat_id, event.second_seat_id)
         ]
+        for candidate in candidates:
+            if candidate.type != "head_drop":
+                self._states[candidate.seat_id].behaviour_at = timestamp
         return FrameResult(observations, back_turn_events, conversation_events, candidates)
 
-    def scores(self) -> List[EngagementScore]:
-        """Diem tich luy tu dau phien cua moi seat da tung thay nguoi (tong ket cuoi phien)."""
-        return [state.tracker.compute_score() for state in self._states.values()]
+    def seat_states(self, now: float) -> List[SeatState]:
+        """Moi ghe da tung thay nguoi, theo seat_id: diem gan day, diem tu dau phien, trang thai luc ``now``."""
+        return [self._seat_state(seat_id, state, now) for seat_id, state in sorted(self._states.items())]
+
+    @staticmethod
+    def _seat_state(seat_id: str, state: _SeatPipelineState, now: float) -> SeatState:
+        if now - state.last_seen > AWAY_AFTER_SEC:
+            status = "away"
+        elif state.posture_state == "head_drop":
+            status = "drowsy"
+        elif state.posture_state == "slumping" or (
+            state.behaviour_at is not None and now - state.behaviour_at <= BEHAVIOUR_HOLD_SEC
+        ):
+            status = "distracted"
+        else:
+            status = "focused"
+        recent, total = state.rolling.compute_score(), state.tracker.compute_score()
+        return SeatState(
+            seat_id=seat_id,
+            concentration=None if status == "away" or recent.score is None else round(recent.score),
+            avg_concentration=None if total.score is None else round(total.score),
+            observed_sec=round(total.time_total),
+            status=status,
+        )
 
     def _state_for(self, seat_id: str) -> _SeatPipelineState:
         if seat_id not in self._states:
             self._states[seat_id] = _SeatPipelineState(
                 tracker=SeatEngagementTracker(seat_id),
+                rolling=RollingSeatEngagementTracker(seat_id, window_sec=CONCENTRATION_WINDOW_SEC),
                 baseline=BaselineEstablisher(self._calibration_duration_sec),
                 monitor=PostureMonitor(self._thresholds),
                 hands=HandActivityMonitor(),

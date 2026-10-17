@@ -6,6 +6,7 @@ from .engagement_pipeline import (
     FrameResult,
     PipelineRunResult,
     SeatObservation,
+    SeatState,
     process_frame,
     run_pipeline,
 )
@@ -19,6 +20,7 @@ __all__ = [
     "FrameResult",
     "PipelineRunResult",
     "SeatObservation",
+    "SeatState",
     "process_frame",
     "run_pipeline",
 ]

@@ -2,8 +2,12 @@
 
 Listener Firestore chi luu ``{session_id: state}`` (``on_sessions``). Moi quyet
 dinh nam trong ``step()`` tren thread chinh: bat/tat CaptureWorker theo trang
-thai phien va lich trong config, xu ly frame, heartbeat, tong ket cuoi phien.
+thai phien va lich trong config, xu ly frame, heartbeat, ket qua phien.
 Camera chi mo khi phien ``active`` va dang trong cua so lich.
+
+Ket qua theo dong ho phien (giay da giam sat): ``session_results`` moi
+``RESULT_INTERVAL_SEC``, ``session_evaluations`` moi ``EVALUATION_INTERVAL_SEC``
+va lan cuoi khi het phien; record tung ghe khong roi edge.
 """
 
 from __future__ import annotations
@@ -11,17 +15,19 @@ from __future__ import annotations
 import logging
 import threading
 import time
-from dataclasses import dataclass
+from collections import Counter
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Callable
 
 from src.capture import CameraOpenError, CaptureWorker, Frame
-from src.config import LocalPipelineConfig, RemoteSeatGrid
+from src.config import ClassLayoutError, LocalPipelineConfig
 from src.engagement.back_turn import BackTurnDetector
 from src.engagement.side_conversation import SideConversationDetector
 from src.pipeline.alert_manager import AlertManager
 from src.pipeline.engagement_pipeline import EngagementEngine, PoseProvider, process_frame
-from src.privacy import dispose_frame, make_session_summary
+from src.privacy import AlertEvent, SeatEvaluation, SeatResult, SessionResult, dispose_frame
+from src.seating import SeatGrid, SeatGridError
 from src.sync import EdgeHeartbeat, FirestoreSink
 
 logger = logging.getLogger("camera_ai.runtime")
@@ -30,7 +36,10 @@ LIVE_STATES = ("active", "paused")
 MAX_FRAME_GAP_SEC = 5.0  # pause/mat camera chi lam dong ho phien tien toi da chung nay
 CAMERA_TIMEOUT_SEC = 5.0  # khong co frame lau hon -> camera tam khong kha dung
 CAMERA_RETRY_SEC = 10.0
+LAYOUT_RETRY_SEC = 10.0  # chua nap duoc so do lop -> thu lai sau
 RESUBSCRIBE_SEC = 30.0
+RESULT_INTERVAL_SEC = 10.0
+EVALUATION_INTERVAL_SEC = 300.0
 
 
 @dataclass
@@ -38,21 +47,25 @@ class _Session:
     session_id: str
     engine: EngagementEngine
     alerts: AlertManager
-    resumed: bool  # camera nay da co tong ket tu lan chay truoc -> so lieu chi la mot phan
+    resumed: bool  # phien da co ket qua tu lan chay truoc -> so lieu chi la mot phan
     clock_sec: float = 0.0  # giay da giam sat; pause va mat camera khong tinh (MAX_FRAME_GAP_SEC)
     last_frame_ts: float | None = None
+    result_at: float = 0.0  # clock_sec lan ghi session_results gan nhat
+    evaluation_at: float = 0.0
+    distraction: Counter = field(default_factory=Counter)  # seat_id -> so alert
+    interaction: Counter = field(default_factory=Counter)  # seat_id -> so alert side_conversation
 
 
 class EdgeRuntime:
-    """``seat_grid`` tra ve seat grid hien hanh (``RuntimeConfigPoller.snapshot``), chot
-    luc bat dau phien. ``capture_factory`` tao CaptureWorker moi moi lan bat camera.
-    ``now``/``monotonic`` duoc thay trong test."""
+    """``seat_grid`` nap so do ghe cua lop (``config.load_class_seat_grid``), goi luc bat
+    dau phien va chot cho ca phien. ``capture_factory`` tao CaptureWorker moi moi lan bat
+    camera. ``now``/``monotonic`` duoc thay trong test."""
 
     def __init__(
         self,
         config: LocalPipelineConfig,
         pose_provider: PoseProvider,
-        seat_grid: Callable[[], RemoteSeatGrid],
+        seat_grid: Callable[[], SeatGrid],
         sink: FirestoreSink,
         capture_factory: Callable[[], CaptureWorker],
         *,
@@ -83,6 +96,8 @@ class EdgeRuntime:
         self._frames_processed = 0  # tu heartbeat truoc, de tinh fps
         self._heartbeat_status: str | None = None
         self._heartbeat_mono = monotonic()
+        self._layout_failed = False  # co phien song nhung chua nap duoc so do lop
+        self._layout_retry_at = 0.0
 
     def on_sessions(self, states: dict[str, Any]) -> None:
         """Callback cua listener (thread khac): chi thay snapshot ``{session_id: state}``."""
@@ -97,7 +112,9 @@ class EdgeRuntime:
             self._end_session("completed" if states.get(self._session.session_id) == "ended" else "incomplete")
         if self._session is None:
             live = sorted(session_id for session_id, state in states.items() if state in LIVE_STATES)
-            if live:
+            if not live:
+                self._layout_failed = False
+            elif self._mono() >= self._layout_retry_at:
                 # ponytail: nhieu phien song trong 1 lop la loi phia app; lay id nho nhat cho on dinh
                 self._start_session(live[0])
 
@@ -158,16 +175,24 @@ class EdgeRuntime:
         self._heartbeat(online=False)
 
     def _start_session(self, session_id: str) -> None:
-        remote = self._seat_grid()
+        try:
+            grid = self._seat_grid()
+        except (ClassLayoutError, SeatGridError) as error:  # message khong chua du lieu lop
+            self._layout_failed, self._layout_retry_at = True, self._mono() + LAYOUT_RETRY_SEC
+            logger.warning(
+                "Chua nap duoc so do lop cho phien %s: %s Thu lai sau %.0fs.", session_id, error, LAYOUT_RETRY_SEC
+            )
+            return
+        self._layout_failed = False
         thresholds = self._config.thresholds
         engine = EngagementEngine(
-            remote.grid,
+            grid,
             back_turn_detector=(
                 BackTurnDetector(
                     max_face_visibility=thresholds.back_turn_max_face_visibility,
                     min_duration_sec=thresholds.back_turn_duration_sec,
                 )
-                if remote.camera_angle_type == "frontal"
+                if self._config.camera.angle_type == "frontal"
                 else None
             ),
             side_conversation_detector=SideConversationDetector(
@@ -175,9 +200,9 @@ class EdgeRuntime:
                 min_duration_sec=thresholds.conversation_duration_sec,
             ),
         )
-        resumed = self._sink.summary_exists(session_id)
+        resumed = self._sink.result_exists(session_id)
         self._session = _Session(session_id, engine, AlertManager(session_id), resumed)
-        self._sink.add_summary(make_session_summary(session_id, "running", []))
+        self._publish_result(self._session, "running")
         logger.info("Bat dau phien %s%s.", session_id, " (tiep tuc sau gian doan)" if resumed else "")
 
     def _end_session(self, status: str) -> None:
@@ -186,8 +211,41 @@ class EdgeRuntime:
             self._stop_capture()
         if session.resumed:
             status = "incomplete"
-        self._sink.add_summary(make_session_summary(session.session_id, status, session.engine.scores()))
+        self._publish_evaluations(session)
+        self._publish_result(session, status)
         logger.info("Ket thuc phien %s: %s.", session.session_id, status)
+
+    def _publish_result(self, session: _Session, monitoring_status: str) -> None:
+        seats = tuple(
+            SeatResult(state.seat_id, state.concentration, session.interaction[state.seat_id], state.status)
+            for state in session.engine.seat_states(session.clock_sec)
+        )
+        self._sink.set_result(
+            SessionResult(session.session_id, self._config.camera.camera_id, self._now(), monitoring_status, seats)
+        )
+        session.result_at = session.clock_sec
+
+    def _publish_evaluations(self, session: _Session) -> None:
+        now = self._now()
+        self._sink.set_evaluations(
+            SeatEvaluation(
+                session.session_id,
+                state.seat_id,
+                now,
+                state.concentration,
+                state.avg_concentration,
+                session.distraction[state.seat_id],
+                state.observed_sec,
+            )
+            for state in session.engine.seat_states(session.clock_sec)
+        )
+        session.evaluation_at = session.clock_sec
+
+    def _on_alert(self, session: _Session, alert: AlertEvent) -> None:
+        session.distraction[alert.seat_id] += 1
+        if alert.type == "side_conversation":
+            session.interaction[alert.seat_id] += 1
+        self._sink.add_alert(alert)
 
     def _start_capture(self) -> None:
         worker = self._capture_factory()
@@ -219,15 +277,19 @@ class EdgeRuntime:
             session.clock_sec,
             self._pose,
             session.engine,
-            lambda record: self._sink.add_record(session.session_id, record),
+            lambda record: None,  # record tung ghe chi dung noi bo; Firestore nhan ket qua tong hop ben duoi
             session.alerts,
-            self._sink.add_alert,
+            lambda alert: self._on_alert(session, alert),
         )
         self._frames_processed += 1
+        if session.clock_sec - session.result_at >= RESULT_INTERVAL_SEC:
+            self._publish_result(session, "running")
+        if session.clock_sec - session.evaluation_at >= EVALUATION_INTERVAL_SEC:
+            self._publish_evaluations(session)
 
     def _status(self) -> str:
         if self._session is None:
-            return "idle"
+            return "unavailable" if self._layout_failed else "idle"
         if self._states.get(self._session.session_id) == "paused":
             return "paused"
         if not self._in_schedule:
@@ -242,6 +304,7 @@ class EdgeRuntime:
             return
         self._sink.set_heartbeat(
             EdgeHeartbeat(
+                class_id=self._config.camera.class_id,
                 online=online,
                 status=status,
                 session_id=self._session.session_id if self._session else None,
