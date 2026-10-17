@@ -1,3 +1,48 @@
+# Secrets
+.env
+.env.*
+!.env.example
+# Firebase service account keys: keep them outside the repo, point GOOGLE_APPLICATION_CREDENTIALS at them
+*firebase-adminsdk*.json
+*service-account*.json
+*service_account*.json
+
+# Python
+__pycache__/
+*.py[cod]
+venv/
+.venv/
+.pytest_cache/
+
+# Video output (privacy: never commit classroom footage)
+*.mp4
+*.avi
+
+# Team documents carry members' phone numbers and emails: keep them on the team Drive
+camera-ai/docs/C1SE31-*.pdf
+
+# Runtime logs (also the emulator's firestore-debug.log)
+logs/
+*.log
+
+# Node (camera-ai/rules-tests)
+node_modules/
+
+# IDE / OS
+.vscode/
+.idea/
+Thumbs.db
+.DS_Store
+
+# Model weights (download instead of committing, see CLAUDE.md)
+*.pt
+*.onnx
+*.engine
+*.tflite
+*.task
+
+# graphify knowledge-graph output
+graphify-out/
 # Miscellaneous
 *.class
 *.log

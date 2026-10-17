@@ -1,0 +1,62 @@
+name: Camera AI CI
+
+on:
+  push:
+    paths:
+      - 'camera-ai/**'
+      - '.github/workflows/camera-ai-ci.yml'
+  pull_request:
+    paths:
+      - 'camera-ai/**'
+      - '.github/workflows/camera-ai-ci.yml'
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # 3.12 = minimum supported (deploy floor); 3.14 = local dev venv.
+        python-version: ['3.12', '3.14']
+    defaults:
+      run:
+        working-directory: camera-ai
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install CI test dependencies
+        # Lint versions must match requirements-dev.txt. tzdata: schedule.timezone tests, independent of the runner image.
+        run: python -m pip install --upgrade pip pytest numpy opencv-python-headless tzdata flake8==7.0.0 black==24.4.2
+      - name: Lint (flake8)
+        if: matrix.python-version == '3.12'
+        run: python -m flake8 src tests tools
+      - name: Format check (black)
+        if: matrix.python-version == '3.12'
+        run: python -m black --check src tests tools
+      - name: Run unit and integration tests
+        run: >-
+          python -m pytest tests -q
+          --ignore=tests/smoke_test.py
+
+  firestore-rules:
+    # config/firestore.rules on the Firestore emulator; firebase-tools needs Java 21+.
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: camera-ai/rules-tests
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: camera-ai/rules-tests/package-lock.json
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - run: npm ci
+      - name: Rules tests on the Firestore emulator
+        run: npm test

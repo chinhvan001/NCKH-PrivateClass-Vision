@@ -1,0 +1,57 @@
+{
+  "dataset_images": 1026,
+  "ground_truth_format": "yolo",
+  "model": "yolo11s.pt",
+  "confidence": 0.15,
+  "match_iou": 0.5,
+  "overall": {
+    "images": 1026,
+    "tp": 1164,
+    "fp": 17717,
+    "fn": 158,
+    "precision": 0.0616,
+    "recall_detection_success": 0.8805,
+    "f1": 0.1152
+  },
+  "by_camera_angle": {
+    ".": {
+      "images": 1026,
+      "tp": 1164,
+      "fp": 17717,
+      "fn": 158,
+      "precision": 0.0616,
+      "recall_detection_success": 0.8805,
+      "f1": 0.1152
+    }
+  },
+  "by_density": {
+    "crowd_16_plus": {
+      "images": 1,
+      "tp": 15,
+      "fp": 7,
+      "fn": 7,
+      "precision": 0.6818,
+      "recall_detection_success": 0.6818,
+      "f1": 0.6818
+    },
+    "low_1_5": {
+      "images": 1018,
+      "tp": 1106,
+      "fp": 17593,
+      "fn": 139,
+      "precision": 0.0591,
+      "recall_detection_success": 0.8884,
+      "f1": 0.1109
+    },
+    "medium_6_15": {
+      "images": 7,
+      "tp": 43,
+      "fp": 117,
+      "fn": 12,
+      "precision": 0.2687,
+      "recall_detection_success": 0.7818,
+      "f1": 0.4
+    }
+  },
+  "privacy": "Chi luu metric tong hop; khong luu raw frame, preview, bbox hay biometric identifier."
+}

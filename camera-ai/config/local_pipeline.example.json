@@ -1,0 +1,46 @@
+{
+  "schema_version": 2,
+  "camera": {
+    "camera_id": "Camera 201",
+    "class_id": "YCzal6eGG2JhL3IAMLjJ",
+    "source_env": "CAMERA_ROOM_201_SOURCE",
+    "width": 1280,
+    "height": 720,
+    "angle_type": "frontal"
+  },
+  "seating": {
+    "corner_seats": {
+      "first_row_first_column": [130, 650],
+      "first_row_last_column": [1150, 650],
+      "last_row_last_column": [950, 260],
+      "last_row_first_column": [330, 260]
+    }
+  },
+  "sampling": {
+    "capture_fps": 10,
+    "inference_every_n_frames": 2
+  },
+  "thresholds": {
+    "pose_confidence": 0.2,
+    "iou_threshold": 0.5,
+    "image_size": 960,
+    "tile_size": 960,
+    "tile_overlap": 0.2,
+    "max_detections": 100,
+    "conversation_duration_sec": 3,
+    "conversation_max_distance_px": 260,
+    "back_turn_duration_sec": 2,
+    "back_turn_max_face_visibility": 0.2
+  },
+  "schedule": {
+    "timezone": "Asia/Ho_Chi_Minh",
+    "windows": [
+      {"days": ["mon", "tue", "wed", "thu", "fri"], "start": "07:00", "end": "17:30"}
+    ]
+  },
+  "privacy": {
+    "frame_buffer_size": 1,
+    "allow_persistent_output": false,
+    "retention_days": 365
+  }
+}
