@@ -6,23 +6,46 @@ import { collection, deleteDoc, doc, getDoc, getDocs, query, setDoc, setLogLevel
 
 setLogLevel('error'); // assertFails mong doi PERMISSION_DENIED, khong in canh bao cho tung lan
 
-const GRID = {
-  schema_version: 1,
-  config_version: 1,
-  camera_id: 'c1',
-  classroom_id: 'c1',
-  camera_angle_type: 'frontal',
-  seats: [{ seat_id: 'A1', center_x: 120, center_y: 300 }],
-  pose: {},
+const NOW = new Date('2026-10-02T00:30:00Z');
+const RESULT = {
+  session_id: 's1',
+  camera_id: 'cam-1',
+  captured_at: NOW,
+  monitoring_status: 'running',
+  result_map: { S1: { concentration: 80, interaction: 0, status: 'focused' } },
+  expire_at: NOW,
+};
+const EVALUATION = {
+  session_id: 's1',
+  seat_id: 'S2',
+  captured_at: NOW,
+  concentration: 70,
+  avg_concentration: 75,
+  distraction: 1,
+  observed_sec: 600,
+  expire_at: NOW,
+};
+const ALERT = { session_id: 's1', seat_id: 'S1', type: 'head_drop', start_sec: 12.5, duration_sec: 6, expire_at: NOW };
+const HEARTBEAT = {
+  class_id: 'c1',
+  online: true,
+  status: 'monitoring',
+  session_id: 's1',
+  fps: 5,
+  camera_ok: true,
+  last_frame_at: NOW,
+  updated_at: NOW,
 };
 
 let env;
 const db = {
-  admin: () => env.authenticatedContext('admin1', { role: 'admin' }).firestore(),
-  teacher: () => env.authenticatedContext('t1', { role: 'teacher' }).firestore(),
-  otherTeacher: () => env.authenticatedContext('t2', { role: 'teacher' }).firestore(),
-  parent: () => env.authenticatedContext('p1', { role: 'parent' }).firestore(),
+  admin: () => env.authenticatedContext('admin1').firestore(),
+  teacher: () => env.authenticatedContext('t1').firestore(),
+  otherTeacher: () => env.authenticatedContext('t2').firestore(),
+  parent: () => env.authenticatedContext('p1').firestore(),
   anonymous: () => env.unauthenticatedContext().firestore(),
+  edge: () => env.authenticatedContext('edge-c1', { role: 'edge', class_id: 'c1', camera_id: 'cam-1' }).firestore(),
+  otherEdge: () => env.authenticatedContext('edge-c2', { role: 'edge', class_id: 'c2', camera_id: 'cam-2' }).firestore(),
 };
 
 before(async () => {
@@ -38,108 +61,133 @@ beforeEach(async () => {
   await env.clearFirestore();
   await env.withSecurityRulesDisabled(async (context) => {
     const seed = context.firestore();
-    await setDoc(doc(seed, 'classrooms/c1'), { teacher_uids: ['t1'], rtsp_url: 'rtsp://admin:secret@10.0.0.5/stream' });
-    await setDoc(doc(seed, 'classrooms/c2'), { teacher_uids: ['t2'] });
-    await setDoc(doc(seed, 'classrooms/c1/camera_configs/c1'), GRID);
-    await setDoc(doc(seed, 'classrooms/c1/edge_nodes/c1'), { online: true, status: 'idle' });
-    await setDoc(doc(seed, 'sessions/s1'), { classroom_id: 'c1', status: 'scheduled', subject: 'Toan' });
-    await setDoc(doc(seed, 'sessions/s2'), { classroom_id: 'c2', status: 'live', subject: 'Van' });
-    await setDoc(doc(seed, 'sessions/s1/engagement/r1'), { seat_id: 'A1', observed_at_sec: 10 });
-    await setDoc(doc(seed, 'sessions/s1/summaries/c1'), { session_id: 's1', status: 'running' });
-    await setDoc(doc(seed, 'sessions/s1/alerts/a1'), {
-      session_id: 's1',
-      seat_id: 'A1',
-      type: 'head_drop',
-      start_sec: 5,
-      duration_sec: 6,
-    });
-  });
-});
-
-describe('classrooms/{c}', () => {
-  test('no client reads the classroom document, which holds the camera URL', async () => {
-    for (const as of Object.values(db)) await assertFails(getDoc(doc(as(), 'classrooms/c1')));
-  });
-});
-
-describe('classrooms/{c}/camera_configs/{cam}', () => {
-  const path = 'classrooms/c1/camera_configs/c1';
-
-  test('admin and the classroom teacher read the seat grid, nobody else', async () => {
-    await assertSucceeds(getDoc(doc(db.admin(), path)));
-    await assertSucceeds(getDoc(doc(db.teacher(), path)));
-    for (const as of [db.otherTeacher, db.parent, db.anonymous]) await assertFails(getDoc(doc(as(), path)));
-  });
-
-  test('the classroom teacher writes allowlisted fields for this classroom only', async () => {
-    await assertSucceeds(setDoc(doc(db.teacher(), path), { ...GRID, config_version: 2 }));
-    await assertFails(setDoc(doc(db.teacher(), path), { ...GRID, rtsp_url: 'rtsp://cam' }));
-    await assertFails(setDoc(doc(db.teacher(), path), { ...GRID, classroom_id: 'c2' }));
-    await assertFails(setDoc(doc(db.otherTeacher(), path), GRID));
-  });
-
-  test('only admin deletes a seat grid', async () => {
-    await assertFails(deleteDoc(doc(db.teacher(), path)));
-    await assertSucceeds(deleteDoc(doc(db.admin(), path)));
-  });
-});
-
-describe('classrooms/{c}/edge_nodes/{cam}', () => {
-  test('admin and the classroom teacher read the heartbeat, no client writes it', async () => {
-    const path = 'classrooms/c1/edge_nodes/c1';
-    await assertSucceeds(getDoc(doc(db.admin(), path)));
-    await assertSucceeds(getDoc(doc(db.teacher(), path)));
-    await assertFails(getDoc(doc(db.parent(), path)));
-    await assertFails(setDoc(doc(db.admin(), path), { online: false }));
+    const docs = {
+      'admins/admin1': { school_name: 'THPT Phan Chau Trinh' },
+      'teachers/t1': { name: 'Teacher One' },
+      'teachers/t2': { name: 'Teacher Two' },
+      'parents/p1': { name: 'Parent One' },
+      'students/st1': { parent_id: 'p1' },
+      'students/st2': { parent_id: 'p2' },
+      'classes/c1': { class_name: '11B2', teacher_id: 't1', row_count: 2, column_count: 2 },
+      'classes/c1/seats/S1': { row: 1, column: 1, student_id: 'st1', status: 'assigned' },
+      'sessions/s1': { class_id: 'c1', teacher_id: 't1', subject: 'Toan', status: 'scheduled' },
+      'sessions/s2': { class_id: 'c2', teacher_id: 't2', subject: 'Van', status: 'running' },
+      'session_results/s1': RESULT,
+      'session_evaluations/s1_S1': { ...EVALUATION, seat_id: 'S1' },
+      'sessions/s1/alerts/a1': ALERT,
+      'edge_nodes/cam-1': HEARTBEAT,
+      'students/st1/reports/s1': { concentration: 80 },
+      'students/st2/reports/s1': { concentration: 60 },
+    };
+    for (const [path, data] of Object.entries(docs)) await setDoc(doc(seed, path), data);
   });
 });
 
 describe('sessions/{s}', () => {
-  test('the classroom teacher reads its sessions, and queries must filter on classroom_id', async () => {
+  test('teachers read their own sessions through teacher_id queries, the edge node through class_id', async () => {
     await assertSucceeds(getDoc(doc(db.teacher(), 'sessions/s1')));
-    await assertSucceeds(getDocs(query(collection(db.teacher(), 'sessions'), where('classroom_id', '==', 'c1'))));
+    await assertSucceeds(getDocs(query(collection(db.teacher(), 'sessions'), where('teacher_id', '==', 't1'))));
     await assertFails(getDocs(collection(db.teacher(), 'sessions')));
-    await assertFails(getDoc(doc(db.teacher(), 'sessions/s2')));
+    await assertFails(getDoc(doc(db.otherTeacher(), 'sessions/s1')));
     await assertFails(getDoc(doc(db.parent(), 'sessions/s1')));
+    await assertSucceeds(getDocs(query(collection(db.edge(), 'sessions'), where('class_id', '==', 'c1'))));
+    await assertFails(getDoc(doc(db.edge(), 'sessions/s2')));
     await assertSucceeds(getDocs(collection(db.admin(), 'sessions')));
   });
 
-  test('the teacher starts a scheduled session and ends a live one, nothing else', async () => {
+  test('the teacher starts, pauses, resumes and ends a session, nothing else', async () => {
     const session = doc(db.teacher(), 'sessions/s1');
-    await assertFails(updateDoc(session, { status: 'completed' }));
-    await assertFails(updateDoc(session, { status: 'live', subject: 'Ly' }));
-    await assertSucceeds(updateDoc(session, { status: 'live' }));
+    await assertFails(updateDoc(session, { status: 'ended' }));
+    await assertFails(updateDoc(session, { status: 'running', subject: 'Ly' }));
+    await assertSucceeds(updateDoc(session, { status: 'running', started_at: NOW }));
+    await assertSucceeds(updateDoc(session, { status: 'paused' }));
+    await assertSucceeds(updateDoc(session, { status: 'running' }));
     await assertFails(updateDoc(session, { status: 'scheduled' }));
-    await assertSucceeds(updateDoc(session, { status: 'completed' }));
+    await assertSucceeds(updateDoc(session, { status: 'ended', ended_at: NOW }));
   });
 
-  test('clients never create or delete sessions, and only the classroom teacher updates them', async () => {
-    await assertFails(setDoc(doc(db.teacher(), 'sessions/s3'), { classroom_id: 'c1', status: 'scheduled' }));
+  test('clients never create or delete sessions, and only the session teacher updates them', async () => {
+    await assertFails(setDoc(doc(db.teacher(), 'sessions/s3'), { class_id: 'c1', teacher_id: 't1', status: 'scheduled' }));
     await assertFails(deleteDoc(doc(db.teacher(), 'sessions/s1')));
-    await assertFails(updateDoc(doc(db.otherTeacher(), 'sessions/s1'), { status: 'live' }));
-    await assertFails(updateDoc(doc(db.admin(), 'sessions/s1'), { status: 'live' }));
+    await assertFails(updateDoc(doc(db.otherTeacher(), 'sessions/s1'), { status: 'running' }));
+    await assertFails(updateDoc(doc(db.edge(), 'sessions/s1'), { status: 'running' }));
   });
 });
 
-describe('edge output under sessions/{s}', () => {
-  test('the classroom teacher reads records and summaries, no client writes them', async () => {
-    for (const path of ['sessions/s1/engagement/r1', 'sessions/s1/summaries/c1']) {
-      await assertSucceeds(getDoc(doc(db.teacher(), path)));
-      await assertSucceeds(getDoc(doc(db.admin(), path)));
-      await assertFails(getDoc(doc(db.otherTeacher(), path)));
-      await assertFails(getDoc(doc(db.parent(), path)));
-      await assertFails(setDoc(doc(db.teacher(), path), { seat_id: 'A1' }));
-    }
+describe('classes/{c} and seats', () => {
+  test('the edge node reads only its own class, parents read neither', async () => {
+    await assertSucceeds(getDoc(doc(db.edge(), 'classes/c1')));
+    await assertSucceeds(getDocs(collection(db.edge(), 'classes/c1/seats')));
+    await assertFails(getDoc(doc(db.otherEdge(), 'classes/c1')));
+    await assertFails(getDocs(collection(db.otherEdge(), 'classes/c1/seats')));
+    await assertFails(getDoc(doc(db.parent(), 'classes/c1/seats/S1')));
+    await assertFails(getDoc(doc(db.anonymous(), 'classes/c1')));
+    await assertSucceeds(getDoc(doc(db.otherTeacher(), 'classes/c1/seats/S1')));
   });
 
-  test('the classroom teacher only acknowledges or dismisses alerts', async () => {
+  test('only the homeroom teacher or an admin assigns seats, with allowlisted fields', async () => {
+    const seat = { row: 1, column: 2, student_id: 'st2', status: 'assigned' };
+    await assertSucceeds(setDoc(doc(db.teacher(), 'classes/c1/seats/S2'), seat));
+    await assertFails(setDoc(doc(db.teacher(), 'classes/c1/seats/S3'), { ...seat, full_name: 'Student Two' }));
+    await assertFails(setDoc(doc(db.teacher(), 'classes/c1/seats/S4'), { ...seat, row: 0 }));
+    await assertFails(setDoc(doc(db.otherTeacher(), 'classes/c1/seats/S2'), seat));
+    await assertFails(setDoc(doc(db.edge(), 'classes/c1/seats/S2'), seat));
+    await assertSucceeds(setDoc(doc(db.admin(), 'classes/c1/seats/S2'), seat));
+  });
+});
+
+describe('edge output', () => {
+  test('session_results: the session teacher reads, only its class edge node writes the allowlist', async () => {
+    await assertSucceeds(getDoc(doc(db.teacher(), 'session_results/s1')));
+    await assertFails(getDoc(doc(db.otherTeacher(), 'session_results/s1')));
+    await assertFails(getDoc(doc(db.parent(), 'session_results/s1')));
+    await assertSucceeds(setDoc(doc(db.edge(), 'session_results/s1'), { ...RESULT, monitoring_status: 'completed' }));
+    await assertFails(setDoc(doc(db.edge(), 'session_results/s1'), { ...RESULT, camera_id: 'cam-9' }));
+    await assertFails(setDoc(doc(db.edge(), 'session_results/s1'), { ...RESULT, student_id: 'st1' }));
+    await assertFails(setDoc(doc(db.otherEdge(), 'session_results/s1'), { ...RESULT, camera_id: 'cam-2' }));
+    await assertFails(setDoc(doc(db.teacher(), 'session_results/s1'), RESULT));
+  });
+
+  test('session_evaluations: teachers query by session_id, the edge node writes {session}_{seat}', async () => {
+    await assertSucceeds(getDoc(doc(db.teacher(), 'session_evaluations/s1_S1')));
+    await assertSucceeds(getDocs(query(collection(db.teacher(), 'session_evaluations'), where('session_id', '==', 's1'))));
+    await assertFails(getDocs(collection(db.teacher(), 'session_evaluations')));
+    await assertFails(getDoc(doc(db.parent(), 'session_evaluations/s1_S1')));
+    await assertSucceeds(setDoc(doc(db.edge(), 'session_evaluations/s1_S2'), EVALUATION));
+    await assertFails(setDoc(doc(db.edge(), 'session_evaluations/s1_S9'), EVALUATION));
+    await assertFails(setDoc(doc(db.edge(), 'session_evaluations/s1_S2'), { ...EVALUATION, student_id: 'st1' }));
+    await assertFails(setDoc(doc(db.otherEdge(), 'session_evaluations/s1_S2'), EVALUATION));
+  });
+
+  test('alerts: the edge node creates them, the session teacher only acknowledges or dismisses', async () => {
+    await assertSucceeds(setDoc(doc(db.edge(), 'sessions/s1/alerts/a2'), ALERT));
+    await assertFails(setDoc(doc(db.edge(), 'sessions/s1/alerts/a3'), { ...ALERT, type: 'phone_use' }));
+    await assertFails(setDoc(doc(db.teacher(), 'sessions/s1/alerts/a4'), ALERT));
     const alert = doc(db.teacher(), 'sessions/s1/alerts/a1');
     await assertSucceeds(getDoc(alert));
     await assertSucceeds(updateDoc(alert, { status: 'acknowledged' }));
     await assertSucceeds(updateDoc(alert, { status: 'dismissed' }));
     await assertFails(updateDoc(alert, { status: 'resolved' }));
     await assertFails(updateDoc(alert, { duration_sec: 0 }));
-    await assertFails(setDoc(doc(db.teacher(), 'sessions/s1/alerts/a2'), { seat_id: 'A1' }));
     await assertFails(getDoc(doc(db.parent(), 'sessions/s1/alerts/a1')));
+  });
+
+  test('edge_nodes: each edge node writes only its own heartbeat, staff read it', async () => {
+    await assertSucceeds(setDoc(doc(db.edge(), 'edge_nodes/cam-1'), { ...HEARTBEAT, status: 'idle' }));
+    await assertFails(setDoc(doc(db.edge(), 'edge_nodes/cam-2'), HEARTBEAT));
+    await assertFails(setDoc(doc(db.edge(), 'edge_nodes/cam-1'), { ...HEARTBEAT, class_id: 'c2' }));
+    await assertFails(setDoc(doc(db.teacher(), 'edge_nodes/cam-1'), HEARTBEAT));
+    await assertSucceeds(getDoc(doc(db.teacher(), 'edge_nodes/cam-1')));
+    await assertFails(getDoc(doc(db.parent(), 'edge_nodes/cam-1')));
+  });
+});
+
+describe('students/{sid}/reports', () => {
+  test('a parent reads only their own child\'s reports, and nobody writes them from a client', async () => {
+    await assertSucceeds(getDoc(doc(db.parent(), 'students/st1/reports/s1')));
+    await assertFails(getDoc(doc(db.parent(), 'students/st2/reports/s1')));
+    await assertFails(getDoc(doc(db.teacher(), 'students/st1/reports/s1')));
+    await assertSucceeds(getDoc(doc(db.admin(), 'students/st1/reports/s1')));
+    await assertFails(setDoc(doc(db.parent(), 'students/st1/reports/s2'), { concentration: 100 }));
   });
 });
