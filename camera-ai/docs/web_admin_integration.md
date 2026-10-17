@@ -1,64 +1,91 @@
 # Web Admin Integration
 
-The web admin (branch `Web`: Flask backend in `backend/`, React frontend in `frontend/`, hosted on the school server) and the camera-ai edge nodes share one Firebase project. They never call each other over HTTP. The web backend writes session documents; each edge node listens to the sessions of its classroom and writes its output under them. This page is the contract between the two sides, plus the work still open on the web side.
+The web admin (branch `Web`: Flask backend in `backend/`, React frontend in `frontend/`, hosted on the school server), the Flutter app and the camera-ai edge nodes share one Firebase project. They never call each other over HTTP: the web admin and the app write sessions and seat plans, each edge node listens to the sessions of its class and writes its output beside them. This page is the contract on the team's Firestore schema, the state of the `Web` branch, and the work still open on the web and app side.
 
-Edge-side details: `docs/edge_node.md` (behaviour) and `src/sync/README.md` (paths, delivery).
+Edge-side details: `docs/edge_node.md` (behaviour) and `src/sync/README.md` (paths, delivery). The decisions behind this contract, for the team meeting: `docs/team_notes_firestore_schema.md`.
 
 ## IDs
 
-- The web admin allows one camera per classroom and uses the `classrooms` document ID as the camera ID. In the edge node's local config, set both `camera.classroom_id` and `camera.camera_id` to that ID.
-- A session's `classroom_id` is copied from its class (`classes/{class_id}.classroom_id`) when `POST /api/admin/sessions` creates it. A class without a classroom produces sessions that no edge node sees.
-- Session IDs are Firestore auto-IDs. The edge node accepts IDs matching `[A-Za-z0-9_-]{1,64}`.
+- One class has one room and one camera. The edge node's local config names the class (`camera.class_id`, the `classes` document ID) and the camera (`camera.camera_id`, for example `Camera 201`, which is also the `edge_nodes` document ID).
+- Session IDs are Firestore auto-IDs; the edge node accepts IDs matching `[A-Za-z0-9_-]{1,64}`.
+- Seat IDs are the document IDs in `classes/{class_id}/seats` (for example `S01-<class_id>`). While a class has no seat documents, the edge node numbers seats `S1`..`Sn` row by row, the way the `Web` branch's `seat_assignments` does today.
 
 ## Firestore contract
 
 | Path | Written by | Read by | Fields |
 |---|---|---|---|
-| `classrooms/{c}` | web | web; the edge node never reads it | `classroom_name`, `camera_name`, `ip_address`, `rtsp_port`, `rtsp_url`, `row_number`, `column_number`, `status` |
-| `sessions/{s}` | web (`backend/routes/session_routes.py`) | edge: `classroom_id` and `status` only | `class_id`, `teacher_uid`, `classroom_id`, `subject`, `date`, `start`, `end`, `status`, `focus` |
-| `sessions/{s}/summaries/{cam}` | edge | web | `session_id`, `status`, `class_average`, `seats` (each `seat_id`, `engagement_score`, `observed_sec`, `head_drop_events`, `slumping_events`) |
-| `sessions/{s}/alerts/{id}` | edge | web | `session_id`, `seat_id`, `type`, `start_sec`, `duration_sec` |
-| `sessions/{s}/engagement/{id}` | edge | web, optional (per-seat timeline) | `seat_id`, `observed_at_sec`, `engagement_score`, `posture_state`, `head_drop_events`, `slumping_events` |
-| `classrooms/{c}/edge_nodes/{cam}` | edge | web | `online`, `status`, `session_id`, `fps`, `camera_ok`, `last_frame_at`, `updated_at` |
-| `classrooms/{c}/camera_configs/{cam}` | nobody yet (task 5) | edge | Seat grid, see `config/firestore_seat_grid.md` |
+| `sessions/{s}` | web admin, app | edge: `class_id`, `status` | `class_id`, `teacher_id`, `subject`, `started_at`, `ended_at`, `status` |
+| `classes/{c}` | web admin | edge: `row_count`, `column_count` | `class_name`, `school_year`, `teacher_id` (homeroom teacher), `row_count`, `column_count`, `created_at` |
+| `classes/{c}/seats/{seat_id}` | app (homeroom teacher), web admin | edge: `row`, `column`; teachers; report job | `row`, `column` (from 1), `student_id` (or null), `status` (`empty`, `assigned`) |
+| `session_results/{s}` | edge, overwritten every 10 s of monitoring | teacher dashboard (UC07) | `session_id`, `camera_id`, `captured_at`, `monitoring_status`, `result_map` (per seat: `concentration`, `interaction`, `status`), `expire_at` |
+| `session_evaluations/{s}_{seat}` | edge, every 5 min and at session end | teacher and admin reports (UC03, UC11), report job | `session_id`, `seat_id`, `captured_at`, `concentration`, `avg_concentration`, `distraction`, `observed_sec`, `expire_at` |
+| `sessions/{s}/alerts/{id}` | edge creates; teacher sets `status` | teacher (UC09) | `session_id`, `seat_id`, `type`, `start_sec`, `duration_sec`, `expire_at`; `status` (`acknowledged`, `dismissed`) once handled |
+| `edge_nodes/{camera_id}` | edge, every 10 s | web admin, app (UC04, UC10) | `class_id`, `online`, `status`, `session_id`, `fps`, `camera_ok`, `last_frame_at`, `updated_at` |
+| `students/{sid}/reports/{s}` | report job (to build) | that student's parent (UC03) | to define |
 
-Edge output carries seat IDs and session-relative seconds only: no names, student IDs, images or wall-clock times (except the heartbeat's device timestamps). Mapping a `seat_id` to a student goes through the seating chart, which stays on the web side.
+Field meanings:
+
+- `concentration`: 0–100 score over the last 60 s; null when the seat is `away`. `avg_concentration`: 0–100 score since the session started.
+- `distraction`: alerts of any type for the seat in this session. `interaction`: side-conversation alerts for the seat (provisional, see the team notes).
+- Seat `status`: `focused`; `drowsy` (head down with still hands); `distracted` (unclear head-down posture, or a back turn or side conversation in the last 5 s); `away` (nobody seen for 30 s).
+- `observed_sec`: how long the seat was seen. Drop seats where someone only walked past, and weight class averages by it.
+- `monitoring_status`: `running`; `completed` (the session was ended); `incomplete` (cancelled, deleted, edge node shut down or restarted mid-session: the scores cover part of the lesson). A result still `running` after the session ended means the edge node died.
+- `captured_at`, `expire_at` and the heartbeat's times are UTC timestamps from the edge clock. `start_sec` counts seconds of monitored time since the session started.
+
+No edge document holds a name, a student ID, an image, keypoints or a bounding box. Mapping a `seat_id` to a student goes through `classes/{c}/seats`, on the web and app side only.
 
 ## Session status
 
 | `status` | Edge node |
 |---|---|
 | `scheduled` | Ignored. |
-| `live` | Opens the camera (inside the edge node's local schedule windows) and starts scoring. |
-| `completed` | Closes the camera and writes the summary as `completed`. |
-| `cancelled`, or the document is deleted | Closes the camera and writes the summary as `incomplete`. |
-| `paused` | Closes the camera until the status is `live` again. The web admin does not offer it yet. |
+| `running` | Loads the class seat plan, opens the camera inside its schedule windows and starts scoring. |
+| `paused` | Closes the camera until the status is `running` again. |
+| `ended` | Closes the camera, writes the final evaluations and sets `monitoring_status` to `completed`. |
+| `cancelled`, or the document is deleted | Closes the camera and sets `monitoring_status` to `incomplete`. |
 
-- Keep at most one `live` session per classroom. If there are several, the edge node takes the one with the smallest ID.
-- The edge node ignores `date`, `start` and `end`. Someone has to set `live` and `completed`; nothing starts a session automatically.
-- A `live` session outside the edge node's schedule windows leaves the camera closed, and the heartbeat says `outside_schedule`.
+- Until the `Web` branch switches, the edge node also accepts `live` (as `running`) and `completed` (as `ended`).
+- Keep at most one `running` session per class. If there are several, the edge node takes the one with the smallest ID.
+- The edge node ignores `started_at` and `ended_at`. Someone has to set `running` and `ended`; nothing starts a session automatically.
+- A `running` session outside the edge node's schedule windows leaves the camera closed, and the heartbeat says `outside_schedule`. A class whose seat plan cannot be loaded makes the heartbeat say `unavailable`.
 
-## Tasks for the web team
+## State of the `Web` branch
 
-Each task names where to work on branch `Web` and when it counts as done.
+Reviewed on 2026-10-17. The branch has six commits, the last on 2026-09-20 ("Update new database"), and has not been updated for the schema yet.
 
-1. **Start and end sessions.** `PUT /api/admin/sessions/<id>` already accepts `status`. Add start and end actions to `frontend/src/components/admin/SessionManagementPanel.jsx`, which still shows hard-coded sessions instead of `GET /api/admin/sessions`. Refuse `live` while another session of the same classroom is `live`. Done when setting `live` turns the heartbeat to `monitoring` and setting `completed` turns the summary to `completed`.
-2. **Check before starting (UC04 step 3).** Before allowing `live`, check that `classrooms/{c}/camera_configs/{c}` exists and that the heartbeat is online and recent (task 4). Done when starting a session without a seat grid or with an offline edge node shows an error.
-3. **Real focus and alerts.** In `build_session_data`, fill `focus` from `sessions/{s}/summaries`. With one camera per classroom, that is the summary's `class_average`; with several, do what `class_average` does over all cameras' seats: average the non-null `engagement_score` values, weighted by `observed_sec`. A summary still `running` after the session ended means the edge node died, so show it as incomplete. Replace the hard-coded `alerts` in `DashboardPanel.jsx` with `sessions/{s}/alerts` of live sessions. Alert `type` is `head_drop`, `back_turn` or `side_conversation`; `start_sec` counts seconds since the session started, not clock time. Done when the dashboard and session list show no sample data for these fields.
-4. **Camera health from the heartbeat.** Read `classrooms/{c}/edge_nodes/{c}`. Treat the node as offline when `online` is false or `updated_at` is more than 30 s old; otherwise show `status` (`unavailable` means "temporarily unavailable"). The ffprobe check in `camera_routes.py` can stay as a setup test, but the edge node never reads the `status` it sets. Done when the camera page reflects an edge node that is stopped.
-5. **Seat grid.** Add a calibration screen that writes `classrooms/{c}/camera_configs/{c}` in the format of `config/firestore_seat_grid.md`, raising `config_version` on every change. `row_number` and `column_number` alone do not give seat positions in the image. Until then, write the document by hand in the Firebase console.
-6. **Session deletion.** `DELETE /api/admin/sessions/<id>` leaves the `engagement`, `alerts` and `summaries` subcollections behind, because Firestore does not delete subcollections with their parent. Delete them as well, or agree on retention first (`cloud_data_compliance_checklist.md` §3.6).
-7. **Credentials.** `rtsp_url` stores camera passwords in a Firestore document and the camera and classroom APIs return it in full (`cloud_data_compliance_checklist.md` §3.12). Move it out of client-readable documents and mask the password in responses. `backend/firebase_config.py` also hard-codes the Firebase Web API key; load it from the environment and restrict it in Google Cloud.
+| Area | Built | Differs from the schema |
+|---|---|---|
+| Login | Google and email/password through Firebase Auth; admin rights from `admins/{uid}` | Nothing. |
+| Teacher accounts | Create, edit and delete teachers (`teachers/{uid}`) | Nothing. |
+| Classes and seats | Class CRUD and a seat editor (`GET`/`PUT /api/admin/classes/<id>/seats`) | `row_number`/`column_number` instead of `row_count`/`column_count`; seat assignments are a `seat_assignments` map (`S1` → student ID) on the class document, not seat documents; classes link to a `classroom_id`. |
+| Classrooms and cameras | `classrooms` CRUD with camera fields, connection test with ffprobe | The schema has no `classrooms`. `rtsp_url`, passwords included, is stored in Firestore and returned by the API (compliance checklist §3.12). The ffprobe path is hard-coded to `D:\Tools\ffmpeg`. |
+| Sessions | REST create, update, delete; statuses `scheduled`, `live`, `completed`, `cancelled` | Uses `teacher_uid`, `classroom_id`, `date`/`start`/`end` strings, `live`/`completed` and `focus`. The session management page still shows hard-coded sessions. |
+| Dashboard, session detail, evaluations | Screens only | Hard-coded sample data; nothing reads edge output yet. |
+| Configuration | | The Firebase Web API key is hard-coded in `backend/firebase_config.py`. |
 
-## Open questions for the whole team
+The Flutter app (on `main`) reads `monitoring_sessions`, `classrooms` and `enrollments`, and stores seat rows and columns on student documents; it needs the same migration.
 
-- The Flutter app reads `monitoring_sessions`, the web admin writes `sessions`. The edge node follows `sessions`; the app should too, or the team picks one collection.
-- The root `firestore.rules` draft has no rules for `sessions`, `users` or `admins`. The camera-ai draft for its paths is `config/firestore.rules`; review both with `docs/firestore_security_review.md`.
-- Pausing: the edge node supports `paused`, but `update_session` rejects it. Add it to `allowed_statuses` if teachers need to pause.
+## Tasks for the web and app teams
+
+Each task names where to work and when it counts as done.
+
+1. **Sessions on the schema.** Write `teacher_id`, `started_at`/`ended_at` timestamps and `status` `running`/`ended` (`paused` if teachers pause), and stop writing `classroom_id`, `date`, `start`, `end` and `focus`. Wire start and end buttons in `frontend/src/components/admin/SessionManagementPanel.jsx` to the API instead of the hard-coded list, and refuse `running` while another session of the class runs. The app reads `sessions` instead of `monitoring_sessions`. Done when setting `running` turns the heartbeat to `monitoring` and setting `ended` turns `monitoring_status` to `completed`.
+2. **Seat plans as documents.** Write `classes/{c}/seats/{seat_id}` (`row`, `column`, `student_id`, `status`) from the web seat editor and the app's seating screen, instead of `seat_assignments` on the class or `row`/`column` on student documents; rename `row_number`/`column_number` to `row_count`/`column_count`. Done when a session's `result_map` uses the new seat IDs.
+3. **Check before starting (UC04 step 3).** Before allowing `running`, check that the class has seat documents and that `edge_nodes/{camera_id}` is online with `updated_at` less than 30 s old. Done when starting a session without a seat plan or with an offline edge node shows an error.
+4. **Live view and alerts (UC07, UC09).** Listen to `session_results/{s}` and `sessions/{s}/alerts` of running sessions; map seat IDs to students through the seat documents; acknowledging or dismissing writes the alert's `status`. Replace the sample data in `DashboardPanel.jsx`. Done when the dashboard shows no sample data.
+5. **Reports and exports (UC03, UC11).** Query `session_evaluations` filtered on `session_id`, weight class averages by `observed_sec`, and mark sessions whose `monitoring_status` is `incomplete` (or still `running` after the end) as partial. Done when the evaluation pages show edge data.
+6. **Parent reports.** A backend job (Flask scheduled task or Cloud Function) joins each finished session's evaluations with its seat documents and writes `students/{sid}/reports/{s}`, which parents read. Define the report fields first. Done when a parent sees their child's report and no other child's.
+7. **Camera health (UC10).** Show `edge_nodes/{camera_id}`: offline when `online` is false or `updated_at` is more than 30 s old, otherwise `status` (`unavailable` means "temporarily unavailable"). Keep the ffprobe check only as a setup test, with its path in configuration. Done when the camera page reflects a stopped edge node.
+8. **Remove the old collections.** Delete `classrooms` (and with it the stored `rtsp_url` passwords: the camera source lives only on the edge node), `enrollments` and `monitoring_sessions`, with a one-off script that migrates existing documents (`teacher_uid` → `teacher_id`, `live` → `running`, `completed` → `ended`). Load the Firebase Web API key from the environment and restrict it in Google Cloud. Done when no code reads the old collections.
+9. **Session deletion.** Deleting a session also deletes its `session_results`, `session_evaluations` and `alerts` documents, unless the retention period is enforced by TTL instead (compliance checklist §3.6).
+
+## Open questions
+
+The team still has to confirm the points listed in `docs/team_notes_firestore_schema.md` §2 (alert and heartbeat paths, status values, metric meanings, seat documents, who may read seats, one camera per class).
 
 ## Trying it end to end
 
-1. Create a classroom and a class linked to it in the web admin.
-2. Set the edge node's `camera.classroom_id` and `camera.camera_id` to the classroom ID, and run it as in `docs/edge_node.md`. The heartbeat appears as `idle`.
-3. Create a session for that class (`scheduled`), then set it `live`: the heartbeat turns `monitoring` and `sessions/{s}/summaries/{c}` appears as `running`.
-4. Set it `completed`: the summary turns `completed` and the heartbeat returns to `idle`.
+1. Create a class with `row_count`/`column_count` and seat documents (or only the counts: the edge node then uses `S1`..`Sn`).
+2. Set the edge node's `camera.class_id`, `camera.camera_id` and corner seats, and run it as in `docs/edge_node.md`. The heartbeat `edge_nodes/{camera_id}` appears as `idle`.
+3. Create a session for that class (`scheduled`), then set it `running`: the heartbeat turns `monitoring` and `session_results/{s}` appears with `monitoring_status` `running`, filling every 10 s.
+4. Set it `ended`: `monitoring_status` turns `completed`, one `session_evaluations` document per seat appears, and the heartbeat returns to `idle`.
