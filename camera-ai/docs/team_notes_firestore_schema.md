@@ -78,11 +78,12 @@ Written 2026-10-17 for the next team meeting (T0). camera-ai now follows the tea
 - End-to-end test with the web admin and app on a test Firebase project, once tasks 1–4 of the web list are done.
 - FCM push for alerts (UC09), after the alert path is confirmed.
 
-## 5. Git history rewrite of `camera-ai` (not pushed yet)
+## 5. Git history rewrite of `camera-ai`
 
 - **What.** `camera-ai/simulated_data/test2.mp4`, real CCTV footage with identifiable faces, is removed from the branch history. Only the 22 commits from `4f948e64` (2026-09-27) onward are rewritten; their file contents are unchanged except for the removed video, and `main` and every other branch are untouched.
-- **Status.** Rewritten locally on 2026-10-10. `origin/camera-ai` still points to the old history (`0749529a`), and the local branch has new commits on top.
-- **Before pushing,** tell the team. After the push, anyone who has the old branch either re-clones, or runs `git fetch origin`, `git checkout camera-ai` and `git reset --hard origin/camera-ai` (this discards uncommitted changes on that branch). Nobody may merge or push the old `camera-ai` commits, or the video comes back.
-- **Push** (branch owner): `git push --force-with-lease=camera-ai:0749529ad9db3ed4b4cee06045354744c82dc5d9 origin camera-ai`. The lease makes the push fail if someone pushed to `camera-ai` in the meantime.
-- **Clean the local copy afterwards:** `git update-ref -d refs/original/refs/heads/camera-ai`, then `git reflog expire --expire=now --all` and `git gc --prune=now`.
-- **GitHub keeps old commits** reachable by their hash, and through pull request refs, until it garbage-collects them. The repository owner asks GitHub Support to purge them (citing `4f948e64`) and confirms the repository is private.
+- **Status.** Force-pushed on 2026-10-17 (`0749529a` → `1bbd73eb`); CI passed on the new tip. No branch on GitHub contains `4f948e64` any more, and the repository has no forks.
+- **Still exposed: act now.** The repository is public, and the closed pull request #3 (`camera-ai` → `main`) still has `4f948e64` as its head, so the video can still be downloaded from GitHub. The open pull request #4 also lists the old commits in its "force-pushed" event. The repository owner (`chinhvan001`):
+  1. Makes the repository private: Settings → General → Danger Zone → Change repository visibility.
+  2. Asks GitHub Support to remove sensitive data: repository `chinhvan001/NCKH-PrivateClass-Vision`, affected pull requests #3 and #4, first affected commit `4f948e64`. Ask them to drop the pull request refs and purge cached views and unreachable commits.
+- **Everyone** who has the old branch either re-clones, or runs `git fetch origin`, `git checkout camera-ai` and `git reset --hard origin/camera-ai` (this discards uncommitted changes on that branch). Nobody may merge or push the old `camera-ai` commits, or the video comes back.
+- **Optionally, clean the local copy:** `git update-ref -d refs/original/refs/heads/camera-ai`, then `git reflog expire --expire=now --all` and `git gc --prune=now`.
