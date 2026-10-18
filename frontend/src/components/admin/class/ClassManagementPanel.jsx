@@ -1,635 +1,489 @@
 import { useEffect, useMemo, useState } from "react";
+
 import Icon from "../../common/Icon";
 import ConfirmModal from "../../common/ConfirmModal";
+import CustomScrollbar from "../../common/CustomScrollbar";
 
 const API_URL = "http://127.0.0.1:5000";
 
-const TEACHERS_API = `${API_URL}/api/admin/users`;
-const CLASSROOMS_API = `${API_URL}/api/admin/classrooms`;
 const CLASSES_API = `${API_URL}/api/admin/classes`;
+const TEACHERS_API = `${API_URL}/api/admin/users`;
+
+const emptyForm = {
+  class_name: "",
+  teacher_id: "",
+  school_year: "2026-2027",
+  row_count: 2,
+  column_count: 2,
+  status: "active",
+};
+
+const getErrorMessage = (error) => {
+  const message = error?.message || "Có lỗi xảy ra. Vui lòng thử lại.";
+  if (message === "Unauthorized.") {
+    return "Phiên đăng nhập đã hết hạn.";
+  }
+  return message;
+};
+
+const getTeacherId = (teacher) => teacher?.uid || teacher?.id || "";
+
+const getTeacherNameFromObject = (teacher) =>
+  teacher?.full_name ||
+  teacher?.display_name ||
+  teacher?.name ||
+  teacher?.email ||
+  "Chưa có giáo viên";
+
+const getClassCapacity = (classItem) => {
+  const rows = Number(classItem?.row_count);
+  const columns = Number(classItem?.column_count);
+
+  if (
+    !Number.isInteger(rows) ||
+    rows <= 0 ||
+    !Number.isInteger(columns) ||
+    columns <= 0
+  ) {
+    return Number(classItem?.seat_capacity) > 0
+      ? Number(classItem.seat_capacity)
+      : 0;
+  }
+  return rows * columns;
+};
+
+const getClassSize = (classItem, seats = []) => {
+  const capacity = getClassCapacity(classItem);
+  if (capacity <= 0) return 0;
+
+  if (Array.isArray(seats) && seats.length > 0) {
+    const occupiedCount = seats.filter(
+      (seat) => Boolean(seat?.student_id) || seat?.status === "occupied",
+    ).length;
+    return Math.min(capacity, occupiedCount);
+  }
+
+  const occupiedSeatCount = Number(classItem?.occupied_seat_count);
+  if (Number.isFinite(occupiedSeatCount)) {
+    return Math.max(0, Math.min(capacity, occupiedSeatCount));
+  }
+
+  const emptySeatCount = Number(classItem?.empty_seat_count);
+  if (Number.isFinite(emptySeatCount)) {
+    return Math.max(0, capacity - Math.max(0, emptySeatCount));
+  }
+
+  return 0;
+};
+
+const getRowCount = (classItem) => {
+  const rows = Number(classItem?.row_count);
+  return Number.isInteger(rows) && rows > 0 ? rows : 2;
+};
+
+const getColumnCount = (classItem) => {
+  const columns = Number(classItem?.column_count);
+  return Number.isInteger(columns) && columns > 0 ? columns : 2;
+};
+
+const buildSeatGrid = (classItem, seats = [], students = []) => {
+  const rows = getRowCount(classItem);
+  const columns = getColumnCount(classItem);
+  const seatMap = new Map();
+
+  const studentMap = new Map(
+    students.map((s) => [s.student_id || s.id, s.full_name]),
+  );
+
+  seats.forEach((seat) => {
+    const row = Number(seat?.row);
+    const column = Number(seat?.column);
+
+    if (
+      Number.isInteger(row) &&
+      Number.isInteger(column) &&
+      row > 0 &&
+      column > 0
+    ) {
+      seatMap.set(`${row}-${column}`, seat);
+    }
+  });
+
+  const grid = [];
+
+  for (let row = 1; row <= rows; row += 1) {
+    for (let column = 1; column <= columns; column += 1) {
+      const existingSeat = seatMap.get(`${row}-${column}`);
+      const seatNumber = (row - 1) * columns + column;
+
+      const seatId =
+        existingSeat?.seat_id && existingSeat.seat_id.trim() !== ""
+          ? existingSeat.seat_id
+          : `S${String(seatNumber).padStart(2, "0")}`;
+
+      const studentId = existingSeat?.student_id || null;
+      const studentName =
+        existingSeat?.student_name || studentMap.get(studentId) || "";
+
+      grid.push({
+        row,
+        column,
+        seat_id: seatId,
+        student_id: studentId,
+        student_name: studentName,
+        status: existingSeat?.status || (studentId ? "occupied" : "empty"),
+      });
+    }
+  }
+
+  return grid;
+};
 
 const ClassManagementPanel = () => {
-  const CLASSES_PER_PAGE = 10;
-
   const [classes, setClasses] = useState([]);
   const [teachers, setTeachers] = useState([]);
-  const [classrooms, setClassrooms] = useState([]);
 
   const [loading, setLoading] = useState(true);
-  const [loadingOptions, setLoadingOptions] = useState(true);
-
   const [error, setError] = useState("");
   const [optionsError, setOptionsError] = useState("");
 
   const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState("all");
   const [currentPage, setCurrentPage] = useState(1);
 
-  const [showAddClass, setShowAddClass] = useState(false);
-  const [selectedClass, setSelectedClass] = useState(null);
-  const [selectedHealth, setSelectedHealth] = useState(null);
+  const [showClassForm, setShowClassForm] = useState(false);
   const [editingClass, setEditingClass] = useState(null);
-
-  const [selectedMatrixClass, setSelectedMatrixClass] = useState(null);
-  const [matrixData, setMatrixData] = useState(null);
-  const [matrixLoading, setMatrixLoading] = useState(false);
-  const [matrixError, setMatrixError] = useState("");
-  const [matrixSaving, setMatrixSaving] = useState(false);
-
-  const [confirmDeleteClass, setConfirmDeleteClass] = useState(null);
-
-  const [formData, setFormData] = useState({
-    class_name: "",
-    teacher_id: "",
-    classroom_id: "",
-    row_number: 1,
-    column_number: 1,
-    is_active: true,
-  });
-
+  const [formData, setFormData] = useState(emptyForm);
   const [formLoading, setFormLoading] = useState(false);
   const [formError, setFormError] = useState("");
 
-  const getToken = () => {
-    return localStorage.getItem("idToken");
-  };
+  const [confirmDeleteClass, setConfirmDeleteClass] = useState(null);
 
-  const getAuthHeaders = () => {
+  const [selectedClass, setSelectedClass] = useState(null);
+  const [detail, setDetail] = useState(null);
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [detailError, setDetailError] = useState("");
+
+  const [selectedSeatClass, setSelectedSeatClass] = useState(null);
+  const [seatDetail, setSeatDetail] = useState(null);
+  const [seatLoading, setSeatLoading] = useState(false);
+  const [seatError, setSeatError] = useState("");
+
+  const getToken = () => localStorage.getItem("idToken");
+
+  const request = async (url, options = {}) => {
     const idToken = getToken();
 
-    return {
-      Authorization: `Bearer ${idToken}`,
-    };
+    if (!idToken) {
+      throw new Error("Unauthorized.");
+    }
+
+    const response = await fetch(url, {
+      ...options,
+      headers: {
+        ...(options.body ? { "Content-Type": "application/json" } : {}),
+        Authorization: `Bearer ${idToken}`,
+        ...(options.headers || {}),
+      },
+    });
+
+    const data = await response.json().catch(() => ({}));
+
+    if (!response.ok || !data.success) {
+      throw new Error(data.message || "Không thể kết nối máy chủ.");
+    }
+
+    return data;
   };
 
-  const fetchClasses = async () => {
+  const loadClasses = async () => {
     try {
       setLoading(true);
       setError("");
-
-      const idToken = getToken();
-
-      if (!idToken) {
-        setError("Phiên đăng nhập đã hết hạn.");
-        return;
-      }
-
-      const response = await fetch(CLASSES_API, {
-        method: "GET",
-        headers: getAuthHeaders(),
-      });
-
-      const data = await response.json();
-
-      if (!response.ok || !data.success) {
-        throw new Error(data.message || "Không thể lấy danh sách lớp học.");
-      }
-
-      setClasses(Array.isArray(data.classes) ? data.classes : []);
-    } catch (error) {
-      console.error("Fetch classes error:", error);
-      setError(error.message || "Không thể lấy danh sách lớp học.");
+      const data = await request(CLASSES_API);
+      setClasses(Array.isArray(data.data) ? data.data : []);
+    } catch (loadError) {
+      console.error("Load classes error:", loadError);
+      setError(getErrorMessage(loadError));
     } finally {
       setLoading(false);
     }
   };
 
-  const fetchFormOptions = async () => {
+  const loadTeachers = async () => {
     try {
-      setLoadingOptions(true);
       setOptionsError("");
-
-      const idToken = getToken();
-
-      if (!idToken) {
-        setOptionsError("Phiên đăng nhập đã hết hạn.");
-        return;
-      }
-
-      const headers = getAuthHeaders();
-
-      const [teachersResponse, classroomsResponse] = await Promise.all([
-        fetch(TEACHERS_API, {
-          method: "GET",
-          headers,
-        }),
-        fetch(CLASSROOMS_API, {
-          method: "GET",
-          headers,
-        }),
-      ]);
-
-      const teachersData = await teachersResponse.json();
-      const classroomsData = await classroomsResponse.json();
-
-      if (!teachersResponse.ok || !teachersData.success) {
-        throw new Error(
-          teachersData.message || "Không thể lấy danh sách giáo viên.",
-        );
-      }
-
-      if (!classroomsResponse.ok || !classroomsData.success) {
-        throw new Error(
-          classroomsData.message || "Không thể lấy danh sách phòng học.",
-        );
-      }
-
-      const teacherList = Array.isArray(teachersData.users)
-        ? teachersData.users
-        : Array.isArray(teachersData.teachers)
-          ? teachersData.teachers
+      const data = await request(TEACHERS_API);
+      const list = Array.isArray(data.users)
+        ? data.users
+        : Array.isArray(data.teachers)
+          ? data.teachers
           : [];
-
-      setTeachers(teacherList.filter((teacher) => teacher.is_active !== false));
-
-      const classroomList = Array.isArray(classroomsData.classrooms)
-        ? classroomsData.classrooms
-        : Array.isArray(classroomsData.rooms)
-          ? classroomsData.rooms
-          : [];
-
-      setClassrooms(
-        classroomList.filter((classroom) => classroom.is_active !== false),
-      );
-    } catch (error) {
-      console.error("Fetch class options error:", error);
-
-      setOptionsError(
-        error.message || "Không thể lấy dữ liệu giáo viên và phòng học.",
-      );
-    } finally {
-      setLoadingOptions(false);
+      setTeachers(list.filter((teacher) => teacher.is_active !== false));
+    } catch (loadError) {
+      console.error("Load teachers error:", loadError);
+      setOptionsError(getErrorMessage(loadError));
     }
   };
 
   useEffect(() => {
-    fetchClasses();
-    fetchFormOptions();
+    loadClasses();
+    loadTeachers();
   }, []);
+
+  const getTeacherName = (teacherId, classItem = null) => {
+    if (classItem?.teacher_name) {
+      return classItem.teacher_name;
+    }
+    const teacher = teachers.find((item) => getTeacherId(item) === teacherId);
+    return getTeacherNameFromObject(teacher);
+  };
 
   const filteredClasses = useMemo(() => {
     const keyword = search.trim().toLowerCase();
 
     return classes.filter((classItem) => {
-      const className = String(classItem.class_name || "").toLowerCase();
-
-      const classId = String(classItem.id || "").toLowerCase();
-
-      const teacherName = String(classItem.teacher_name || "").toLowerCase();
-
-      const classroomName = String(
-        classItem.classroom_name || "",
-      ).toLowerCase();
-
-      return (
-        !keyword ||
-        className.includes(keyword) ||
-        classId.includes(keyword) ||
-        teacherName.includes(keyword) ||
-        classroomName.includes(keyword)
+      const teacher = teachers.find(
+        (item) => getTeacherId(item) === classItem.teacher_id,
       );
+      const teacherName =
+        classItem.teacher_name || getTeacherNameFromObject(teacher);
+
+      const matchesSearch =
+        !keyword ||
+        [
+          classItem.class_name,
+          classItem.teacher_id,
+          teacherName,
+          teacher?.email,
+          classItem.school_year,
+        ].some((value) =>
+          String(value || "")
+            .toLowerCase()
+            .includes(keyword),
+        );
+
+      const matchesStatus =
+        statusFilter === "all" || classItem.status === statusFilter;
+
+      return matchesSearch && matchesStatus;
     });
-  }, [classes, search]);
+  }, [classes, search, statusFilter, teachers]);
 
-  const getAverageEngagement = (classItem) => {
-    const value =
-      classItem.average_engagement ??
-      classItem.avg_engagement ??
-      classItem.engagement_average ??
-      null;
-
-    if (value === null || value === undefined || value === "") {
-      return null;
-    }
-
-    const number = Number(value);
-
-    if (Number.isNaN(number)) {
-      return null;
-    }
-
-    return number;
-  };
-
-  const healthyClasses = classes.filter((classItem) => {
-    const engagement = getAverageEngagement(classItem);
-
-    return (
-      classItem.is_active !== false && engagement !== null && engagement >= 70
-    );
-  }).length;
-
-  const attentionClasses = classes.filter((classItem) => {
-    const engagement = getAverageEngagement(classItem);
-
-    return (
-      classItem.is_active !== false && engagement !== null && engagement < 70
-    );
-  }).length;
-
-  const totalClasses = classes.length;
-
-  const managedClasses = classes.filter(
-    (classItem) => classItem.is_active !== false,
-  ).length;
-
-  const totalPages = Math.ceil(filteredClasses.length / CLASSES_PER_PAGE);
-
-  const safeCurrentPage =
-    totalPages === 0 ? 1 : Math.min(currentPage, totalPages);
-
-  const startIndex = (safeCurrentPage - 1) * CLASSES_PER_PAGE;
-
+  const classesPerPage = 10;
+  const totalPages = Math.ceil(filteredClasses.length / classesPerPage);
+  const safePage = totalPages ? Math.min(currentPage, totalPages) : 1;
   const currentClasses = filteredClasses.slice(
-    startIndex,
-    startIndex + CLASSES_PER_PAGE,
+    (safePage - 1) * classesPerPage,
+    safePage * classesPerPage,
   );
-
-  const displayStart = filteredClasses.length === 0 ? 0 : startIndex + 1;
-
-  const displayEnd = Math.min(
-    startIndex + CLASSES_PER_PAGE,
-    filteredClasses.length,
-  );
-
-  const handleSearch = (value) => {
-    setSearch(value);
-    setCurrentPage(1);
-  };
-
-  const getTeacherIdentifier = (teacher) => {
-    return teacher.uid || teacher.id || "";
-  };
-
-  const getTeacherName = (teacherUid) => {
-    if (!teacherUid) {
-      return "";
-    }
-
-    const teacher = teachers.find(
-      (item) => item.uid === teacherUid || item.id === teacherUid,
-    );
-
-    return teacher?.name || teacher?.email || "";
-  };
-
-  const getClassroomName = (classroomId) => {
-    if (!classroomId) {
-      return "";
-    }
-
-    const classroom = classrooms.find(
-      (item) => item.id === classroomId || item.classroom_id === classroomId,
-    );
-
-    return (
-      classroom?.classroom_name ||
-      classroom?.class_name ||
-      classroom?.room_name ||
-      classroom?.name ||
-      ""
-    );
-  };
-
-  const getClassStudentCount = (classItem) => {
-    const studentCount =
-      classItem.student_count ??
-      classItem.students_count ??
-      classItem.number_of_students;
-
-    if (
-      studentCount !== undefined &&
-      studentCount !== null &&
-      studentCount !== ""
-    ) {
-      return studentCount;
-    }
-
-    const rows = Number(classItem.row_number || 0);
-    const columns = Number(classItem.column_number || 0);
-
-    if (rows > 0 && columns > 0) {
-      return rows * columns;
-    }
-
-    return null;
-  };
-
-  const renderEngagement = (classItem) => {
-    const engagement = getAverageEngagement(classItem);
-
-    if (engagement === null) {
-      return <span className="class-engagement empty">—</span>;
-    }
-
-    return (
-      <span
-        className={`class-engagement ${
-          engagement >= 70 ? "good" : "attention"
-        }`}
-      >
-        {engagement.toFixed(0)}%
-      </span>
-    );
-  };
 
   const resetForm = () => {
-    setFormData({
-      class_name: "",
-      teacher_id: "",
-      classroom_id: "",
-      row_number: 1,
-      column_number: 1,
-      is_active: true,
-    });
-
+    setFormData({ ...emptyForm });
     setFormError("");
   };
 
-  const handleOpenAddClass = () => {
-    resetForm();
+  const openAddClass = () => {
     setEditingClass(null);
-    setShowAddClass(true);
-
-    if (teachers.length === 0 || classrooms.length === 0) {
-      fetchFormOptions();
-    }
+    resetForm();
+    setShowClassForm(true);
   };
 
-  const handleEditClass = (classItem) => {
+  const openEditClass = (classItem) => {
     setEditingClass(classItem);
-
     setFormData({
       class_name: classItem.class_name || "",
       teacher_id: classItem.teacher_id || "",
-      classroom_id: classItem.classroom_id || "",
-      row_number: classItem.row_number || 1,
-      column_number: classItem.column_number || 1,
-      is_active: classItem.is_active !== false,
+      school_year: classItem.school_year || "",
+      row_count: Number(classItem.row_count) > 0 ? Number(classItem.row_count) : 2,
+      column_count: Number(classItem.column_count) > 0 ? Number(classItem.column_count) : 2,
+      status: classItem.status || "active",
     });
-
     setFormError("");
-    setShowAddClass(true);
-
-    if (teachers.length === 0 || classrooms.length === 0) {
-      fetchFormOptions();
-    }
+    setShowClassForm(true);
   };
 
-  const handleCloseForm = () => {
-    if (formLoading) {
+  const submitClass = async () => {
+    const rowCount = Number(formData.row_count);
+    const columnCount = Number(formData.column_count);
+
+    if (
+      !formData.class_name.trim() ||
+      !formData.teacher_id ||
+      !formData.school_year.trim()
+    ) {
+      setFormError("Vui lòng nhập đầy đủ thông tin lớp học.");
       return;
     }
 
-    setShowAddClass(false);
-    setEditingClass(null);
-    resetForm();
-  };
+    if (
+      !Number.isInteger(rowCount) ||
+      rowCount <= 0 ||
+      !Number.isInteger(columnCount) ||
+      columnCount <= 0
+    ) {
+      setFormError("Số hàng và số cột phải là số nguyên dương.");
+      return;
+    }
 
-  const handleFormChange = (field, value) => {
-    setFormData((previous) => ({
-      ...previous,
-      [field]: value,
-    }));
-  };
-
-  const handleSubmitClass = async () => {
     try {
       setFormLoading(true);
       setFormError("");
-
-      const idToken = getToken();
-
-      if (!idToken) {
-        setFormError("Phiên đăng nhập đã hết hạn.");
-        return;
-      }
-
-      const payload = {
-        class_name: formData.class_name.trim(),
-        teacher_id: formData.teacher_id || null,
-        classroom_id: formData.classroom_id,
-        row_number: Number(formData.row_number),
-        column_number: Number(formData.column_number),
-        is_active: formData.is_active,
-      };
-
-      if (!payload.class_name) {
-        setFormError("Tên lớp không được để trống.");
-        return;
-      }
-
-      if (!payload.classroom_id) {
-        setFormError("Vui lòng chọn phòng học.");
-        return;
-      }
-
-      if (!Number.isInteger(payload.row_number) || payload.row_number < 1) {
-        setFormError("Số hàng phải lớn hơn hoặc bằng 1.");
-        return;
-      }
-
-      if (
-        !Number.isInteger(payload.column_number) ||
-        payload.column_number < 1
-      ) {
-        setFormError("Số cột phải lớn hơn hoặc bằng 1.");
-        return;
-      }
 
       const url = editingClass
         ? `${CLASSES_API}/${editingClass.id}`
         : CLASSES_API;
 
-      const method = editingClass ? "PUT" : "POST";
-
-      const response = await fetch(url, {
-        method,
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${idToken}`,
-        },
-        body: JSON.stringify(payload),
+      const data = await request(url, {
+        method: editingClass ? "PUT" : "POST",
+        body: JSON.stringify({
+          class_name: formData.class_name.trim(),
+          teacher_id: formData.teacher_id,
+          school_year: formData.school_year.trim(),
+          row_count: rowCount,
+          column_count: columnCount,
+          ...(editingClass ? { status: formData.status } : {}),
+        }),
       });
 
-      const data = await response.json();
+      setClasses((current) =>
+        editingClass
+          ? current.map((item) =>
+              item.id === editingClass.id ? data.data : item,
+            )
+          : [...current, data.data],
+      );
 
-      if (!response.ok || !data.success) {
-        throw new Error(data.message || "Không thể lưu lớp học.");
-      }
-
-      await fetchClasses();
-
-      setShowAddClass(false);
+      setShowClassForm(false);
       setEditingClass(null);
       resetForm();
-    } catch (error) {
-      console.error("Save class error:", error);
-
-      setFormError(error.message || "Không thể lưu lớp học.");
+    } catch (submitError) {
+      console.error("Save class error:", submitError);
+      setFormError(getErrorMessage(submitError));
     } finally {
       setFormLoading(false);
     }
   };
 
-  const handleDeleteClass = async (classItem) => {
+  const deleteClass = async () => {
+    if (!confirmDeleteClass) return;
     try {
-      const idToken = getToken();
-
-      if (!idToken) {
-        setError("Phiên đăng nhập đã hết hạn.");
-        return;
-      }
-
-      const response = await fetch(`${CLASSES_API}/${classItem.id}`, {
+      await request(`${CLASSES_API}/${confirmDeleteClass.id}`, {
         method: "DELETE",
-        headers: getAuthHeaders(),
       });
 
-      const data = await response.json();
+      setClasses((current) =>
+        current.filter((item) => item.id !== confirmDeleteClass.id),
+      );
 
-      if (!response.ok || !data.success) {
-        throw new Error(data.message || "Không thể xóa lớp học.");
-      }
-
-      await fetchClasses();
-
-      if (selectedClass && selectedClass.id === classItem.id) {
+      if (selectedClass?.id === confirmDeleteClass.id) {
         setSelectedClass(null);
+        setDetail(null);
       }
 
-      setConfirmDeleteClass(null);
-    } catch (error) {
-      console.error("Delete class error:", error);
-
-      setError(error.message || "Không thể xóa lớp học.");
-
-      setConfirmDeleteClass(null);
-    }
-  };
-
-  const handleRefresh = () => {
-    setSearch("");
-    setCurrentPage(1);
-    fetchClasses();
-    fetchFormOptions();
-  };
-
-  const handleViewDetails = (classItem) => {
-    setSelectedClass(classItem);
-  };
-
-  const handleOpenMatrix = async (classItem) => {
-    try {
-      setSelectedMatrixClass(classItem);
-      setMatrixData(null);
-      setMatrixError("");
-      setMatrixLoading(true);
-
-      const idToken = getToken();
-
-      if (!idToken) {
-        setMatrixError("Phiên đăng nhập đã hết hạn.");
-        return;
+      if (selectedSeatClass?.id === confirmDeleteClass.id) {
+        setSelectedSeatClass(null);
+        setSeatDetail(null);
       }
-
-      const response = await fetch(`${CLASSES_API}/${classItem.id}/seats`, {
-        method: "GET",
-        headers: getAuthHeaders(),
-      });
-
-      const data = await response.json();
-
-      if (!response.ok || !data.success) {
-        throw new Error(data.message || "Không thể lấy ma trận lớp học.");
-      }
-
-      setMatrixData(data);
-    } catch (error) {
-      console.error("Get class matrix error:", error);
-
-      setMatrixError(error.message || "Không thể lấy ma trận lớp học.");
+    } catch (deleteError) {
+      setError(getErrorMessage(deleteError));
     } finally {
-      setMatrixLoading(false);
+      setConfirmDeleteClass(null);
     }
   };
 
-  const handleCloseMatrix = () => {
-    if (matrixSaving) {
-      return;
-    }
-
-    setSelectedMatrixClass(null);
-    setMatrixData(null);
-    setMatrixError("");
-  };
-
-  const handleMatrixChange = (field, value) => {
-    setMatrixData((current) => ({
-      ...current,
-      [field]: Math.max(1, Number(value) || 1),
-    }));
-  };
-
-  const handleSaveMatrix = async () => {
+  const loadDetail = async (classItem) => {
     try {
-      setMatrixSaving(true);
-      setMatrixError("");
+      setSelectedClass(classItem);
+      setDetail(null);
+      setDetailError("");
+      setDetailLoading(true);
 
-      const idToken = getToken();
+      const [classData, studentsData] = await Promise.all([
+        request(`${CLASSES_API}/${classItem.id}`),
+        request(`${CLASSES_API}/${classItem.id}/students`),
+      ]);
 
-      if (!idToken) {
-        setMatrixError("Phiên đăng nhập đã hết hạn.");
-        return;
-      }
+      const currentClass = classData.data || classItem;
+      const students = Array.isArray(studentsData.data)
+        ? studentsData.data
+        : [];
 
-      const rowNumber = Number(matrixData?.row_number);
-
-      const columnNumber = Number(matrixData?.column_number);
-
-      if (!Number.isInteger(rowNumber) || rowNumber < 1) {
-        setMatrixError("Số hàng phải lớn hơn hoặc bằng 1.");
-        return;
-      }
-
-      if (!Number.isInteger(columnNumber) || columnNumber < 1) {
-        setMatrixError("Số cột phải lớn hơn hoặc bằng 1.");
-        return;
-      }
-
-      const response = await fetch(`${CLASSES_API}/${selectedMatrixClass.id}`, {
-        method: "PUT",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${idToken}`,
-        },
-        body: JSON.stringify({
-          row_number: rowNumber,
-          column_number: columnNumber,
-        }),
-      });
-
-      const data = await response.json();
-
-      if (!response.ok || !data.success) {
-        throw new Error(data.message || "Không thể cập nhật ma trận.");
-      }
-
-      await fetchClasses();
-
-      setSelectedMatrixClass(null);
-      setMatrixData(null);
-      setMatrixError("");
-    } catch (error) {
-      console.error("Save class matrix error:", error);
-
-      setMatrixError(error.message || "Không thể cập nhật ma trận.");
+      setSelectedClass(currentClass);
+      setDetail({ classInfo: currentClass, students });
+    } catch (detailLoadError) {
+      console.error("Load class detail error:", detailLoadError);
+      setDetailError(getErrorMessage(detailLoadError));
     } finally {
-      setMatrixSaving(false);
+      setDetailLoading(false);
     }
   };
+
+  const closeDetail = () => {
+    setSelectedClass(null);
+    setDetail(null);
+    setDetailError("");
+  };
+
+  const loadSeatMap = async (classItem) => {
+    try {
+      setSelectedSeatClass(classItem);
+      setSeatDetail(null);
+      setSeatError("");
+      setSeatLoading(true);
+
+      const [classData, studentsData, seatsData] = await Promise.all([
+        request(`${CLASSES_API}/${classItem.id}`),
+        request(`${CLASSES_API}/${classItem.id}/students`),
+        request(`${CLASSES_API}/${classItem.id}/seats`),
+      ]);
+
+      const currentClass = classData.data || classItem;
+      const students = Array.isArray(studentsData.data)
+        ? studentsData.data
+        : [];
+      const seats = Array.isArray(seatsData.data) ? seatsData.data : [];
+      const grid = buildSeatGrid(currentClass, seats, students);
+      const occupiedSeatCount = grid.filter((seat) =>
+        seat.student_name && seat.student_name.trim() !== ""
+      ).length;
+      const capacity = getClassCapacity(currentClass);
+      const emptySeatCount = Math.max(0, capacity - occupiedSeatCount);
+
+      setSelectedSeatClass(currentClass);
+      setSeatDetail({
+        classInfo: currentClass,
+        students,
+        seats,
+        grid,
+        capacity,
+        occupiedSeatCount,
+        emptySeatCount,
+      });
+    } catch (seatLoadError) {
+      console.error("Load seat map error:", seatLoadError);
+      setSeatError(getErrorMessage(seatLoadError));
+    } finally {
+      setSeatLoading(false);
+    }
+  };
+
+  const closeSeatMap = () => {
+    setSelectedSeatClass(null);
+    setSeatDetail(null);
+    setSeatError("");
+  };
+
+  const detailClass = detail?.classInfo || selectedClass;
+  const detailRows = getRowCount(detailClass);
+  const detailColumns = getColumnCount(detailClass);
+
+  const seatClass = seatDetail?.classInfo || selectedSeatClass;
+  const seatRows = getRowCount(seatClass);
+  const seatColumns = getColumnCount(seatClass);
 
   return (
-    <>
+    <div className="class-management-page">
       <section className="class-stats-section">
         <h2>Quản lý lớp học</h2>
 
@@ -638,73 +492,56 @@ const ClassManagementPanel = () => {
             <div className="class-stat-icon">
               <Icon name="school" size={21} />
             </div>
-
             <div className="class-stat-info">
               <span>Tổng số lớp</span>
-              <strong>{loading ? "—" : totalClasses}</strong>
+              <strong>{loading ? "—" : classes.length}</strong>
               <small>Lớp học</small>
             </div>
           </article>
 
-          <button
-            type="button"
-            className="class-stat-card green clickable"
-            onClick={() => setSelectedHealth("managed")}
-          >
+          <article className="class-stat-card green">
             <div className="class-stat-icon">
               <Icon name="checkCircle" size={21} />
             </div>
-
             <div className="class-stat-info">
-              <span>Đang quản lý</span>
-              <strong>{loading ? "—" : managedClasses}</strong>
+              <span>Đang hoạt động</span>
+              <strong>
+                {loading
+                  ? "—"
+                  : classes.filter((item) => item.status === "active").length}
+              </strong>
               <small>Lớp học</small>
             </div>
+          </article>
 
-            <div className="class-stat-arrow">
-              <Icon name="arrowRight" size={18} />
-            </div>
-          </button>
-
-          <button
-            type="button"
-            className="class-stat-card healthy clickable"
-            onClick={() => setSelectedHealth("healthy")}
-          >
+          <article className="class-stat-card orange">
             <div className="class-stat-icon">
-              <Icon name="checkCircle" size={21} />
+              <Icon name="book" size={21} />
             </div>
-
             <div className="class-stat-info">
-              <span>Lớp hoạt động tốt</span>
-              <strong>{loading ? "—" : healthyClasses}</strong>
-              <small>Mức tập trung ≥ 70%</small>
+              <span>Tổng sĩ số</span>
+              <strong>
+                {loading
+                  ? "—"
+                  : classes.reduce(
+                      (total, item) => total + getClassSize(item),
+                      0,
+                    )}
+              </strong>
+              <small>Học sinh đang được xếp chỗ</small>
             </div>
+          </article>
 
-            <div className="class-stat-arrow">
-              <Icon name="arrowRight" size={18} />
-            </div>
-          </button>
-
-          <button
-            type="button"
-            className="class-stat-card orange clickable"
-            onClick={() => setSelectedHealth("attention")}
-          >
+          <article className="class-stat-card healthy">
             <div className="class-stat-icon">
-              <Icon name="alertCircle" size={21} />
+              <Icon name="users" size={21} />
             </div>
-
             <div className="class-stat-info">
-              <span>Lớp cần chú ý</span>
-              <strong>{loading ? "—" : attentionClasses}</strong>
-              <small>Mức tập trung &lt; 70%</small>
+              <span>Đang hiển thị</span>
+              <strong>{loading ? "—" : filteredClasses.length}</strong>
+              <small>Kết quả lọc</small>
             </div>
-
-            <div className="class-stat-arrow">
-              <Icon name="arrowRight" size={18} />
-            </div>
-          </button>
+          </article>
         </div>
       </section>
 
@@ -712,13 +549,13 @@ const ClassManagementPanel = () => {
         <div className="class-panel-heading">
           <div>
             <h2>Danh sách lớp học</h2>
-            <p>Quản lý danh sách các lớp học trong hệ thống.</p>
+            <p>Dữ liệu được tải từ hệ thống quản lý lớp học.</p>
           </div>
 
           <button
             type="button"
             className="add-account-button"
-            onClick={handleOpenAddClass}
+            onClick={openAddClass}
           >
             <Icon name="plus" size={17} />
             <span>Thêm lớp học</span>
@@ -728,21 +565,35 @@ const ClassManagementPanel = () => {
         <div className="class-filters">
           <div className="class-search">
             <input
-              type="text"
               value={search}
-              onChange={(event) => handleSearch(event.target.value)}
-              placeholder="Tìm kiếm theo tên lớp..."
+              onChange={(e) => {
+                setSearch(e.target.value);
+                setCurrentPage(1);
+              }}
+              placeholder="Tìm theo tên lớp, giáo viên..."
             />
-
             <span className="class-search-icon">
               <Icon name="search" size={19} />
             </span>
           </div>
 
+          <select
+            className="class-status-filter"
+            value={statusFilter}
+            onChange={(e) => {
+              setStatusFilter(e.target.value);
+              setCurrentPage(1);
+            }}
+          >
+            <option value="all">Tất cả trạng thái</option>
+            <option value="active">Đang hoạt động</option>
+            <option value="inactive">Ngừng hoạt động</option>
+          </select>
+
           <button
             type="button"
             className="refresh-button"
-            onClick={handleRefresh}
+            onClick={loadClasses}
           >
             <Icon name="refresh" size={17} />
             <span>Làm mới</span>
@@ -756,10 +607,9 @@ const ClassManagementPanel = () => {
             <thead>
               <tr>
                 <th>Tên lớp</th>
-                <th>GVCN</th>
-                <th>Phòng học</th>
                 <th>Sĩ số</th>
-                <th>Mức độ tập trung TB</th>
+                <th>Giáo viên</th>
+                <th>Năm học</th>
                 <th>Trạng thái</th>
                 <th>Thao tác</th>
               </tr>
@@ -768,20 +618,14 @@ const ClassManagementPanel = () => {
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan="7" className="table-empty">
+                  <td colSpan="6" className="table-empty">
                     Đang tải danh sách lớp học...
                   </td>
                 </tr>
-              ) : error ? (
+              ) : currentClasses.length === 0 ? (
                 <tr>
-                  <td colSpan="7" className="table-empty">
-                    Không thể tải danh sách lớp học.
-                  </td>
-                </tr>
-              ) : filteredClasses.length === 0 ? (
-                <tr>
-                  <td colSpan="7" className="table-empty">
-                    Không tìm thấy lớp học.
+                  <td colSpan="6" className="table-empty">
+                    Không có lớp học phù hợp.
                   </td>
                 </tr>
               ) : (
@@ -792,57 +636,32 @@ const ClassManagementPanel = () => {
                         <div className="table-avatar">
                           <Icon name="school" size={18} />
                         </div>
-
-                        <div>{classItem.class_name}</div>
+                        <strong>{classItem.class_name}</strong>
                       </div>
                     </td>
-
                     <td>
-                      {classItem.teacher_name ||
-                        getTeacherName(classItem.teacher_id) ||
-                        "—"}
+                      <strong>{getClassSize(classItem)}</strong>
                     </td>
-
-                    <td>
-                      {classItem.classroom_name ||
-                        getClassroomName(classItem.classroom_id) ||
-                        "—"}
-                    </td>
-
-                    <td>{getClassStudentCount(classItem) ?? "—"}</td>
-
-                    <td>{renderEngagement(classItem)}</td>
-
+                    <td>{getTeacherName(classItem.teacher_id, classItem)}</td>
+                    <td>{classItem.school_year}</td>
                     <td>
                       <span
-                        className={
-                          classItem.is_active !== false
-                            ? "class-status active"
-                            : "class-status inactive"
-                        }
+                        className={`class-status ${
+                          classItem.status === "active" ? "active" : "inactive"
+                        }`}
                       >
-                        {classItem.is_active !== false
+                        {classItem.status === "active"
                           ? "Đang hoạt động"
                           : "Ngừng hoạt động"}
                       </span>
                     </td>
-
                     <td>
                       <div className="row-actions">
                         <button
                           type="button"
-                          className="edit-button"
-                          title="Chỉnh sửa"
-                          onClick={() => handleEditClass(classItem)}
-                        >
-                          <Icon name="edit" size={18} />
-                        </button>
-
-                        <button
-                          type="button"
                           className="detail-button"
-                          title="Xem chi tiết"
-                          onClick={() => handleViewDetails(classItem)}
+                          title="Xem chi tiết lớp"
+                          onClick={() => loadDetail(classItem)}
                         >
                           <Icon name="eye" size={18} />
                         </button>
@@ -850,16 +669,25 @@ const ClassManagementPanel = () => {
                         <button
                           type="button"
                           className="detail-button"
-                          title="Quản lý sĩ số"
-                          onClick={() => handleOpenMatrix(classItem)}
+                          title="Xem sơ đồ lớp"
+                          onClick={() => loadSeatMap(classItem)}
                         >
-                          <Icon name="grid" size={18} />
+                          <Icon name="school" size={18} />
+                        </button>
+
+                        <button
+                          type="button"
+                          className="edit-button"
+                          title="Chỉnh sửa"
+                          onClick={() => openEditClass(classItem)}
+                        >
+                          <Icon name="edit" size={18} />
                         </button>
 
                         <button
                           type="button"
                           className="delete-button"
-                          title="Xóa lớp"
+                          title="Vô hiệu hóa"
                           onClick={() => setConfirmDeleteClass(classItem)}
                         >
                           <Icon name="trash" size={18} />
@@ -875,85 +703,51 @@ const ClassManagementPanel = () => {
 
         <div className="class-pagination">
           <span>
-            Hiển thị {displayStart}-{displayEnd} trên {filteredClasses.length}{" "}
-            lớp
+            {filteredClasses.length
+              ? `${(safePage - 1) * classesPerPage + 1}-${Math.min(
+                  safePage * classesPerPage,
+                  filteredClasses.length,
+                )}`
+              : "0"}{" "}
+            trên {filteredClasses.length} lớp
           </span>
 
           <div>
             <button
               type="button"
-              disabled={safeCurrentPage === 1}
-              onClick={() => setCurrentPage(1)}
-            >
-              <Icon name="first" size={15} />
-            </button>
-
-            <button
-              type="button"
-              disabled={safeCurrentPage === 1}
+              disabled={safePage === 1}
               onClick={() => setCurrentPage((page) => Math.max(1, page - 1))}
             >
               <Icon name="arrowLeft" size={15} />
             </button>
 
-            {Array.from(
-              {
-                length: totalPages,
-              },
-              (_, index) => index + 1,
-            ).map((page) => (
-              <button
-                key={page}
-                type="button"
-                className={safeCurrentPage === page ? "current-page" : ""}
-                onClick={() => setCurrentPage(page)}
-              >
-                {page}
-              </button>
-            ))}
-
             <button
               type="button"
-              disabled={safeCurrentPage === totalPages || totalPages === 0}
+              disabled={safePage === totalPages || totalPages === 0}
               onClick={() =>
                 setCurrentPage((page) => Math.min(totalPages, page + 1))
               }
             >
               <Icon name="arrowRight" size={15} />
             </button>
-
-            <button
-              type="button"
-              disabled={safeCurrentPage === totalPages || totalPages === 0}
-              onClick={() => setCurrentPage(totalPages)}
-            >
-              <Icon name="last" size={15} />
-            </button>
           </div>
         </div>
       </section>
 
-      {showAddClass && (
-        <div className="class-modal-overlay" onClick={handleCloseForm}>
-          <div
-            className="class-modal"
-            onClick={(event) => event.stopPropagation()}
-          >
+      {showClassForm && (
+        <div
+          className="class-modal-overlay"
+          onClick={() => !formLoading && setShowClassForm(false)}
+        >
+          <div className="class-modal" onClick={(e) => e.stopPropagation()}>
             <div className="class-modal-header">
               <div>
                 <h2>{editingClass ? "Chỉnh sửa lớp học" : "Thêm lớp học"}</h2>
-
-                <p>
-                  {editingClass
-                    ? "Cập nhật thông tin lớp học."
-                    : "Tạo lớp học mới trong hệ thống."}
-                </p>
               </div>
-
               <button
                 type="button"
                 className="edit-teacher-close"
-                onClick={handleCloseForm}
+                onClick={() => setShowClassForm(false)}
                 aria-label="Đóng"
               >
                 ×
@@ -963,90 +757,57 @@ const ClassManagementPanel = () => {
             <div className="class-modal-content">
               <label>
                 <span>Tên lớp</span>
-
                 <input
-                  type="text"
                   value={formData.class_name}
-                  onChange={(event) =>
-                    handleFormChange("class_name", event.target.value)
+                  onChange={(e) =>
+                    setFormData({ ...formData, class_name: e.target.value })
                   }
-                  placeholder="Ví dụ: 10A1"
                   disabled={formLoading}
                 />
               </label>
 
               <label>
                 <span>Giáo viên chủ nhiệm</span>
-
                 <select
                   value={formData.teacher_id}
-                  onChange={(event) =>
-                    handleFormChange("teacher_id", event.target.value)
+                  onChange={(e) =>
+                    setFormData({ ...formData, teacher_id: e.target.value })
                   }
-                  disabled={formLoading || loadingOptions}
+                  disabled={formLoading}
                 >
-                  <option value="">
-                    {loadingOptions
-                      ? "Đang tải giáo viên..."
-                      : "Chọn giáo viên"}
-                  </option>
-
-                  {teachers.map((teacher) => {
-                    const teacherId = getTeacherIdentifier(teacher);
-
-                    return (
-                      <option key={teacherId} value={teacherId}>
-                        {teacher.name || "Giáo viên"}
-                      </option>
-                    );
-                  })}
+                  <option value="">Chọn giáo viên</option>
+                  {teachers.map((teacher) => (
+                    <option
+                      key={getTeacherId(teacher)}
+                      value={getTeacherId(teacher)}
+                    >
+                      {getTeacherNameFromObject(teacher)}
+                    </option>
+                  ))}
                 </select>
               </label>
 
               <label>
-                <span>Phòng học</span>
-
-                <select
-                  value={formData.classroom_id}
-                  onChange={(event) =>
-                    handleFormChange("classroom_id", event.target.value)
+                <span>Năm học</span>
+                <input
+                  value={formData.school_year}
+                  placeholder="2026-2027"
+                  onChange={(e) =>
+                    setFormData({ ...formData, school_year: e.target.value })
                   }
-                  disabled={formLoading || loadingOptions}
-                >
-                  <option value="">
-                    {loadingOptions
-                      ? "Đang tải phòng học..."
-                      : "Chọn phòng học"}
-                  </option>
-
-                  {classrooms.map((classroom) => {
-                    const classroomId = classroom.id || classroom.classroom_id;
-
-                    const classroomName =
-                      classroom.classroom_name ||
-                      classroom.class_name ||
-                      classroom.room_name ||
-                      classroom.name ||
-                      classroomId;
-
-                    return (
-                      <option key={classroomId} value={classroomId}>
-                        {classroomName}
-                      </option>
-                    );
-                  })}
-                </select>
+                  disabled={formLoading}
+                />
               </label>
 
               <label>
                 <span>Số hàng</span>
-
                 <input
                   type="number"
                   min="1"
-                  value={formData.row_number}
-                  onChange={(event) =>
-                    handleFormChange("row_number", event.target.value)
+                  step="1"
+                  value={formData.row_count}
+                  onChange={(e) =>
+                    setFormData({ ...formData, row_count: e.target.value })
                   }
                   disabled={formLoading}
                 />
@@ -1054,41 +815,56 @@ const ClassManagementPanel = () => {
 
               <label>
                 <span>Số cột</span>
-
                 <input
                   type="number"
                   min="1"
-                  value={formData.column_number}
-                  onChange={(event) =>
-                    handleFormChange("column_number", event.target.value)
+                  step="1"
+                  value={formData.column_count}
+                  onChange={(e) =>
+                    setFormData({ ...formData, column_count: e.target.value })
                   }
                   disabled={formLoading}
                 />
               </label>
 
-              <label>
-                <span>Trạng thái</span>
+              <div
+                style={{
+                  padding: "12px 14px",
+                  background: "#f8fafc",
+                  borderRadius: "10px",
+                  color: "#475569",
+                  fontSize: "14px",
+                }}
+              >
+                Sức chứa:{" "}
+                <strong>
+                  {Number(formData.row_count) > 0 &&
+                  Number(formData.column_count) > 0
+                    ? Number(formData.row_count) * Number(formData.column_count)
+                    : 0}{" "}
+                  chỗ
+                </strong>
+              </div>
 
-                <select
-                  value={formData.is_active ? "active" : "inactive"}
-                  onChange={(event) =>
-                    handleFormChange(
-                      "is_active",
-                      event.target.value === "active",
-                    )
-                  }
-                  disabled={formLoading}
-                >
-                  <option value="active">Đang hoạt động</option>
-
-                  <option value="inactive">Ngừng hoạt động</option>
-                </select>
-              </label>
+              {editingClass && (
+                <label>
+                  <span>Trạng thái</span>
+                  <select
+                    value={formData.status}
+                    onChange={(e) =>
+                      setFormData({ ...formData, status: e.target.value })
+                    }
+                    disabled={formLoading}
+                  >
+                    <option value="active">Đang hoạt động</option>
+                    <option value="inactive">Ngừng hoạt động</option>
+                  </select>
+                </label>
+              )}
 
               {optionsError && (
                 <div className="class-form-error">{optionsError}</div>
               )}
-
               {formError && <div className="class-form-error">{formError}</div>}
             </div>
 
@@ -1096,27 +872,18 @@ const ClassManagementPanel = () => {
               <button
                 type="button"
                 className="edit-teacher-cancel"
-                onClick={handleCloseForm}
+                onClick={() => setShowClassForm(false)}
                 disabled={formLoading}
               >
                 Hủy
               </button>
-
               <button
                 type="button"
                 className="add-account-button"
-                onClick={handleSubmitClass}
+                onClick={submitClass}
                 disabled={formLoading}
               >
-                <Icon name="plus" size={17} />
-
-                <span>
-                  {formLoading
-                    ? "Đang lưu..."
-                    : editingClass
-                      ? "Lưu thay đổi"
-                      : "Thêm lớp"}
-                </span>
+                {formLoading ? "Đang lưu..." : "Lưu lớp"}
               </button>
             </div>
           </div>
@@ -1124,368 +891,260 @@ const ClassManagementPanel = () => {
       )}
 
       {selectedClass && (
-        <div
-          className="class-modal-overlay"
-          onClick={() => setSelectedClass(null)}
-        >
+        <div className="class-modal-overlay" onClick={closeDetail}>
           <div
-            className="class-modal"
-            onClick={(event) => event.stopPropagation()}
+            className="class-modal class-detail-wide"
+            onClick={(e) => e.stopPropagation()}
           >
-            <div className="class-modal-header">
+            <div className="class-detail-header">
               <div>
-                <h2>Thông tin lớp học</h2>
-                <p>Chi tiết lớp học trong hệ thống.</p>
+                <h2>{detailClass?.class_name || "Chi tiết lớp học"}</h2>
+                <p>
+                  Thông tin chi tiết lớp học và danh sách học sinh hiện tại.
+                </p>
               </div>
-
-              <button
-                type="button"
-                className="edit-teacher-close"
-                onClick={() => setSelectedClass(null)}
-                aria-label="Đóng"
-              >
-                ×
-              </button>
             </div>
 
-            <div className="class-detail-content">
-              <div className="class-detail-avatar">
-                <Icon name="school" size={28} />
+            {detailLoading ? (
+              <div className="class-detail-state">
+                Đang tải thông tin lớp học...
               </div>
-
-              <div className="class-detail-info">
-                <div className="class-detail-item">
-                  <span>Tên lớp</span>
-                  {selectedClass.class_name}
-                </div>
-
-                <div className="class-detail-item">
-                  <span>Giáo viên</span>
-                  {selectedClass.teacher_name ||
-                    getTeacherName(selectedClass.teacher_id) ||
-                    "—"}
-                </div>
-
-                <div className="class-detail-item">
-                  <span>Phòng học cố định</span>
-                  {selectedClass.classroom_name ||
-                    getClassroomName(selectedClass.classroom_id) ||
-                    "—"}
-                </div>
-
-                <div className="class-detail-item">
-                  <span>Sĩ số</span>
-                  {getClassStudentCount(selectedClass) ?? "—"}
-                </div>
-
-                <div className="class-detail-item">
-                  <span>Mức độ tập trung TB</span>
-                  {getAverageEngagement(selectedClass) !== null
-                    ? `${getAverageEngagement(selectedClass).toFixed(0)}%`
-                    : "Chưa có dữ liệu"}
-                </div>
-
-                <div className="class-detail-item">
-                  <span>Trạng thái</span>
-                  {selectedClass.is_active !== false
-                    ? "Đang hoạt động"
-                    : "Ngừng hoạt động"}
-                </div>
-              </div>
-
-              <div className="class-detail-camera">
-                <div className="class-detail-camera-header">
-                  <div>
-                    <span>Camera phòng học</span>
-                    <strong>
-                      {selectedClass.camera?.is_configured
-                        ? selectedClass.camera.name || "Camera"
-                        : "Chưa cấu hình"}
-                    </strong>
+            ) : detailError ? (
+              <div className="class-matrix-error">{detailError}</div>
+            ) : (
+              <div className="class-modal-content">
+                <div className="class-detail-info-section">
+                  <div className="class-detail-section-header">
+                    <h3>Thông tin chung</h3>
+                    <p>
+                      Các thông tin cơ bản về môn học, giáo viên và sức chứa.
+                    </p>
                   </div>
 
-                  <span
-                    className={
-                      selectedClass.camera?.is_configured &&
-                      selectedClass.camera?.status === "online"
-                        ? "class-camera-status online"
-                        : "class-camera-status offline"
-                    }
-                  >
-                    {selectedClass.camera?.is_configured &&
-                    selectedClass.camera?.status === "online"
-                      ? "Đang kết nối"
-                      : "Chưa kết nối"}
-                  </span>
-                </div>
-
-                {selectedClass.camera?.is_configured ? (
-                  <div className="class-detail-camera-info">
-                    <div className="class-detail-camera-item">
-                      <span>Địa chỉ IP</span>
-                      <strong>{selectedClass.camera.ip_address || "—"}</strong>
-                    </div>
-
-                    <div className="class-detail-camera-item">
-                      <span>RTSP Port</span>
-                      <strong>{selectedClass.camera.rtsp_port || "—"}</strong>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="class-detail-camera-empty">
-                    <Icon name="alertCircle" size={20} />
-                    <span>Phòng học này chưa được cấu hình camera.</span>
-                  </div>
-                )}
-              </div>
-            </div>
-
-            <div className="class-modal-actions">
-              <button
-                type="button"
-                className="edit-teacher-cancel"
-                onClick={() => setSelectedClass(null)}
-              >
-                Đóng
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {selectedHealth && (
-        <div
-          className="class-modal-overlay"
-          onClick={() => setSelectedHealth(null)}
-        >
-          <div
-            className="class-modal"
-            onClick={(event) => event.stopPropagation()}
-          >
-            <div className="class-modal-header">
-              <div>
-                <h2>
-                  {selectedHealth === "managed"
-                    ? "Lớp đang quản lý"
-                    : selectedHealth === "healthy"
-                      ? "Lớp hoạt động tốt"
-                      : "Lớp cần chú ý"}
-                </h2>
-
-                <p>Danh sách lớp thuộc nhóm này.</p>
-              </div>
-
-              <button
-                type="button"
-                className="edit-teacher-close"
-                onClick={() => setSelectedHealth(null)}
-                aria-label="Đóng"
-              >
-                ×
-              </button>
-            </div>
-
-            <div className="class-health-detail">
-              <Icon
-                name={
-                  selectedHealth === "attention" ? "alertCircle" : "checkCircle"
-                }
-                size={28}
-              />
-
-              {selectedHealth === "managed"
-                ? managedClasses > 0
-                  ? `${managedClasses} lớp đang được quản lý`
-                  : "Chưa có lớp học"
-                : selectedHealth === "healthy"
-                  ? healthyClasses > 0
-                    ? `${healthyClasses} lớp hoạt động tốt`
-                    : "Chưa có lớp hoạt động tốt"
-                  : attentionClasses > 0
-                    ? `${attentionClasses} lớp cần chú ý`
-                    : "Chưa có lớp cần chú ý"}
-
-              <span>
-                {selectedHealth === "managed"
-                  ? "Danh sách này được lấy trực tiếp từ dữ liệu lớp học trong hệ thống."
-                  : "Phân loại dựa trên mức độ tập trung trung bình của lớp. Dữ liệu sẽ được cập nhật khi hệ thống có dữ liệu giám sát và phân tích."}
-              </span>
-            </div>
-
-            <div className="class-modal-actions">
-              <button
-                type="button"
-                className="edit-teacher-cancel"
-                onClick={() => setSelectedHealth(null)}
-              >
-                Đóng
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {selectedMatrixClass && (
-        <div className="class-modal-overlay" onClick={handleCloseMatrix}>
-          <div
-            className="class-modal class-matrix-modal"
-            onClick={(event) => event.stopPropagation()}
-          >
-            <div className="class-modal-header">
-              <div>
-                <h2>Quản lý sĩ số</h2>
-                <p>Lớp {selectedMatrixClass.class_name}</p>
-              </div>
-
-              <button
-                type="button"
-                className="edit-teacher-close"
-                onClick={handleCloseMatrix}
-                aria-label="Đóng"
-              >
-                ×
-              </button>
-            </div>
-
-            <div className="class-modal-content">
-              {matrixLoading ? (
-                <div className="class-matrix-loading">Đang tải ma trận...</div>
-              ) : matrixError ? (
-                <div className="class-matrix-error">{matrixError}</div>
-              ) : matrixData ? (
-                <>
-                  <div className="class-matrix-config">
-                    <div className="class-matrix-field">
-                      <label>
-                        <span>Số hàng</span>
-
-                        <input
-                          type="number"
-                          min="1"
-                          value={matrixData.row_number}
-                          onChange={(event) =>
-                            handleMatrixChange("row_number", event.target.value)
-                          }
-                          disabled={matrixSaving}
-                        />
-                      </label>
-                    </div>
-
-                    <div className="class-matrix-field">
-                      <label>
-                        <span>Số cột</span>
-
-                        <input
-                          type="number"
-                          min="1"
-                          value={matrixData.column_number}
-                          onChange={(event) =>
-                            handleMatrixChange(
-                              "column_number",
-                              event.target.value,
-                            )
-                          }
-                          disabled={matrixSaving}
-                        />
-                      </label>
-                    </div>
-                  </div>
-
-                  <div className="class-matrix-summary">
-                    <div>
-                      <span>Số hàng</span>
-                      <strong>{matrixData.row_number}</strong>
-                    </div>
-
-                    <div>
-                      <span>Số cột</span>
-                      <strong>{matrixData.column_number}</strong>
-                    </div>
-
-                    <div>
-                      <span>Tổng số chỗ</span>
+                  <div className="class-detail-info-grid">
+                    <div className="class-detail-info-item">
+                      <span>Giáo viên:</span>
                       <strong>
-                        {Number(matrixData.row_number || 0) *
-                          Number(matrixData.column_number || 0)}
+                        {getTeacherName(detailClass?.teacher_id, detailClass)}
                       </strong>
                     </div>
-                  </div>
-
-                  <div className="class-matrix-section">
-                    <div className="class-matrix-section-header">
-                      <div>
-                        <h3>Ma trận chỗ ngồi</h3>
-
-                        <p>Mỗi ô tương ứng với một vị trí học sinh.</p>
-                      </div>
+                    <div className="class-detail-info-item">
+                      <span>Năm học:</span>
+                      <strong>{detailClass?.school_year || "—"}</strong>
                     </div>
-
-                    <div className="class-matrix-preview">
-                      <div
-                        className="class-seat-grid"
-                        style={{
-                          gridTemplateColumns: `repeat(${matrixData.column_number}, minmax(70px, 1fr))`,
-                        }}
+                    <div className="class-detail-info-item">
+                      <span>Kích thước:</span>
+                      <strong>
+                        {detailRows} hàng × {detailColumns} cột
+                      </strong>
+                    </div>
+                    <div className="class-detail-info-item">
+                      <span>Sức chứa:</span>
+                      <strong>{getClassCapacity(detailClass)} chỗ</strong>
+                    </div>
+                    <div className="class-detail-info-item">
+                      <span>Sĩ số:</span>
+                      <strong>{getClassSize(detailClass)} học sinh</strong>
+                    </div>
+                    <div className="class-detail-info-item">
+                      <span>Trạng thái:</span>
+                      <span
+                        className={`class-status ${
+                          detailClass?.status === "active"
+                            ? "active"
+                            : "inactive"
+                        }`}
                       >
-                        {Array.from(
-                          {
-                            length:
-                              Number(matrixData.row_number) *
-                              Number(matrixData.column_number),
-                          },
-                          (_, index) => {
-                            const seatNumber = index + 1;
-
-                            const seat = matrixData.seats?.find(
-                              (item) =>
-                                Number(item.seat_number) === seatNumber ||
-                                item.seat_id === `S${seatNumber}`,
-                            );
-
-                            return (
-                              <div
-                                key={seatNumber}
-                                className={
-                                  seat?.student_id
-                                    ? "class-seat occupied"
-                                    : "class-seat"
-                                }
-                              >
-                                <strong>
-                                  {seat?.seat_id || `S${seatNumber}`}
-                                </strong>
-
-                                <span>{seat?.student_id || "Trống"}</span>
-                              </div>
-                            );
-                          },
-                        )}
-                      </div>
+                        {detailClass?.status === "active"
+                          ? "Đang hoạt động"
+                          : "Ngừng hoạt động"}
+                      </span>
                     </div>
                   </div>
-                </>
-              ) : null}
-            </div>
+                </div>
+
+                <div className="class-detail-workspace" style={{ gridTemplateColumns: "1fr" }}>
+                  <section>
+                    <div className="class-detail-section-header">
+                      <h3>
+                        Danh sách học sinh ({detail?.students?.length || 0})
+                      </h3>
+                    </div>
+
+                    {detail?.students?.length === 0 ? (
+                      <p className="class-no-data">Chưa có học sinh nào trong lớp này.</p>
+                    ) : (
+                      <CustomScrollbar height="auto" className="class-modal-content overflow-x-auto" style={{ padding: 0, marginTop: "16px" }}>
+                        <div className="student-table-wrap min-w-[900px]">
+                          <table className="student-table" style={{ width: "100%", borderCollapse: "collapse" }}>
+                            <thead>
+                              <tr>
+                                <th className="col-stt">STT</th>
+                                <th className="col-fullname">HỌ VÀ TÊN</th>
+                                <th className="col-gender">GIỚI TÍNH</th>
+                                <th className="col-birthday">SINH NHẬT</th>
+                                <th className="col-phone">SĐT PHỤ HUYNH</th>
+                                <th className="col-note">GHI CHÚ</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {detail?.students
+                                ?.slice()
+                                ?.sort((a, b) => {
+                                  const getFirstName = (name) => {
+                                    const parts = (name || "").trim().split(" ");
+                                    return parts[parts.length - 1];
+                                  };
+                                  const firstNameA = getFirstName(a.full_name);
+                                  const firstNameB = getFirstName(b.full_name);
+                                  
+                                  const compareFirstName = firstNameA.localeCompare(firstNameB, "vi", { sensitivity: "base" });
+                                  if (compareFirstName !== 0) return compareFirstName;
+                                  
+                                  return (a.full_name || "").localeCompare(b.full_name || "", "vi", { sensitivity: "base" });
+                                })
+                                ?.map((student, index) => {
+                                  let formattedBirthday = "—";
+                                  if (student.birthday) {
+                                    const date = new Date(student.birthday);
+                                    if (!isNaN(date.getTime())) {
+                                      formattedBirthday = date.toLocaleDateString("vi-VN");
+                                    } else {
+                                      formattedBirthday = student.birthday;
+                                    }
+                                  }
+
+                                  return (
+                                    <tr key={student.student_id || index} style={{ borderBottom: "1px solid #edf2f7" }}>
+                                      <td className="col-stt" style={{ padding: "12px 14px", color: "#64748b", fontWeight: "500" }}>{index + 1}</td>
+                                      <td className="col-fullname" style={{ padding: "12px 14px", fontWeight: "600", color: "#1e293b" }}>{student.full_name}</td>
+                                      <td className="col-gender" style={{ padding: "12px 14px", color: "#64748b" }}>{student.gender || "—"}</td>
+                                      <td className="col-birthday" style={{ padding: "12px 14px", color: "#64748b" }}>{formattedBirthday}</td>
+                                      <td className="col-phone" style={{ padding: "12px 14px", color: "#64748b" }}>{student.parent_phone || "—"}</td>
+                                      <td className="col-note" style={{ padding: "12px 14px", color: "#64748b" }}>{student.note || "—"}</td>
+                                    </tr>
+                                  );
+                                })}
+                            </tbody>
+                          </table>
+                        </div>
+                      </CustomScrollbar>
+                    )}
+                  </section>
+                </div>
+              </div>
+            )}
 
             <div className="class-modal-actions">
               <button
                 type="button"
-                className="edit-teacher-cancel"
-                onClick={handleCloseMatrix}
-                disabled={matrixSaving}
+                className="secondary-button"
+                onClick={closeDetail}
               >
-                Hủy
+                Đóng
               </button>
+            </div>
+          </div>
+        </div>
+      )}
 
+      {selectedSeatClass && (
+        <div className="class-modal-overlay" onClick={closeSeatMap}>
+          <div
+            className="class-modal class-matrix-modal"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="class-modal-header">
+              <div>
+                <h2>Sơ đồ chỗ ngồi — {seatClass?.class_name}</h2>
+                <p>
+                  Sơ đồ bố trí {seatRows} hàng x {seatColumns} cột trong phòng
+                  học.
+                </p>
+              </div>
               <button
                 type="button"
-                className="add-account-button"
-                onClick={handleSaveMatrix}
-                disabled={matrixLoading || matrixSaving || !matrixData}
+                className="edit-teacher-close"
+                onClick={closeSeatMap}
+                aria-label="Đóng"
               >
-                <Icon name="checkCircle" size={17} />
+                ×
+              </button>
+            </div>
 
-                <span>{matrixSaving ? "Đang lưu..." : "Lưu ma trận"}</span>
+            {seatLoading ? (
+              <div className="class-matrix-loading">
+                Đang tải sơ đồ chỗ ngồi...
+              </div>
+            ) : seatError ? (
+              <div className="class-matrix-error">{seatError}</div>
+            ) : (
+              <div className="class-modal-content">
+                <div className="class-matrix-summary">
+                  <div className="class-matrix-summary-card">
+                    <span>Sức chứa phòng</span>
+                    <strong>{seatDetail?.capacity || 0} chỗ</strong>
+                  </div>
+                  <div className="class-matrix-summary-card">
+                    <span>Đã xếp chỗ</span>
+                    <strong style={{ color: "#2563eb" }}>
+                      {seatDetail?.occupiedSeatCount || 0} học sinh
+                    </strong>
+                  </div>
+                  <div className="class-matrix-summary-card">
+                    <span>Ghế còn trống</span>
+                    <strong style={{ color: "#16a34a" }}>
+                      {seatDetail?.emptySeatCount || 0} chỗ
+                    </strong>
+                  </div>
+                </div>
+
+                <div className="class-matrix-section">
+                  <div className="class-matrix-section-header">
+                    <h3>Bản đồ chỗ ngồi</h3>
+                    <p>Hiển thị chi tiết vị trí từng ghế ngồi.</p>
+                  </div>
+
+                  <div className="class-matrix-preview">
+                    <div
+                      className="class-seat-grid"
+                      style={{
+                        gridTemplateColumns: `repeat(${seatColumns}, minmax(0, 1fr))`,
+                      }}
+                    >
+                      {seatDetail?.grid?.map((seat, index) => {
+                        const isOccupied = Boolean(seat.student_name && seat.student_name.trim() !== "");
+                        
+                        return (
+                          <div 
+                            key={index} 
+                            className={`test-seat-card ${isOccupied ? 'occupied' : 'empty'}`}
+                          >
+                            <div className="seat-code" style={{ fontWeight: 'bold' }}>
+                              {seat?.seat_id ? seat.seat_id.replace(/^S/i, '') : index + 1}
+                            </div>
+
+                            {isOccupied && seat.student_name && (
+                              <div className="seat-info" style={{ marginTop: '4px' }}>
+                                {seat.student_name}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            <div className="class-modal-actions">
+              <button
+                type="button"
+                className="secondary-button"
+                onClick={closeSeatMap}
+              >
+                Đóng
               </button>
             </div>
           </div>
@@ -1494,15 +1153,13 @@ const ClassManagementPanel = () => {
 
       {confirmDeleteClass && (
         <ConfirmModal
-          title="Xác nhận xóa lớp"
-          message={`Bạn có chắc muốn xóa lớp "${confirmDeleteClass.class_name}" không?`}
-          confirmText="Xóa lớp"
-          cancelText="Hủy"
-          onConfirm={() => handleDeleteClass(confirmDeleteClass)}
+          title="Vô hiệu hóa lớp học"
+          message={`Bạn có chắc chắn muốn vô hiệu hóa lớp "${confirmDeleteClass.class_name}"? Lớp học sẽ chuyển sang trạng thái Ngừng hoạt động.`}
+          onConfirm={deleteClass}
           onCancel={() => setConfirmDeleteClass(null)}
         />
       )}
-    </>
+    </div>
   );
 };
 

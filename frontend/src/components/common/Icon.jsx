@@ -23,6 +23,25 @@ const Icon = ({ name, size = 20, strokeWidth = 1.8, className = "" }) => {
         <path d="M5.5 20c.6-3.7 2.8-5.5 6.5-5.5s5.9 1.8 6.5 5.5" />
       </>
     ),
+    users: (
+      <>
+        <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+        <circle cx="9" cy="7" r="4" />
+        <path d="M22 21v-2a4 4 0 0 0-3-3.87" />
+        <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+      </>
+    ),
+    clock: (
+      <>
+        <circle cx="12" cy="12" r="9" />
+        <path d="M12 6v6l4 2" />
+      </>
+    ),
+    list: (
+      <>
+        <path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01" />
+      </>
+    ),
     activity: (
       <>
         <path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H20v15H6.5A2.5 2.5 0 0 0 4 20.5v-15Z" />

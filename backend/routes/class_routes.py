@@ -1,526 +1,535 @@
-from flask import Blueprint, jsonify
-from firebase_config import db
-from utils.auth import (
-    verify_request_token,
-    get_current_user,
-    is_admin_user,
+from flask import Blueprint, jsonify, request
+
+from routes.test_helpers import (
+    db,
+    get_document,
     get_json_body,
+    json_value,
+    require_admin,
+    required_string,
+    server_timestamp,
 )
 
 class_bp = Blueprint("class_bp", __name__)
+ALLOWED_CLASS_STATUS = {"active", "inactive"}
+DEFAULT_ROW_COUNT = 2
+DEFAULT_COLUMN_COUNT = 2
 
 
-def authorize_admin():
-    decoded_token = verify_request_token()
-    if not decoded_token:
-        return None, (
-            jsonify({"success": False, "message": "Unauthorized."}),
-            401
-        )
-
-    _, current_user = get_current_user(decoded_token)
-
-    if not current_user:
-        return None, (
-            jsonify({"success": False, "message": "Tài khoản không tồn tại."}),
-            403
-        )
-
-    if not is_admin_user(current_user):
-        return None, (
-            jsonify({"success": False, "message": "Bạn không có quyền truy cập."}),
-            403
-        )
-
-    return current_user, None
+def error(message, status=400):
+    return jsonify({"success": False, "message": message}), status
 
 
-def normalize_int(value, default=0):
-    try:
-        return int(value)
-    except (TypeError, ValueError):
-        return default
+def positive_int(value, field_name):
+    if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+        return None, f"{field_name} phải là số nguyên dương."
+    return value, None
 
 
-def get_teacher(teacher_id):
+def get_vietnamese_sort_key(name):
+    """Tách tên tiếng Việt để sắp xếp theo tên gọi (First name)."""
+    if not name:
+        return ""
+    parts = str(name).strip().split()
+    return parts[-1].lower() if parts else ""
+
+
+def teacher_name(teacher_id):
     if not teacher_id:
-        return None, None
-        
-    teacher_ref = db.collection("teachers").document(teacher_id)
-    teacher_doc = teacher_ref.get()
+        return "Chưa có giáo viên"
+    
+    # 1. Tra cứu trong collection teachers
+    teacher_doc = db.collection("teachers").document(teacher_id).get()
+    if teacher_doc.exists:
+        teacher = teacher_doc.to_dict() or {}
+        return (
+            teacher.get("full_name")
+            or teacher.get("display_name")
+            or teacher.get("name")
+            or teacher.get("email")
+            or "Chưa có giáo viên"
+        )
+    
+    # 2. Fallback tra cứu trong collection users
+    user_doc = db.collection("users").document(teacher_id).get()
+    if user_doc.exists:
+        user = user_doc.to_dict() or {}
+        return (
+            user.get("full_name")
+            or user.get("display_name")
+            or user.get("name")
+            or user.get("email")
+            or "Chưa có giáo viên"
+        )
 
-    if not teacher_doc.exists:
-        return None, None
-
-    teacher_data = teacher_doc.to_dict() or {}
-    return teacher_doc, teacher_data
+    return "Chưa có giáo viên"
 
 
-def get_classroom(classroom_id):
-    if not classroom_id:
-        return None, None
-        
-    classroom_ref = db.collection("classrooms").document(classroom_id)
-    classroom_doc = classroom_ref.get()
-
-    if not classroom_doc.exists:
-        return None, None
-
-    classroom_data = classroom_doc.to_dict() or {}
-    return classroom_doc, classroom_data
+def teacher_exists_check(teacher_id):
+    if not teacher_id:
+        return False
+    if db.collection("teachers").document(teacher_id).get().exists:
+        return True
+    if db.collection("users").document(teacher_id).get().exists:
+        return True
+    return False
 
 
-def build_class_data(doc):
-    data = doc.to_dict() or {}
+def seat_stats_for_class(seat_map, row_count, column_count):
+    capacity = row_count * column_count
+    occupied_count = 0
 
-    teacher_id = data.get("teacher_id")
-    classroom_id = data.get("classroom_id")
+    for seat_id, seat in seat_map.items():
+        student_id = seat.get("student_id")
+        if student_id and str(student_id).strip() not in ["", "None", "null", "undefined"]:
+            occupied_count += 1
 
-    teacher_name = ""
-    teacher_email = ""
-
-    if teacher_id:
-        _, teacher_data = get_teacher(teacher_id)
-
-        if teacher_data:
-            teacher_name = teacher_data.get("name", "")
-            teacher_email = (
-                teacher_data.get("e-mail")
-                or teacher_data.get("email")
-                or ""
-            )
-
-    classroom_name = ""
-
-    camera = {
-        "id": None,
-        "name": "",
-        "status": "offline",
-        "is_configured": False,
-        "ip_address": "",
-        "rtsp_port": "",
-    }
-
-    if classroom_id:
-        _, classroom_data = get_classroom(classroom_id)
-
-        if classroom_data:
-            classroom_name = (
-                classroom_data.get("classroom_name")
-                or classroom_data.get("class_name")
-                or classroom_data.get("room_name")
-                or classroom_data.get("name")
-                or ""
-            )
-
-            camera_name = classroom_data.get("camera_name", "")
-            ip_address = classroom_data.get("ip_address", "")
-            rtsp_port = classroom_data.get("rtsp_port", "")
-            rtsp_url = classroom_data.get("rtsp_url", "")
-
-            is_configured = all([
-                camera_name,
-                ip_address,
-                rtsp_port,
-                rtsp_url,
-            ])
-
-            if camera_name or ip_address or rtsp_port or rtsp_url:
-                camera = {
-                    "id": classroom_id,
-                    "name": camera_name,
-                    "status": classroom_data.get("status", "offline"),
-                    "is_configured": is_configured,
-                    "ip_address": ip_address,
-                    "rtsp_port": str(rtsp_port) if rtsp_port else "",
-                }
-
-    row_number = normalize_int(data.get("row_number"), 0)
-    column_number = normalize_int(data.get("column_number"), 0)
-
-    student_count = row_number * column_number
-
-    seat_assignments = data.get("seat_assignments", {})
-
-    if not isinstance(seat_assignments, dict):
-        seat_assignments = {}
+    empty_count = max(0, capacity - occupied_count)
 
     return {
-        "id": doc.id,
-        "class_name": data.get("class_name", ""),
-        "teacher_id": teacher_id,
-        "teacher_name": teacher_name,
-        "teacher_email": teacher_email,
-        "classroom_id": classroom_id,
-        "classroom_name": classroom_name,
-        "row_number": row_number,
-        "column_number": column_number,
-        "student_count": student_count,
-        "seat_assignments": seat_assignments,
-        "is_active": data.get("is_active", True),
-        "camera": camera,
+        "seat_capacity": capacity,
+        "empty_seat_count": empty_count,
+        "occupied_seat_count": occupied_count,
     }
+
+
+def class_data(doc_or_dict, doc_id=None):
+    if hasattr(doc_or_dict, "to_dict"):
+        data = doc_or_dict.to_dict() or {}
+        class_id = doc_or_dict.id
+    else:
+        data = doc_or_dict or {}
+        class_id = doc_id
+
+    data.setdefault("row_count", DEFAULT_ROW_COUNT)
+    data.setdefault("column_count", DEFAULT_COLUMN_COUNT)
+
+    row_count, row_error = positive_int(data.get("row_count"), "row_count")
+    column_count, column_error = positive_int(data.get("column_count"), "column_count")
+    if row_error or column_error:
+        row_count = DEFAULT_ROW_COUNT
+        column_count = DEFAULT_COLUMN_COUNT
+
+    seat_map = data.get("seat_map", {})
+    stats = seat_stats_for_class(seat_map, row_count, column_count)
+
+    return {
+        "id": class_id,
+        **json_value(data),
+        **stats,
+        "teacher_name": teacher_name(data.get("teacher_id")),
+    }
+
+
+def get_class(class_id):
+    return get_document("classes2", class_id)
+
+
+def student_data(student_id, student, member):
+    """Bổ sung thêm Mã HS, Giới tính, SĐT và Ghi chú để lấp đầy bảng chi tiết"""
+    birthday = student.get("birthday")
+    if birthday and not isinstance(birthday, str):
+        birthday = str(birthday) 
+
+    return {
+        "student_id": student_id,
+        "student_code": student.get("student_code", "N/A"),
+        "full_name": student.get("full_name", ""),
+        "gender": student.get("gender", "Chưa rõ"),
+        "parent_phone": student.get("parent_phone", ""),
+        "parent_id": student.get("parent_id"),
+        "status": member.get("status", "active"),
+        "birthday": birthday,
+        "note": student.get("note", "")
+    }
+
+
+def seat_data(seat_id, seat_info, column_count):
+    student_name = ""
+    student_id = seat_info.get("student_id")
+    
+    row = seat_info.get("row")
+    col = seat_info.get("column")
+
+    if not row or not col:
+        try:
+            num = int(seat_id.replace("S", ""))
+            row = (num - 1) // column_count + 1
+            col = (num - 1) % column_count + 1
+        except Exception:
+            row, col = 1, 1
+
+    if student_id:
+        student_doc = db.collection("students2").document(student_id).get()
+        if student_doc.exists:
+            student_name = (student_doc.to_dict() or {}).get("full_name", "")
+
+    return {
+        "id": seat_id,
+        **json_value(seat_info),
+        "seat_id": seat_id,
+        "row": row,
+        "column": col,
+        "student_name": student_name,
+    }
+
+
+def class_dimensions(class_doc):
+    data = class_doc.to_dict() or {}
+    row_count = data.get("row_count", DEFAULT_ROW_COUNT)
+    column_count = data.get("column_count", DEFAULT_COLUMN_COUNT)
+    row_count, row_error = positive_int(row_count, "row_count")
+    column_count, column_error = positive_int(column_count, "column_count")
+    if row_error or column_error:
+        raise ValueError(row_error or column_error)
+    return row_count, column_count
+
+
+def ensure_class_seats(class_id, class_doc):
+    """Đảm bảo lớp học có đầy đủ sơ đồ ghế ngồi. Trả về dict dữ liệu cập nhật."""
+    data = class_doc.to_dict() or {}
+    row_count, column_count = class_dimensions(class_doc)
+    seat_map = data.get("seat_map", {})
+    
+    changed = False
+
+    for row in range(1, row_count + 1):
+        for column in range(1, column_count + 1):
+            seat_id = f"S{(row - 1) * column_count + column:02d}"
+            if seat_id not in seat_map:
+                seat_map[seat_id] = {
+                    "seat_id": seat_id,
+                    "row": row,
+                    "column": column,
+                    "student_id": None,
+                    "status": "empty",
+                    "updated_at": server_timestamp(),
+                }
+                changed = True
+
+    if changed:
+        data["seat_map"] = seat_map
+        db.collection("classes2").document(class_id).update({"seat_map": seat_map})
+
+    return data
+
+
+def resize_class_seats(class_id, old_class_doc, new_row_count, new_column_count):
+    data = old_class_doc.to_dict() or {}
+    old_seat_map = data.get("seat_map", {})
+    old_column_count = data.get("column_count", DEFAULT_COLUMN_COUNT)
+
+    coords_to_seat = {}
+    for seat_id, seat in old_seat_map.items():
+        r, c = seat.get("row"), seat.get("column")
+        if not (isinstance(r, int) and isinstance(c, int)):
+            try:
+                num = int(str(seat_id).upper().replace("S", ""))
+                r = (num - 1) // old_column_count + 1
+                c = (num - 1) % old_column_count + 1
+            except Exception:
+                r, c = None, None
+
+        if r is not None and c is not None:
+            coords_to_seat[(r, c)] = seat
+
+    for (r, c), seat in coords_to_seat.items():
+        if r > new_row_count or c > new_column_count:
+            if seat.get("student_id") or seat.get("status") == "occupied":
+                raise ValueError(
+                    f"Không thể thu nhỏ do ghế hàng {r}, cột {c} đang có học sinh."
+                )
+
+    new_seat_map = {}
+    for row in range(1, new_row_count + 1):
+        for column in range(1, new_column_count + 1):
+            seat_id = f"S{(row - 1) * new_column_count + column:02d}"
+            old_seat = coords_to_seat.get((row, column))
+
+            if old_seat:
+                old_seat["seat_id"] = seat_id
+                old_seat["row"] = row
+                old_seat["column"] = column
+                new_seat_map[seat_id] = old_seat
+            else:
+                new_seat_map[seat_id] = {
+                    "seat_id": seat_id,
+                    "row": row,
+                    "column": column,
+                    "student_id": None,
+                    "status": "empty",
+                    "updated_at": server_timestamp(),
+                }
+
+    db.collection("classes2").document(class_id).update({"seat_map": new_seat_map})
 
 
 @class_bp.route("/api/admin/classes", methods=["GET"])
 def get_classes():
-    _, error_response = authorize_admin()
-    if error_response:
-        return error_response
-
+    _, auth_error = require_admin()
+    if auth_error:
+        return auth_error
     try:
+        query = db.collection("classes2")
+        for field in ("status", "teacher_id", "school_year"):
+            value = request.args.get(field)
+            if value:
+                query = query.where(field, "==", value)
+        
         classes = []
-        docs = db.collection("classes").stream()
-
-        for doc in docs:
-            classes.append(build_class_data(doc))
+        for doc in query.stream():
+            updated_data = ensure_class_seats(doc.id, doc)
+            classes.append(class_data(updated_data, doc.id))
 
         classes.sort(key=lambda item: item.get("class_name", ""))
-
-        return jsonify({
-            "success": True,
-            "classes": classes,
-            "total": len(classes),
-        }), 200
-
-    except Exception as error:
-        print("Get classes error:", error)
-        return jsonify({
-            "success": False,
-            "message": "Không thể lấy danh sách lớp học."
-        }), 500
+        return jsonify({"success": True, "data": classes}), 200
+    except Exception as exc:
+        print("Get classes error:", exc)
+        return error("Không thể lấy danh sách lớp học.", 500)
 
 
 @class_bp.route("/api/admin/classes", methods=["POST"])
 def create_class():
-    _, error_response = authorize_admin()
-    if error_response:
-        return error_response
+    _, auth_error = require_admin()
+    if auth_error:
+        return auth_error
 
-    try:
-        data = get_json_body()
+    data = get_json_body()
+    values = {}
 
-        class_name = str(data.get("class_name", "")).strip()
-        teacher_id = str(data.get("teacher_id", "")).strip()
-        classroom_id = str(data.get("classroom_id", "")).strip()
-        row_number = normalize_int(data.get("row_number"), 0)
-        column_number = normalize_int(data.get("column_number"), 0)
-        is_active = data.get("is_active", True)
+    for field in ("class_name", "teacher_id", "school_year"):
+        value, message = required_string(data, field)
+        if message:
+            return error(message)
+        values[field] = value
 
-        if not class_name:
-            return jsonify({"success": False, "message": "Tên lớp không được để trống."}), 400
-        if not teacher_id:
-            return jsonify({"success": False, "message": "Giáo viên chủ nhiệm là bắt buộc."}), 400
-        if not classroom_id:
-            return jsonify({"success": False, "message": "Vui lòng chọn phòng học."}), 400
-        if row_number < 1:
-            return jsonify({"success": False, "message": "Số hàng phải lớn hơn hoặc bằng 1."}), 400
-        if column_number < 1:
-            return jsonify({"success": False, "message": "Số cột phải lớn hơn hoặc bằng 1."}), 400
-        if not isinstance(is_active, bool):
-            return jsonify({"success": False, "message": "is_active phải là true hoặc false."}), 400
+    values["subject"] = str(data.get("subject", "")).strip()
 
-        teacher_doc, teacher_data = get_teacher(teacher_id)
-        if not teacher_doc:
-            return jsonify({"success": False, "message": "Không tìm thấy giáo viên chủ nhiệm."}), 404
-        if teacher_data.get("is_active", True) is False:
-            return jsonify({"success": False, "message": "Giáo viên chủ nhiệm đang bị khóa."}), 400
-
-        classroom_doc, _ = get_classroom(classroom_id)
-        if not classroom_doc:
-            return jsonify({"success": False, "message": "Không tìm thấy phòng học."}), 404
-
-        existing_query = db.collection("classes").where("class_name", "==", class_name).limit(1).stream()
-
-        if next(existing_query, None):
-            return jsonify({"success": False, "message": "Tên lớp học này đã tồn tại."}), 409
-
-        student_count = row_number * column_number
-        class_data = {
-            "class_name": class_name,
-            "teacher_id": teacher_id,
-            "classroom_id": classroom_id,
-            "row_number": row_number,
-            "column_number": column_number,
-            "student_count": student_count,
-            "seat_assignments": {},
-            "is_active": is_active,
-        }
-
-        doc_ref = db.collection("classes").document()
-        doc_ref.set(class_data)
-
-        return jsonify({
-            "success": True,
-            "message": "Tạo lớp học thành công.",
-            "class": build_class_data(doc_ref.get()),
-        }), 201
-
-    except Exception as error:
-        print("Create class error:", error)
-        return jsonify({
-            "success": False,
-            "message": "Không thể tạo lớp học."
-        }), 500
-
-
-@class_bp.route("/api/admin/classes/<class_id>", methods=["PUT"])
-def update_class(class_id):
-    _, error_response = authorize_admin()
-    if error_response:
-        return error_response
-
-    try:
-        class_ref = db.collection("classes").document(class_id)
-        class_doc = class_ref.get()
-
-        if not class_doc.exists:
-            return jsonify({"success": False, "message": "Không tìm thấy lớp học."}), 404
-
-        current_data = class_doc.to_dict() or {}
-        data = get_json_body()
-        current_teacher_id = str(current_data.get("teacher_id", "")).strip()
-
-        if "teacher_id" not in data:
-            if not current_teacher_id:
-                return jsonify({"success": False, "message": "Giáo viên chủ nhiệm là bắt buộc."}), 400
-
-        update_data = {}
-
-        if "class_name" in data:
-            class_name = str(data.get("class_name", "")).strip()
-            if not class_name:
-                return jsonify({"success": False, "message": "Tên lớp không được để trống."}), 400
-
-            existing_query = db.collection("classes").where("class_name", "==", class_name).limit(10).stream()
-            for existing_doc in existing_query:
-                if existing_doc.id != class_id:
-                    return jsonify({"success": False, "message": "Tên lớp học này đã tồn tại."}), 409
-
-            update_data["class_name"] = class_name
-
-        if "teacher_id" in data:
-            teacher_id = str(data.get("teacher_id", "")).strip()
-            if not teacher_id:
-                return jsonify({"success": False, "message": "Giáo viên chủ nhiệm là bắt buộc."}), 400
-
-            teacher_doc, teacher_data = get_teacher(teacher_id)
-            if not teacher_doc:
-                return jsonify({"success": False, "message": "Không tìm thấy giáo viên chủ nhiệm."}), 404
-
-            if teacher_data.get("is_active", True) is False:
-                return jsonify({"success": False, "message": "Giáo viên chủ nhiệm đang bị khóa."}), 400
-
-            update_data["teacher_id"] = teacher_id
-
-        if "classroom_id" in data:
-            classroom_id = str(data.get("classroom_id", "")).strip()
-            if not classroom_id:
-                return jsonify({"success": False, "message": "Vui lòng chọn phòng học."}), 400
-
-            classroom_doc, _ = get_classroom(classroom_id)
-            if not classroom_doc:
-                return jsonify({"success": False, "message": "Không tìm thấy phòng học."}), 404
-
-            update_data["classroom_id"] = classroom_id
-
-        if "row_number" in data:
-            row_number = normalize_int(data.get("row_number"), 0)
-            if row_number < 1:
-                return jsonify({"success": False, "message": "Số hàng phải lớn hơn hoặc bằng 1."}), 400
-            update_data["row_number"] = row_number
-
-        if "column_number" in data:
-            column_number = normalize_int(data.get("column_number"), 0)
-            if column_number < 1:
-                return jsonify({"success": False, "message": "Số cột phải lớn hơn hoặc bằng 1."}), 400
-            update_data["column_number"] = column_number
-
-        if "is_active" in data:
-            if not isinstance(data.get("is_active"), bool):
-                return jsonify({"success": False, "message": "is_active phải là true hoặc false."}), 400
-            update_data["is_active"] = data.get("is_active")
-
-        old_rows = normalize_int(current_data.get("row_number"), 0)
-        old_columns = normalize_int(current_data.get("column_number"), 0)
-        new_rows = update_data.get("row_number", old_rows)
-        new_columns = update_data.get("column_number", old_columns)
-        new_student_count = new_rows * new_columns
+    row_count, message = positive_int(data.get("row_count", DEFAULT_ROW_COUNT), "row_count")
+    if message:
+        return error(message)
         
-        update_data["student_count"] = new_student_count
+    column_count, message = positive_int(data.get("column_count", DEFAULT_COLUMN_COUNT), "column_count")
+    if message:
+        return error(message)
 
-        if new_rows != old_rows or new_columns != old_columns:
-            current_assignments = current_data.get("seat_assignments", {})
-            if not isinstance(current_assignments, dict):
-                current_assignments = {}
+    if not teacher_exists_check(values["teacher_id"]):
+        return error("Không tìm thấy giáo viên.", 404)
 
-            valid_assignments = {}
-            max_seats = new_rows * new_columns
+    duplicate = db.collection("classes2").where("class_name", "==", values["class_name"]).limit(1).stream()
+    if next(duplicate, None):
+        return error("Tên lớp học này đã tồn tại.", 409)
 
-            for seat_id, student_id in current_assignments.items():
-                if not isinstance(seat_id, str) or not seat_id.startswith("S"):
-                    continue
-                try:
-                    seat_number = int(seat_id[1:])
-                except ValueError:
-                    continue
+    class_ref = db.collection("classes2").document()
+    class_ref.set(
+        {
+            **values,
+            "row_count": row_count,
+            "column_count": column_count,
+            "status": "active",
+            "seat_map": {},
+            "created_at": server_timestamp(),
+            "updated_at": server_timestamp(),
+        }
+    )
 
-                if 1 <= seat_number <= max_seats:
-                    valid_assignments[seat_id] = student_id
+    class_doc = class_ref.get()
+    updated_data = ensure_class_seats(class_ref.id, class_doc)
+    return jsonify({"success": True, "data": class_data(updated_data, class_ref.id)}), 201
 
-            update_data["seat_assignments"] = valid_assignments
 
-        if not update_data:
-            return jsonify({"success": False, "message": "Không có dữ liệu cần cập nhật."}), 400
+@class_bp.route("/api/admin/classes/<class_id>", methods=["GET", "PUT", "DELETE"])
+def class_detail(class_id):
+    _, auth_error = require_admin()
+    if auth_error:
+        return auth_error
 
+    class_ref, class_doc = get_class(class_id)
+    if not class_doc.exists:
+        return error("Không tìm thấy lớp học.", 404)
+
+    if request.method == "GET":
+        try:
+            updated_data = ensure_class_seats(class_id, class_doc)
+            return jsonify({"success": True, "data": class_data(updated_data, class_id)}), 200
+        except ValueError as exc:
+            return error(str(exc), 409)
+
+    if request.method == "DELETE":
+        class_ref.update({"status": "inactive", "updated_at": server_timestamp()})
+        return jsonify({"success": True, "message": "Vô hiệu hóa lớp học thành công."}), 200
+
+    data = get_json_body()
+    update_data = {}
+
+    for field in {"class_name", "teacher_id", "school_year", "status"}:
+        if field not in data:
+            continue
+        value = data[field]
+        if field == "status":
+            if value not in ALLOWED_CLASS_STATUS:
+                return error("status không hợp lệ.")
+        elif not isinstance(value, str) or not value.strip():
+            return error(f"{field} phải là chuỗi không rỗng.")
+        update_data[field] = value.strip() if isinstance(value, str) else value
+
+    current_data = class_doc.to_dict() or {}
+    old_row_count = current_data.get("row_count", DEFAULT_ROW_COUNT)
+    old_column_count = current_data.get("column_count", DEFAULT_COLUMN_COUNT)
+    new_row_count = old_row_count
+    new_column_count = old_column_count
+
+    if "row_count" in data:
+        new_row_count, message = positive_int(data["row_count"], "row_count")
+        if message:
+            return error(message)
+        update_data["row_count"] = new_row_count
+
+    if "column_count" in data:
+        new_column_count, message = positive_int(data["column_count"], "column_count")
+        if message:
+            return error(message)
+        update_data["column_count"] = new_column_count
+
+    if "teacher_id" in update_data:
+        if not teacher_exists_check(update_data["teacher_id"]):
+            return error("Không tìm thấy giáo viên.", 404)
+
+    if not update_data:
+        return error("Không có dữ liệu cần cập nhật.")
+
+    try:
+        dimensions_changed = (
+            new_row_count != old_row_count or new_column_count != old_column_count
+        )
+        if dimensions_changed:
+            resize_class_seats(
+                class_id,
+                class_doc,
+                new_row_count,
+                new_column_count,
+            )
+
+        update_data["updated_at"] = server_timestamp()
         class_ref.update(update_data)
+        
+        updated_doc = class_ref.get()
+        return jsonify({"success": True, "data": class_data(updated_doc)}), 200
+    except ValueError as exc:
+        return error(str(exc), 409)
+    except Exception as exc:
+        print("Update class error:", exc)
+        return error("Không thể cập nhật lớp học.", 500)
 
-        return jsonify({
-            "success": True,
-            "message": "Cập nhật lớp học thành công.",
-            "class": build_class_data(class_ref.get()),
-        }), 200
 
-    except Exception as error:
-        print("Update class error:", error)
-        return jsonify({
-            "success": False,
-            "message": "Không thể cập nhật lớp học."
-        }), 500
+@class_bp.route("/api/admin/classes/<class_id>/students", methods=["GET"])
+def class_students(class_id):
+    _, auth_error = require_admin()
+    if auth_error:
+        return auth_error
+
+    class_ref, class_doc = get_class(class_id)
+    if not class_doc.exists:
+        return error("Không tìm thấy lớp học.", 404)
+
+    result = []
+    student_ids_added = set()
+
+    member_docs = db.collection("class_members").where("class_id", "==", class_id).stream()
+    for member_doc in member_docs:
+        member = member_doc.to_dict() or {}
+        if member.get("status") != "active":
+            continue
+        student_id = member.get("student_id")
+        
+        if student_id and str(student_id).strip() not in ["", "None", "null", "undefined"]:
+            student_doc = db.collection("students2").document(student_id).get()
+            if student_doc.exists:
+                result.append(student_data(student_doc.id, student_doc.to_dict() or {}, member))
+                student_ids_added.add(student_id)
+
+    class_data_dict = class_doc.to_dict() or {}
+    seat_map = class_data_dict.get("seat_map", {})
+    for s_id, s_info in seat_map.items():
+        student_id = s_info.get("student_id")
+
+        if student_id and str(student_id).strip() not in ["", "None", "null", "undefined"]:
+            if student_id not in student_ids_added:
+                student_doc = db.collection("students2").document(student_id).get()
+                if student_doc.exists:
+                    mock_member = {"status": "active"} 
+                    result.append(student_data(student_doc.id, student_doc.to_dict() or {}, mock_member))
+                    student_ids_added.add(student_id)
+
+    result.sort(key=lambda item: get_vietnamese_sort_key(item.get("full_name", "")))
+    return jsonify({"success": True, "data": result}), 200
 
 
 @class_bp.route("/api/admin/classes/<class_id>/seats", methods=["GET"])
-def get_class_seats(class_id):
-    _, error_response = authorize_admin()
-    if error_response:
-        return error_response
+def class_seats(class_id):
+    _, auth_error = require_admin()
+    if auth_error:
+        return auth_error
+
+    class_ref, class_doc = get_class(class_id)
+    if not class_doc.exists:
+        return error("Không tìm thấy lớp học.", 404)
 
     try:
-        class_ref = db.collection("classes").document(class_id)
-        class_doc = class_ref.get()
-
-        if not class_doc.exists:
-            return jsonify({"success": False, "message": "Không tìm thấy lớp học."}), 404
-
-        data = class_doc.to_dict() or {}
-        rows = normalize_int(data.get("row_number"), 0)
-        columns = normalize_int(data.get("column_number"), 0)
-        assignments = data.get("seat_assignments", {})
-
-        if not isinstance(assignments, dict):
-            assignments = {}
-
-        seats = []
-        for row in range(1, rows + 1):
-            for column in range(1, columns + 1):
-                seat_number = ((row - 1) * columns) + column
-                seat_id = f"S{seat_number}"
-
-                seats.append({
-                    "seat_id": seat_id,
-                    "row": row,
-                    "column": column,
-                    "student_id": assignments.get(seat_id)
-                })
-
-        return jsonify({
-            "success": True,
-            "class_id": class_id,
-            "row_number": rows,
-            "column_number": columns,
-            "total_seats": rows * columns,
-            "student_count": rows * columns,
-            "seats": seats,
-        }), 200
-
-    except Exception as error:
-        print("Get class seats error:", error)
-        return jsonify({
-            "success": False,
-            "message": "Không thể lấy ma trận lớp học."
-        }), 500
+        updated_data = ensure_class_seats(class_id, class_doc)
+        seat_map = updated_data.get("seat_map", {})
+        column_count = updated_data.get("column_count", DEFAULT_COLUMN_COUNT)
+        
+        seats = [seat_data(s_id, s_info, column_count) for s_id, s_info in seat_map.items()]
+        seats.sort(key=lambda item: (item.get("row", 0), item.get("column", 0)))
+        
+        return jsonify({"success": True, "data": seats}), 200
+    except ValueError as exc:
+        return error(str(exc), 409)
+    except Exception as exc:
+        print("Get class seats error:", exc)
+        return error("Không thể lấy sơ đồ chỗ ngồi.", 500)
 
 
-@class_bp.route("/api/admin/classes/<class_id>/seats", methods=["PUT"])
-def update_class_seats(class_id):
-    _, error_response = authorize_admin()
-    if error_response:
-        return error_response
+@class_bp.route("/api/admin/classes/<class_id>/seats/<seat_id>", methods=["PUT"])
+def update_seat(class_id, seat_id):
+    _, auth_error = require_admin() 
+    if auth_error:
+        return auth_error
+
+    data = get_json_body()
+    student_id = data.get("student_id")
+
+    class_ref, class_doc = get_class(class_id)
+    if not class_doc.exists:
+        return error("Không tìm thấy lớp học.", 404)
+
+    class_data_dict = class_doc.to_dict() or {}
+    seat_map = class_data_dict.get("seat_map", {})
+
+    if seat_id not in seat_map:
+        return error("Không tìm thấy vị trí ghế ngồi.", 404)
+        
+    if student_id:
+        for sid, s_info in seat_map.items():
+            if s_info.get("student_id") == student_id and sid != seat_id:
+                s_info["student_id"] = None
+                s_info["status"] = "empty"
+                s_info["updated_at"] = server_timestamp()
+        status = "occupied"
+    else:
+        status = "empty"
+
+    seat_map[seat_id]["student_id"] = student_id
+    seat_map[seat_id]["status"] = status
+    seat_map[seat_id]["updated_at"] = server_timestamp()
 
     try:
-        class_ref = db.collection("classes").document(class_id)
-        class_doc = class_ref.get()
-
-        if not class_doc.exists:
-            return jsonify({"success": False, "message": "Không tìm thấy lớp học."}), 404
-
-        data = get_json_body()
-        assignments = data.get("seat_assignments")
-
-        if not isinstance(assignments, dict):
-            return jsonify({"success": False, "message": "seat_assignments phải là object."}), 400
-
-        class_data = class_doc.to_dict() or {}
-        rows = normalize_int(class_data.get("row_number"), 0)
-        columns = normalize_int(class_data.get("column_number"), 0)
-        max_seats = rows * columns
-
-        valid_assignments = {}
-
-        for seat_id, student_id in assignments.items():
-            if not isinstance(seat_id, str) or not seat_id.startswith("S"):
-                continue
-            try:
-                seat_number = int(seat_id[1:])
-            except ValueError:
-                continue
-
-            if not (1 <= seat_number <= max_seats):
-                continue
-            if student_id is None:
-                continue
-
-            student_id = str(student_id).strip()
-            if student_id:
-                valid_assignments[seat_id] = student_id
-
-        class_ref.update({"seat_assignments": valid_assignments})
-
-        return jsonify({
-            "success": True,
-            "message": "Cập nhật sơ đồ chỗ ngồi thành công.",
-            "seat_assignments": valid_assignments,
-            "student_count": rows * columns,
-        }), 200
-
-    except Exception as error:
-        print("Update class seats error:", error)
-        return jsonify({
-            "success": False,
-            "message": "Không thể cập nhật sơ đồ chỗ ngồi."
-        }), 500
-
-
-@class_bp.route("/api/admin/classes/<class_id>", methods=["DELETE"])
-def delete_class(class_id):
-    _, error_response = authorize_admin()
-    if error_response:
-        return error_response
-
-    try:
-        class_ref = db.collection("classes").document(class_id)
-        class_doc = class_ref.get()
-
-        if not class_doc.exists:
-            return jsonify({"success": False, "message": "Không tìm thấy lớp học."}), 404
-
-        class_ref.delete()
-
-        return jsonify({"success": True, "message": "Xóa lớp học thành công."}), 200
-
-    except Exception as error:
-        print("Delete class error:", error)
-        return jsonify({
-            "success": False,
-            "message": "Không thể xóa lớp học."
-        }), 500
+        class_ref.update({
+            "seat_map": seat_map,
+            "updated_at": server_timestamp()
+        })
+        return jsonify({"success": True, "message": "Cập nhật chỗ ngồi thành công."}), 200
+    except Exception as exc:
+        print("Update seat error:", exc)
+        return error("Không thể cập nhật chỗ ngồi.", 500)

@@ -1,80 +1,68 @@
-import Icon from "../common/Icon";
+import React, { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom"; // Import useNavigate
+import { 
+    Users, CheckCircle, XCircle, BookOpen, Plus, 
+    ArrowRight, RefreshCw, Server, Database, Activity, Info 
+} from "lucide-react";
 
-const DashboardPanel = ({
-    users = [],
-    loading,
-    onRefresh,
-    onNavigate,
-}) => {
-    const totalTeachers = users.length;
+const DashboardPanel = () => {
+    const navigate = useNavigate(); // Khởi tạo hook điều hướng
+    const [loading, setLoading] = useState(true);
+    const [dashboardData, setDashboardData] = useState({
+        stats: { total_teachers: 0, active_teachers: 0, inactive_teachers: 0, total_subjects: 0 },
+        active_sessions: [],
+        concentration: { high: 0, medium: 0, low: 0, avg_score: 0, has_data: false },
+        system_status: { backend: "Đang hoạt động", firebase: "Đang hoạt động", monitoring: "Đang phát triển" },
+        activities: []
+    });
 
-    const activeTeachers = users.filter(
-        (user) => user.is_active !== false
-    ).length;
+    const fetchDashboardData = async () => {
+        setLoading(true);
+        try {
+            const token = localStorage.getItem("token");
+            const response = await fetch("/api/admin/dashboard-stats", {
+                headers: {
+                    "Authorization": token ? `Bearer ${token}` : ""
+                }
+            });
+            const result = await response.json();
+            if (result.success) {
+                setDashboardData(result);
+            }
+        } catch (error) {
+            console.error("Lỗi khi tải dữ liệu Dashboard:", error);
+        } finally {
+            setLoading(false);
+        }
+    };
 
-    const inactiveTeachers = users.filter(
-        (user) => user.is_active === false
-    ).length;
+    useEffect(() => {
+        fetchDashboardData();
+    }, []);
 
-    const subjects = [
-        ...new Set(
-            users.flatMap((user) =>
-                Array.isArray(user.subject)
-                    ? user.subject
-                    : []
-            )
-        ),
-    ];
+    const { stats, active_sessions, concentration, system_status, activities } = dashboardData;
 
-    const monitoringSessions = [
-        {
-            className: "Lớp 10A1",
-            teacher: "Giáo viên 1",
-            students: "--",
-            status: "Đang hoạt động",
-        },
-        {
-            className: "Lớp 10A2",
-            teacher: "--",
-            students: "--",
-            status: "Chưa bắt đầu",
-        },
-        {
-            className: "Lớp 11A1",
-            teacher: "--",
-            students: "--",
-            status: "Chưa bắt đầu",
-        },
-    ];
+    const highVal = concentration.high || 0;
+    const medVal = concentration.medium || 0;
+    const lowVal = concentration.low || 0;
+
+    const circumference = 100;
+    const highDash = `${highVal} ${circumference - highVal}`;
+    const medOffset = -highVal;
+    const medDash = `${medVal} ${circumference - medVal}`;
+    const lowOffset = -(highVal + medVal);
+    const lowDash = `${lowVal} ${circumference - lowVal}`;
 
     const alerts = [
         {
             title: "Chưa có cảnh báo mới",
-            description: "Hệ thống chưa ghi nhận cảnh báo",
+            description: "Hệ thống chưa ghi nhận cảnh báo bất thường",
             type: "info",
         },
         {
-            title: "Dữ liệu giám sát",
-            description: "Tính năng đang được phát triển",
+            title: "Dữ liệu giám sát AI",
+            description: "Tính năng đánh giá tư thế đang hoạt động ổn định",
             type: "info",
-        },
-    ];
-
-    const activities = [
-        {
-            title: "Đăng nhập hệ thống",
-            description: "Quản trị viên đã đăng nhập",
-            time: "Vừa xong",
-        },
-        {
-            title: "Đồng bộ tài khoản giáo viên",
-            description: `${totalTeachers} tài khoản giáo viên`,
-            time: "Hiện tại",
-        },
-        {
-            title: "Kiểm tra hệ thống",
-            description: "Hệ thống hoạt động bình thường",
-            time: "Hiện tại",
         },
     ];
 
@@ -84,206 +72,197 @@ const DashboardPanel = ({
             <div className="dashboard-heading">
                 <div>
                     <h2>Dashboard</h2>
-                    <p>
-                        Tổng quan hệ thống PrivateClass Vision.
-                    </p>
+                    <p>Tổng quan hệ thống quản lý lớp học.</p>
                 </div>
 
                 <button
                     type="button"
                     className="dashboard-refresh-button"
-                    onClick={onRefresh}
+                    onClick={fetchDashboardData}
                 >
-                    <Icon name="refresh" size={16} />
+                    <RefreshCw size={16} />
                     Làm mới
                 </button>
             </div>
 
+            {/* Thẻ thống kê */}
             <section className="dashboard-stat-grid">
-
                 <div className="dashboard-stat-card">
-                    <div className="dashboard-stat-icon blue">
-                        <Icon name="book" size={21} />
-                    </div>
-
-                    <div>
+                    <div className="dashboard-stat-icon blue"><Users size={22} /></div>
+                    <div className="dashboard-stat-info">
                         <span>Tổng giáo viên</span>
-
-                        <strong>
-                            {loading ? "..." : totalTeachers}
-                        </strong>
-
+                        <strong>{loading ? "..." : stats.total_teachers}</strong>
                         <small>Tài khoản</small>
                     </div>
                 </div>
 
-
                 <div className="dashboard-stat-card">
-                    <div className="dashboard-stat-icon green">
-                        <Icon name="check" size={21} />
-                    </div>
-
-                    <div>
+                    <div className="dashboard-stat-icon green"><CheckCircle size={22} /></div>
+                    <div className="dashboard-stat-info">
                         <span>Đang hoạt động</span>
-
-                        <strong>
-                            {loading ? "..." : activeTeachers}
-                        </strong>
-
+                        <strong>{loading ? "..." : stats.active_teachers}</strong>
                         <small>Tài khoản</small>
                     </div>
                 </div>
 
-
                 <div className="dashboard-stat-card">
-                    <div className="dashboard-stat-icon red">
-                        <Icon name="close" size={21} />
-                    </div>
-
-                    <div>
+                    <div className="dashboard-stat-icon red"><XCircle size={22} /></div>
+                    <div className="dashboard-stat-info">
                         <span>Đã vô hiệu hóa</span>
-
-                        <strong>
-                            {loading ? "..." : inactiveTeachers}
-                        </strong>
-
+                        <strong>{loading ? "..." : stats.inactive_teachers}</strong>
                         <small>Tài khoản</small>
                     </div>
                 </div>
 
-
                 <div className="dashboard-stat-card">
-                    <div className="dashboard-stat-icon purple">
-                        <Icon name="book" size={21} />
-                    </div>
-
-                    <div>
+                    <div className="dashboard-stat-icon purple"><BookOpen size={22} /></div>
+                    <div className="dashboard-stat-info">
                         <span>Bộ môn</span>
-
-                        <strong>
-                            {loading ? "..." : subjects.length}
-                        </strong>
-
+                        <strong>{loading ? "..." : stats.total_subjects}</strong>
                         <small>Môn học</small>
                     </div>
                 </div>
 
-
                 <button
                     type="button"
                     className="dashboard-add-card"
-                    onClick={() => onNavigate?.("account-management")}
+                    // onClick={() => navigate("/account-management")}
                 >
-                    <div className="dashboard-add-icon">
-                        <Icon name="plus" size={21} />
-                    </div>
-
+                    <div className="dashboard-add-icon"><Plus size={22} /></div>
                     <div>
                         <strong>Sắp có thêm</strong>
-                        <span>
-                            Tính năng quản lý cấp nhật
-                        </span>
+                        <span>Tính năng quản lý cập nhật</span>
                     </div>
                 </button>
-
             </section>
 
+            {/* Phần biểu đồ và bảng */}
             <section className="dashboard-main-grid">
 
-                {/* ===== ENGAGEMENT ===== */}
+                {/* BIỂU ĐỒ MỨC ĐỘ TẬP TRUNG */}
                 <div className="dashboard-card engagement-card">
-
                     <div className="dashboard-card-header">
                         <div>
                             <h3>Mức độ tập trung</h3>
-                            <p>
-                                Tổng quan tình trạng lớp học
-                            </p>
+                            <p>Tổng quan tình trạng lớp học</p>
                         </div>
-
-                        <span className="dashboard-card-info">
-                            Tạm thời
-                        </span>
+                        <span className="dashboard-badge-info">Thời gian thực</span>
                     </div>
 
-
-                    <div className="engagement-content">
-
-                        <div className="engagement-circle">
-                            <div>
-                                <strong>--</strong>
-                                <span>
-                                    Chưa có dữ liệu
-                                </span>
+                    <div className="engagement-content-wrapper">
+                        <div className="engagement-chart-container">
+                            <svg viewBox="0 0 36 36" className="engagement-donut-svg">
+                                <path
+                                    d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
+                                    fill="none"
+                                    stroke="#edf2f7"
+                                    strokeWidth="3.8"
+                                />
+                                {concentration.has_data && (
+                                    <>
+                                        <path
+                                            d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
+                                            fill="none"
+                                            stroke="#10b981"
+                                            strokeWidth="3.8"
+                                            strokeDasharray={highDash}
+                                        />
+                                        <path
+                                            d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
+                                            fill="none"
+                                            stroke="#f59e0b"
+                                            strokeWidth="3.8"
+                                            strokeDasharray={medDash}
+                                            strokeDashoffset={medOffset}
+                                        />
+                                        <path
+                                            d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
+                                            fill="none"
+                                            stroke="#ef4444"
+                                            strokeWidth="3.8"
+                                            strokeDasharray={lowDash}
+                                            strokeDashoffset={lowOffset}
+                                        />
+                                    </>
+                                )}
+                            </svg>
+                            <div className="engagement-chart-center">
+                                <strong>{concentration.has_data ? `${concentration.avg_score}%` : "--"}</strong>
+                                <span>{concentration.has_data ? "Trung bình" : "Chưa có dữ liệu"}</span>
                             </div>
                         </div>
 
-
-                        <div className="engagement-legend">
-
-                            <div>
-                                <span className="legend-dot high"></span>
-                                <div>
-                                    <strong>Tập trung cao</strong>
-                                    <small>--</small>
+                        <div className="engagement-progress-list">
+                            <div className="progress-item">
+                                <div className="progress-info">
+                                    <span className="progress-label-wrap">
+                                        <span className="dot high"></span>
+                                        <strong>Tập trung cao</strong>
+                                    </span>
+                                    <span className="progress-percent high-text">{highVal}%</span>
+                                </div>
+                                <div className="progress-bar-bg">
+                                    <div className="progress-bar-fill high-fill" style={{ width: `${highVal}%` }}></div>
                                 </div>
                             </div>
 
-                            <div>
-                                <span className="legend-dot medium"></span>
-                                <div>
-                                    <strong>Tập trung trung bình</strong>
-                                    <small>--</small>
+                            <div className="progress-item">
+                                <div className="progress-info">
+                                    <span className="progress-label-wrap">
+                                        <span className="dot medium"></span>
+                                        <strong>Trung bình</strong>
+                                    </span>
+                                    <span className="progress-percent medium-text">{medVal}%</span>
+                                </div>
+                                <div className="progress-bar-bg">
+                                    <div className="progress-bar-fill medium-fill" style={{ width: `${medVal}%` }}></div>
                                 </div>
                             </div>
 
-                            <div>
-                                <span className="legend-dot low"></span>
-                                <div>
-                                    <strong>Tập trung thấp</strong>
-                                    <small>--</small>
+                            <div className="progress-item">
+                                <div className="progress-info">
+                                    <span className="progress-label-wrap">
+                                        <span className="dot low"></span>
+                                        <strong>Tập trung thấp</strong>
+                                    </span>
+                                    <span className="progress-percent low-text">{lowVal}%</span>
+                                </div>
+                                <div className="progress-bar-bg">
+                                    <div className="progress-bar-fill low-fill" style={{ width: `${lowVal}%` }}></div>
                                 </div>
                             </div>
-
                         </div>
-
                     </div>
 
+                    {/* Điều hướng sang trang Phân tích & Đánh giá */}
                     <button
                         className="dashboard-link-button"
                         type="button"
+                        onClick={() => navigate("/evaluation-management")}
                     >
-                        Xem báo cáo tập trung
-                        <Icon name="arrow-right" size={15} />
+                        Xem báo cáo tập trung chi tiết
+                        <ArrowRight size={15} />
                     </button>
-
                 </div>
 
+                {/* Phiên giám sát đang hoạt động */}
                 <div className="dashboard-card">
-
                     <div className="dashboard-card-header">
-
                         <div>
-                            <h3>Phiên giám sát đang hoạt động</h3>
-                            <p>
-                                Theo dõi các lớp học hiện tại
-                            </p>
+                            <h3>Các tiết học đang hoạt động</h3>
+                            <p>Theo dõi các lớp học hiện tại</p>
                         </div>
-
                         <button
                             type="button"
                             className="dashboard-text-button"
+                            onClick={() => navigate("/session-management")}
                         >
                             Xem tất cả
                         </button>
-
                     </div>
 
-
                     <div className="dashboard-table-wrapper">
-
                         <table className="dashboard-table">
-
                             <thead>
                                 <tr>
                                     <th>Lớp</th>
@@ -292,264 +271,127 @@ const DashboardPanel = ({
                                     <th>Trạng thái</th>
                                 </tr>
                             </thead>
-
                             <tbody>
-
-                                {monitoringSessions.map(
-                                    (session, index) => (
+                                {active_sessions.length > 0 ? (
+                                    active_sessions.map((session, index) => (
                                         <tr key={index}>
-
+                                            <td><strong>{session.class_name}</strong></td>
+                                            <td>{session.teacher}</td>
+                                            <td>{session.students}</td>
                                             <td>
-                                                <strong>
-                                                    {session.className}
-                                                </strong>
-                                            </td>
-
-                                            <td>
-                                                {session.teacher}
-                                            </td>
-
-                                            <td>
-                                                {session.students}
-                                            </td>
-
-                                            <td>
-                                                <span
-                                                    className={`monitoring-status ${
-                                                        session.status ===
-                                                        "Đang hoạt động"
-                                                            ? "active"
-                                                            : "waiting"
-                                                    }`}
-                                                >
+                                                <span className="monitoring-status active">
                                                     <i></i>
                                                     {session.status}
                                                 </span>
                                             </td>
-
                                         </tr>
-                                    )
+                                    ))
+                                ) : (
+                                    <tr>
+                                        <td colSpan="4" className="empty-table-cell">
+                                            Hiện tại không có phiên giám sát nào đang diễn ra.
+                                        </td>
+                                    </tr>
                                 )}
-
                             </tbody>
-
                         </table>
-
                     </div>
 
+                    {/* Điều hướng sang trang Quản lý phiên */}
                     <button
-                        type="button"
                         className="dashboard-link-button"
+                        type="button"
+                        onClick={() => navigate("/session-management")}
                     >
                         Xem tất cả phiên giám sát
-                        <Icon name="arrow-right" size={15} />
+                        <ArrowRight size={15} />
                     </button>
-
                 </div>
 
             </section>
 
+            {/* Phần dưới: Trạng thái hệ thống & Hoạt động */}
             <section className="dashboard-bottom-grid">
-
                 <div className="dashboard-card system-status-card">
-
                     <div className="dashboard-card-header">
-
                         <div>
                             <h3>Trạng thái hệ thống</h3>
-                            <p>
-                                Tình trạng các thành phần
-                            </p>
+                            <p>Tình trạng các thành phần</p>
                         </div>
-
-                        <span className="system-status-percent">
-                            Hoạt động
-                        </span>
-
+                        <span className="system-status-percent">Hoạt động</span>
                     </div>
-
 
                     <div className="system-status-list">
+                        <div className="system-status-item">
+                            <div>
+                                <span className="system-status-icon"><Server size={17} /></span>
+                                <span>Backend API</span>
+                            </div>
+                            <strong className="status-ok">{system_status.backend}</strong>
+                        </div>
 
                         <div className="system-status-item">
                             <div>
-                                <span className="system-status-icon">
-                                    <Icon
-                                        name="server"
-                                        size={17}
-                                    />
-                                </span>
-
-                                <span>
-                                    Backend API
-                                </span>
+                                <span className="system-status-icon"><Database size={17} /></span>
+                                <span>Firebase Firestore</span>
                             </div>
-
-                            <strong className="status-ok">
-                                Đang hoạt động
-                            </strong>
+                            <strong className="status-ok">{system_status.firebase}</strong>
                         </div>
-
 
                         <div className="system-status-item">
                             <div>
-                                <span className="system-status-icon">
-                                    <Icon
-                                        name="database"
-                                        size={17}
-                                    />
-                                </span>
-
-                                <span>
-                                    Firebase Firestore
-                                </span>
+                                <span className="system-status-icon"><Activity size={17} /></span>
+                                <span>Monitoring Service</span>
                             </div>
-
-                            <strong className="status-ok">
-                                Đang hoạt động
-                            </strong>
+                            <strong className="status-pending">{system_status.monitoring}</strong>
                         </div>
-
-
-                        <div className="system-status-item">
-                            <div>
-                                <span className="system-status-icon">
-                                    <Icon
-                                        name="activity"
-                                        size={17}
-                                    />
-                                </span>
-
-                                <span>
-                                    Monitoring Service
-                                </span>
-                            </div>
-
-                            <strong className="status-pending">
-                                Đang phát triển
-                            </strong>
-                        </div>
-
                     </div>
-
                 </div>
 
                 <div className="dashboard-card">
-
                     <div className="dashboard-card-header">
-
                         <div>
                             <h3>Cảnh báo gần đây</h3>
-                            <p>
-                                Các thông báo từ hệ thống
-                            </p>
+                            <p>Các thông báo từ hệ thống</p>
                         </div>
-
-                        <button
-                            type="button"
-                            className="dashboard-text-button"
-                        >
-                            Xem tất cả
-                        </button>
-
+                        <button type="button" className="dashboard-text-button">Xem tất cả</button>
                     </div>
-
 
                     <div className="dashboard-alert-list">
-
                         {alerts.map((alert, index) => (
-
-                            <div
-                                className="dashboard-alert-item"
-                                key={index}
-                            >
-
-                                <div className="dashboard-alert-icon">
-                                    <Icon
-                                        name="info"
-                                        size={17}
-                                    />
-                                </div>
-
+                            <div className="dashboard-alert-item" key={index}>
+                                <div className="dashboard-alert-icon"><Info size={17} /></div>
                                 <div>
-                                    <strong>
-                                        {alert.title}
-                                    </strong>
-
-                                    <span>
-                                        {alert.description}
-                                    </span>
+                                    <strong>{alert.title}</strong>
+                                    <span>{alert.description}</span>
                                 </div>
-
                             </div>
-
                         ))}
-
                     </div>
-
                 </div>
 
                 <div className="dashboard-card">
-
                     <div className="dashboard-card-header">
-
                         <div>
                             <h3>Hoạt động gần đây</h3>
-                            <p>
-                                Hoạt động quản trị hệ thống
-                            </p>
+                            <p>Hoạt động quản trị hệ thống</p>
                         </div>
-
-                        <button
-                            type="button"
-                            className="dashboard-text-button"
-                        >
-                            Xem tất cả
-                        </button>
-
+                        <button type="button" className="dashboard-text-button">Xem tất cả</button>
                     </div>
-
 
                     <div className="dashboard-activity-list">
-
-                        {activities.map(
-                            (activity, index) => (
-
-                                <div
-                                    className="dashboard-activity-item"
-                                    key={index}
-                                >
-
-                                    <div className="activity-dot">
-                                        <Icon
-                                            name="check"
-                                            size={14}
-                                        />
-                                    </div>
-
-                                    <div>
-                                        <strong>
-                                            {activity.title}
-                                        </strong>
-
-                                        <span>
-                                            {activity.description}
-                                        </span>
-                                    </div>
-
-                                    <time>
-                                        {activity.time}
-                                    </time>
-
+                        {activities.map((activity, index) => (
+                            <div className="dashboard-activity-item" key={index}>
+                                <div className="activity-dot"><CheckCircle size={14} /></div>
+                                <div>
+                                    <strong>{activity.title}</strong>
+                                    <span>{activity.description}</span>
                                 </div>
-
-                            )
-                        )}
-
+                                <time>{activity.time}</time>
+                            </div>
+                        ))}
                     </div>
-
                 </div>
-
             </section>
 
         </div>

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import Icon from "../../common/Icon";
 import ConfirmModal from "../../common/ConfirmModal";
+import CustomScrollBar from "../../common/CustomScrollBar";
 
 import {
   getCameras,
@@ -303,7 +304,7 @@ const CameraManagementPanel = () => {
 
           <button
             type="button"
-            className="refresh-button"
+            className="camera-refresh-button"
             onClick={handleRefresh}
           >
             <Icon name="refresh" size={17} />
@@ -313,6 +314,7 @@ const CameraManagementPanel = () => {
         </div>
 
         <div className="camera-table-wrap">
+          <CustomScrollBar style={{ width: "100%", height: "500px" }}>
           <table className="camera-table">
             <thead>
               <tr>
@@ -445,6 +447,7 @@ const CameraManagementPanel = () => {
               )}
             </tbody>
           </table>
+          </CustomScrollBar>
         </div>
 
         <div className="camera-pagination">

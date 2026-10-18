@@ -7,7 +7,9 @@ from routes.camera_routes import camera_bp
 from routes.class_routes import class_bp
 from routes.session_routes import session_bp
 from routes.classroom_routes import classroom_bp
-
+from routes.evaluation_routes import evaluation_bp
+from routes.student_routes import student_bp
+from routes.dashboard_routes import dashboard_bp
 
 app = Flask(__name__)
 
@@ -20,6 +22,9 @@ app.register_blueprint(camera_bp)
 app.register_blueprint(class_bp)
 app.register_blueprint(session_bp)
 app.register_blueprint(classroom_bp)
+app.register_blueprint(evaluation_bp)
+app.register_blueprint(student_bp)
+app.register_blueprint(dashboard_bp)
 
 @app.route("/", methods=["GET"])
 def home():

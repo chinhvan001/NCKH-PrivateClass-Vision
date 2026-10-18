@@ -4,10 +4,10 @@ import Login from "./pages/Login";
 import Dashboard from "./pages/DashBoard";
 import AccountManagement from "./pages/AccountManagement";
 import SessionManagement from "./pages/SessionManagement";
-import SessionDetail from "./pages/SessionDetail";
 import CameraManagement from "./pages/CameraManagement";
 import ClassManagement from "./pages/ClassManagement";
 import EvaluationManagement from "./pages/EvaluationManagement";
+import StudentManagement from "./pages/StudentManagement";
 
 import { getAdminSession, clearAdminSession } from "./utils/AuthSession";
 
@@ -58,7 +58,7 @@ function App() {
         path="/session-management/:sessionId"
         element={
           <ProtectedRoute>
-            <SessionDetail />
+            <Navigate to="/session-management" replace />
           </ProtectedRoute>
         }
       />
@@ -77,6 +77,15 @@ function App() {
         element={
           <ProtectedRoute>
             <ClassManagement />
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/student-management"
+        element={
+          <ProtectedRoute>
+            <StudentManagement />
           </ProtectedRoute>
         }
       />

@@ -1,5 +1,6 @@
 import { useState } from "react";
 import Icon from "../../common/Icon";
+import CustomScrollBar from "../../common/CustomScrollBar";
 import { testCameraConnection } from "../../../services/cameraService";
 
 const AddCameraForm = ({

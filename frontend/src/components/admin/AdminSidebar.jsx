@@ -6,7 +6,7 @@ import Icon from "../common/Icon";
 
 const navigationItems = [
   {
-    label: "Tổng quan",
+    label: "Thống kê chung",
     icon: "grid",
     path: "/dashboard",
     group: "TỔNG QUAN",
@@ -26,8 +26,8 @@ const navigationItems = [
     enabled: true,
   },
   {
-    label: "Quản lý phiên",
-    icon: "school",
+    label: "Quản lý lịch học",
+    icon: "clock",
     path: "/session-management",
     enabled: true,
   },
@@ -35,6 +35,12 @@ const navigationItems = [
     label: "Quản lý lớp học",
     icon: "building",
     path: "/class-management",
+    enabled: true,
+  },
+  {
+    label: "Quản lý học sinh",
+    icon: "users",
+    path: "/student-management",
     enabled: true,
   },
 
@@ -48,7 +54,7 @@ const navigationItems = [
 
   {
     label: "Nhật ký hoạt động",
-    icon: "activity",
+    icon: "list",
     path: "/activity-log",
     group: "HỆ THỐNG",
     enabled: false,

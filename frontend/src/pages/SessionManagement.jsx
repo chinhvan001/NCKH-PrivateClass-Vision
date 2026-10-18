@@ -2,12 +2,11 @@ import { useNavigate } from "react-router-dom";
 
 import AdminHeader from "../components/admin/AdminHeader";
 import AdminSidebar from "../components/admin/AdminSidebar";
-import SessionManagementPanel from "../components/admin/SessionManagementPanel";
+import SessionDetailPanel from "../components/admin/session/SessionPanel";
 
 import { logoutAdmin } from "../utils/AuthSession";
 
-
-const SessionManagement = () => {
+const SessionDetail = () => {
     const navigate = useNavigate();
 
     const handleLogout = async () => {
@@ -16,22 +15,15 @@ const SessionManagement = () => {
 
     return (
         <main className="admin-page">
-
-            <AdminSidebar
-                onLogout={handleLogout}
-            />
+            <AdminSidebar onLogout={handleLogout} />
 
             <section className="admin-main-content">
-
                 <AdminHeader />
 
-                <SessionManagementPanel />
-
+                <SessionDetailPanel />
             </section>
-
         </main>
     );
 };
 
-
-export default SessionManagement;
+export default SessionDetail;
