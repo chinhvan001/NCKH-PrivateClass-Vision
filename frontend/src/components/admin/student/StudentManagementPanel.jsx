@@ -1,8 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { 
   Users, UserCheck, UserX, Clock, Search, RefreshCw, 
-  Plus, Eye, Edit, Trash2, X, CheckCircle, AlertCircle 
+  Plus, Eye, Edit, Trash2, X, CheckCircle, AlertCircle
 } from 'lucide-react';
+
+import { getAuthHeaders } from '../../../utils/AuthSession';
 
 export default function StudentManagementPanel() {
   const [students, setStudents] = useState([]);
@@ -38,7 +40,7 @@ export default function StudentManagementPanel() {
   const fetchStudents = async () => {
     setLoading(true);
     try {
-      const response = await fetch('/api/v1/students');
+      const response = await fetch('/api/v1/students', { headers: await getAuthHeaders() });
       const result = await response.json();
       if (result.success) {
         setStudents(result.data);
@@ -100,7 +102,7 @@ export default function StudentManagementPanel() {
     try {
       const res = await fetch('/api/v1/students', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: await getAuthHeaders(),
         body: JSON.stringify(formData)
       });
       const result = await res.json();
@@ -123,7 +125,7 @@ export default function StudentManagementPanel() {
     try {
       const res = await fetch(`/api/v1/students/${selectedStudent.id}`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
+        headers: await getAuthHeaders(),
         body: JSON.stringify(formData)
       });
       const result = await res.json();
@@ -142,7 +144,7 @@ export default function StudentManagementPanel() {
   const handleDelete = async (studentId) => {
     if (!window.confirm('Bạn có chắc chắn muốn chuyển trạng thái học sinh này thành thôi học?')) return;
     try {
-      const res = await fetch(`/api/v1/students/${studentId}`, { method: 'DELETE' });
+      const res = await fetch(`/api/v1/students/${studentId}`, { method: 'DELETE', headers: await getAuthHeaders() });
       const result = await res.json();
       if (result.success) {
         showNotify('Đã cập nhật trạng thái học sinh');
@@ -303,7 +305,7 @@ export default function StudentManagementPanel() {
                     <td>
                       <div className="row-actions" style={{ justifyContent: 'center' }}>
                         <button onClick={async () => {
-                          const res = await fetch(`/api/v1/students/${student.id}`);
+                          const res = await fetch(`/api/v1/students/${student.id}`, { headers: await getAuthHeaders() });
                           const result = await res.json();
                           if (result.success) {
                             const detailData = result.data;

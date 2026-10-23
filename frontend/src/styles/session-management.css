@@ -442,6 +442,158 @@
     background: #1d4ed8;
 }
 
+.session-secondary-btn:disabled,
+.session-primary-btn:disabled {
+    opacity: 0.6;
+    cursor: wait;
+}
+
+/* --- Bảng giám sát tiết học (SessionMonitorModal) --- */
+
+.session-modal.session-monitor {
+    width: min(960px, 100%);
+}
+
+.session-monitor .session-modal-footer button {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.monitor-header-actions {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.monitor-badge {
+    flex-shrink: 0;
+    padding: 2px 8px;
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: 600;
+    white-space: nowrap;
+}
+
+.monitor-badge.gray { background: #f1f5f9; color: #475569; }
+.monitor-badge.green { background: #dcfce7; color: #15803d; }
+.monitor-badge.orange { background: #ffedd5; color: #c2410c; }
+.monitor-badge.blue { background: #dbeafe; color: #1d4ed8; }
+.monitor-badge.red { background: #fee2e2; color: #b91c1c; }
+
+.monitor-error {
+    margin-bottom: 14px;
+    padding: 10px 12px;
+    border-radius: 8px;
+    background: #fef2f2;
+    color: #b91c1c;
+    font-size: 13px;
+}
+
+.monitor-edge {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 16px;
+    color: #475569;
+    font-size: 13px;
+}
+
+.monitor-text-ok { color: #15803d; }
+.monitor-text-bad { color: #b91c1c; }
+
+.monitor-seat-grid {
+    display: grid;
+    gap: 8px;
+    overflow-x: auto;
+}
+
+.monitor-seat {
+    min-width: 96px;
+    padding: 8px;
+    border: 1px solid #e2e8f0;
+    border-left-width: 4px;
+    border-radius: 8px;
+    background: #ffffff;
+    font-size: 12px;
+}
+
+.monitor-seat.green { border-left-color: #22c55e; }
+.monitor-seat.orange { border-left-color: #f97316; background: #fff7ed; }
+.monitor-seat.red { border-left-color: #ef4444; background: #fef2f2; }
+.monitor-seat.gray,
+.monitor-seat.empty { border-left-color: #cbd5e1; color: #94a3b8; }
+
+.monitor-seat-head {
+    display: flex;
+    justify-content: space-between;
+    color: #0f172a;
+}
+
+.monitor-seat-name {
+    margin: 4px 0 2px;
+    overflow: hidden;
+    color: #334155;
+    font-weight: 600;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+}
+
+.monitor-seat-status {
+    color: #64748b;
+}
+
+.monitor-muted {
+    margin: 10px 0 0;
+    color: #64748b;
+    font-size: 12px;
+}
+
+.monitor-section-title {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin: 22px 0 10px;
+    color: #0f172a;
+    font-size: 15px;
+    font-weight: 700;
+}
+
+.monitor-alerts {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.monitor-alerts li {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 10px 0;
+    border-bottom: 1px solid #f1f5f9;
+    font-size: 13px;
+}
+
+.monitor-alerts li > div:first-child {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.monitor-alerts li span {
+    color: #64748b;
+}
+
+.monitor-alert-actions {
+    display: flex;
+    gap: 8px;
+}
+
+.monitor-alert-actions button {
+    height: 32px;
+}
+
 /* --- Responsive --- */
 
 @media (max-width: 1024px) {

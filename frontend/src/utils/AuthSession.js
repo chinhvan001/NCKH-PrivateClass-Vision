@@ -49,6 +49,16 @@ export const clearAdminSession = () => {
   localStorage.removeItem("sessionExpiresAt");
 };
 
+// Header cho API backend: token Firebase mới (SDK tự làm mới khi hết hạn), hoặc token lúc đăng nhập.
+export const getAuthHeaders = async () => {
+  const token = (await auth?.currentUser?.getIdToken()) || localStorage.getItem("idToken");
+
+  return {
+    "Content-Type": "application/json",
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+  };
+};
+
 export const logoutAdmin = async (navigate) => {
   try {
     if (auth) {

@@ -5,6 +5,9 @@ import {
 } from 'lucide-react';
 import { getAuth, onAuthStateChanged } from 'firebase/auth';
 
+import { getAuthHeaders } from '../../../utils/AuthSession';
+import SessionMonitorModal, { SessionStatusBadge } from './SessionMonitorModal';
+
 export default function SessionDetailPanel() {
   const [sessions, setSessions] = useState([]);
   const [classList, setClassList] = useState([]);
@@ -16,7 +19,8 @@ export default function SessionDetailPanel() {
   const [selectedShift, setSelectedShift] = useState('morning'); // 'morning' | 'afternoon'
   
   const [showAddModal, setShowAddModal] = useState(false);
-  
+  const [monitorSession, setMonitorSession] = useState(null); // tiết đang mở bảng giám sát
+
   const periodsConfigMap = {
     morning: {
       1: { start: '07:00', end: '07:45' },
@@ -47,32 +51,6 @@ export default function SessionDetailPanel() {
   });
 
   const [notification, setNotification] = useState(null);
-
-  // Hàm lấy token xác thực từ Firebase Auth SDK
-  const getAuthHeaders = async () => {
-    const headers = {
-      'Content-Type': 'application/json',
-    };
-    
-    try {
-      const auth = getAuth();
-      const currentUser = auth.currentUser;
-      if (currentUser) {
-        const token = await currentUser.getIdToken();
-        if (token) {
-          headers['Authorization'] = `Bearer ${token}`;
-        }
-      } else {
-        const token = localStorage.getItem('token') || localStorage.getItem('firebaseToken') || sessionStorage.getItem('token');
-        if (token) {
-          headers['Authorization'] = `Bearer ${token}`;
-        }
-      }
-    } catch (e) {
-      console.error("Lỗi lấy token:", e);
-    }
-    return headers;
-  };
 
   useEffect(() => {
     const auth = getAuth();
@@ -401,8 +379,15 @@ export default function SessionDetailPanel() {
                         return (
                           <td key={p.period} style={{ padding: '6px', borderRight: '1px solid #e2e8f0', verticalAlign: 'top', height: '95px', width: '190px', background: '#fff' }}>
                             {matchedSession ? (
-                              <div style={{ background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: '8px', padding: '8px', height: '100%', boxSizing: 'border-box', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', overflow: 'hidden' }}>
-                                <div style={{ fontWeight: 700, fontSize: '13px', color: '#1e293b', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{matchedSession.subject || 'Môn học'}</div>
+                              <div
+                                onClick={() => setMonitorSession({ session: matchedSession, className })}
+                                title="Mở bảng giám sát"
+                                style={{ background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: '8px', padding: '8px', height: '100%', boxSizing: 'border-box', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', overflow: 'hidden', cursor: 'pointer' }}
+                              >
+                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '4px' }}>
+                                  <div style={{ fontWeight: 700, fontSize: '13px', color: '#1e293b', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{matchedSession.subject || 'Môn học'}</div>
+                                  <SessionStatusBadge status={matchedSession.status} />
+                                </div>
                                 <div style={{ fontSize: '11px', color: '#475569' }}>Phòng: <strong style={{ color: '#1e293b' }}>{matchedSession.room || cls.room || 'P101'}</strong></div>
                                 <div style={{ fontSize: '11px', color: '#475569', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>GV: <strong style={{ color: '#1e293b' }}>{getTeacherName(matchedSession.teacher_id)}</strong></div>
                               </div>
@@ -422,6 +407,16 @@ export default function SessionDetailPanel() {
           )}
         </div>
       </div>
+
+      {monitorSession && (
+        <SessionMonitorModal
+          session={monitorSession.session}
+          className={monitorSession.className}
+          teacherName={getTeacherName(monitorSession.session.teacher_id)}
+          onClose={() => setMonitorSession(null)}
+          onStatusChange={fetchDataReal}
+        />
+      )}
 
       {/* Modal Thêm Lịch Học */}
       {showAddModal && (

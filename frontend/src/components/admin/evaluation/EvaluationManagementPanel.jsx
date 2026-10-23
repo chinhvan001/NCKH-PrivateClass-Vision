@@ -8,8 +8,10 @@ import {
   Eye, 
   ArrowLeft, 
   AlertCircle, 
-  Loader2 
+  Loader2
 } from "lucide-react";
+
+import { getAuthHeaders } from "../../../utils/AuthSession";
 
 const STATUS_CONFIG = {
   good: { label: "Tốt", classType: "status-good" },
@@ -32,7 +34,7 @@ const EvaluationManagementPanel = () => {
   const fetchEvaluations = async () => {
     try {
       setLoading(true);
-      const response = await fetch('/api/v1/evaluations/classes-overview');
+      const response = await fetch('/api/v1/evaluations/classes-overview', { headers: await getAuthHeaders() });
       const result = await response.json();
       if (result.success) {
         setClassesData(result.data);
@@ -52,7 +54,7 @@ const EvaluationManagementPanel = () => {
     setLoadingDetail(true);
     
     try {
-      const response = await fetch(`/api/v1/evaluations/classes/${classId}/details`);
+      const response = await fetch(`/api/v1/evaluations/classes/${classId}/details`, { headers: await getAuthHeaders() });
       const result = await response.json();
       if (result.success) {
         setClassDetail(result.data);
@@ -166,7 +168,7 @@ const EvaluationManagementPanel = () => {
             <div className="evaluation-main-container" style={{ marginTop: '20px' }}>
               <div className="evaluation-section-header">
                 <h2>Báo cáo mức độ tập trung chi tiết</h2>
-                <p>Tổng hợp chỉ số tập trung trung bình của từng học sinh trong suốt phiên học.</p>
+                <p>Mức tập trung trung bình của từng học sinh qua các tiết, theo thời gian camera AI quan sát được.</p>
               </div>
 
               <div className="evaluation-table-wrapper">
@@ -183,7 +185,7 @@ const EvaluationManagementPanel = () => {
                     {classDetail.students.length === 0 ? (
                       <tr>
                         <td colSpan="4" style={{ textAlign: 'center', color: '#64748b', padding: '40px' }}>
-                          Chưa có dữ liệu capture nào được ghi nhận cho lớp này.
+                          Chưa có dữ liệu giám sát nào của camera AI cho lớp này.
                         </td>
                       </tr>
                     ) : (
@@ -219,7 +221,7 @@ const EvaluationManagementPanel = () => {
     <div className="evaluation-page">
       <div className="evaluation-page-header">
         <h1>Phân tích & Đánh giá (Dashboard)</h1>
-        <p>Hệ thống tổng hợp dữ liệu thời gian thực dựa trên các mốc capture lưu trữ trong Firestore.</p>
+        <p>Tổng hợp từ đánh giá theo ghế mà camera AI ghi sau mỗi tiết học.</p>
       </div>
 
       {/* 3 Thẻ thống kê với Icon Lucide đã được cập nhật chuẩn ngữ nghĩa */}

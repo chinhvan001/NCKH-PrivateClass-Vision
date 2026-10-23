@@ -2,8 +2,10 @@ import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom"; // Import useNavigate
 import { 
     Users, CheckCircle, XCircle, BookOpen, Plus, 
-    ArrowRight, RefreshCw, Server, Database, Activity, Info 
+    ArrowRight, RefreshCw, Server, Database, Activity, Info
 } from "lucide-react";
+
+import { getAuthHeaders } from "../../utils/AuthSession";
 
 const DashboardPanel = () => {
     const navigate = useNavigate(); // Khởi tạo hook điều hướng
@@ -12,18 +14,16 @@ const DashboardPanel = () => {
         stats: { total_teachers: 0, active_teachers: 0, inactive_teachers: 0, total_subjects: 0 },
         active_sessions: [],
         concentration: { high: 0, medium: 0, low: 0, avg_score: 0, has_data: false },
-        system_status: { backend: "Đang hoạt động", firebase: "Đang hoạt động", monitoring: "Đang phát triển" },
+        system_status: { backend: "Đang hoạt động", firebase: "Đang hoạt động", monitoring: "--", monitoring_ok: false },
+        alerts: [],
         activities: []
     });
 
     const fetchDashboardData = async () => {
         setLoading(true);
         try {
-            const token = localStorage.getItem("token");
             const response = await fetch("/api/admin/dashboard-stats", {
-                headers: {
-                    "Authorization": token ? `Bearer ${token}` : ""
-                }
+                headers: await getAuthHeaders()
             });
             const result = await response.json();
             if (result.success) {
@@ -40,7 +40,7 @@ const DashboardPanel = () => {
         fetchDashboardData();
     }, []);
 
-    const { stats, active_sessions, concentration, system_status, activities } = dashboardData;
+    const { stats, active_sessions, concentration, system_status, alerts, activities } = dashboardData;
 
     const highVal = concentration.high || 0;
     const medVal = concentration.medium || 0;
@@ -52,19 +52,6 @@ const DashboardPanel = () => {
     const medDash = `${medVal} ${circumference - medVal}`;
     const lowOffset = -(highVal + medVal);
     const lowDash = `${lowVal} ${circumference - lowVal}`;
-
-    const alerts = [
-        {
-            title: "Chưa có cảnh báo mới",
-            description: "Hệ thống chưa ghi nhận cảnh báo bất thường",
-            type: "info",
-        },
-        {
-            title: "Dữ liệu giám sát AI",
-            description: "Tính năng đánh giá tư thế đang hoạt động ổn định",
-            type: "info",
-        },
-    ];
 
     return (
         <div className="dashboard-content">
@@ -146,7 +133,7 @@ const DashboardPanel = () => {
                             <h3>Mức độ tập trung</h3>
                             <p>Tổng quan tình trạng lớp học</p>
                         </div>
-                        <span className="dashboard-badge-info">Thời gian thực</span>
+                        <span className="dashboard-badge-info">Từ camera AI</span>
                     </div>
 
                     <div className="engagement-content-wrapper">
@@ -343,7 +330,7 @@ const DashboardPanel = () => {
                                 <span className="system-status-icon"><Activity size={17} /></span>
                                 <span>Monitoring Service</span>
                             </div>
-                            <strong className="status-pending">{system_status.monitoring}</strong>
+                            <strong className={system_status.monitoring_ok ? "status-ok" : "status-pending"}>{system_status.monitoring}</strong>
                         </div>
                     </div>
                 </div>
@@ -358,15 +345,23 @@ const DashboardPanel = () => {
                     </div>
 
                     <div className="dashboard-alert-list">
-                        {alerts.map((alert, index) => (
+                        {alerts.length > 0 ? alerts.map((alert, index) => (
                             <div className="dashboard-alert-item" key={index}>
                                 <div className="dashboard-alert-icon"><Info size={17} /></div>
                                 <div>
-                                    <strong>{alert.title}</strong>
+                                    <strong>{alert.title}{alert.handled ? " (đã xử lý)" : ""}</strong>
                                     <span>{alert.description}</span>
                                 </div>
                             </div>
-                        ))}
+                        )) : (
+                            <div className="dashboard-alert-item">
+                                <div className="dashboard-alert-icon"><Info size={17} /></div>
+                                <div>
+                                    <strong>Chưa có cảnh báo mới</strong>
+                                    <span>Không có tiết nào đang giám sát có cảnh báo</span>
+                                </div>
+                            </div>
+                        )}
                     </div>
                 </div>
 
@@ -387,7 +382,7 @@ const DashboardPanel = () => {
                                     <strong>{activity.title}</strong>
                                     <span>{activity.description}</span>
                                 </div>
-                                <time>{activity.time}</time>
+                                <time>{new Date(activity.time).toLocaleString("vi-VN")}</time>
                             </div>
                         ))}
                     </div>
