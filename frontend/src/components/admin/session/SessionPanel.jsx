@@ -415,6 +415,10 @@ export default function SessionDetailPanel() {
           teacherName={getTeacherName(monitorSession.session.teacher_id)}
           onClose={() => setMonitorSession(null)}
           onStatusChange={fetchDataReal}
+          onDeleted={() => {
+            setMonitorSession(null);
+            fetchDataReal();
+          }}
         />
       )}
 

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { AlertTriangle, Ban, Camera, Pause, Play, RefreshCw, Square, X } from "lucide-react";
+import { AlertTriangle, Ban, Camera, Pause, Play, RefreshCw, Square, Trash2, X } from "lucide-react";
 
 import { getAuthHeaders } from "../../../utils/AuthSession";
 
@@ -71,7 +71,7 @@ export function SessionStatusBadge({ status }) {
   return <span className={`monitor-badge ${info.tone}`}>{info.label}</span>;
 }
 
-export default function SessionMonitorModal({ session, className, teacherName, onClose, onStatusChange }) {
+export default function SessionMonitorModal({ session, className, teacherName, onClose, onStatusChange, onDeleted }) {
   const [live, setLive] = useState(null);
   const [plan, setPlan] = useState(null);
   const [error, setError] = useState("");
@@ -129,6 +129,18 @@ export default function SessionMonitorModal({ session, className, teacherName, o
     }
     setVersion((value) => value + 1);
     onStatusChange();
+  };
+
+  const deleteSession = async () => {
+    if (!window.confirm("Xóa tiết này cùng dữ liệu giám sát và báo cáo phụ huynh của nó? Không thể hoàn tác.")) return;
+    setBusy(true);
+    const { ok, result } = await api(`/api/admin/schedules/${session.id}`, { method: "DELETE" });
+    setBusy(false);
+    if (ok) {
+      onDeleted();
+    } else {
+      setError(result.message || "Không xóa được tiết học.");
+    }
   };
 
   const handleAlert = async (alertId, alertStatus) => {
@@ -216,6 +228,14 @@ export default function SessionMonitorModal({ session, className, teacherName, o
               mức tập trung trong 60 giây gần nhất.
             </p>
           )}
+          {status === "completed" && (
+            <p className="monitor-muted">
+              Báo cáo phụ huynh:{" "}
+              {plan?.reports_at
+                ? `đã tạo cho ${plan.report_count} học sinh lúc ${new Date(plan.reports_at).toLocaleString("vi-VN")}.`
+                : "sẽ được tạo tự động sau khi camera AI chốt kết quả."}
+            </p>
+          )}
 
           <h3 className="monitor-section-title">
             <AlertTriangle size={16} /> Cảnh báo gần đây
@@ -253,6 +273,11 @@ export default function SessionMonitorModal({ session, className, teacherName, o
         </div>
 
         <div className="session-modal-footer">
+          {!["running", "paused"].includes(status) && (
+            <button type="button" className="session-secondary-btn monitor-danger" disabled={busy} onClick={deleteSession}>
+              <Trash2 size={14} /> Xóa tiết
+            </button>
+          )}
           <button type="button" className="session-secondary-btn" onClick={() => setVersion((value) => value + 1)}>
             <RefreshCw size={14} /> Làm mới
           </button>

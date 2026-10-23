@@ -594,6 +594,16 @@
     height: 32px;
 }
 
+.session-secondary-btn.monitor-danger {
+    margin-right: auto;
+    border-color: #fecaca;
+    color: #b91c1c;
+}
+
+.session-secondary-btn.monitor-danger:hover {
+    background: #fef2f2;
+}
+
 /* --- Responsive --- */
 
 @media (max-width: 1024px) {

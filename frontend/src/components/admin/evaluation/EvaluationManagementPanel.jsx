@@ -19,6 +19,15 @@ const STATUS_CONFIG = {
   attention: { label: "Cần chú ý", classType: "status-attention" },
 };
 
+// Dữ liệu camera AI của từng tiết (data_status từ backend)
+const DATA_STATUS = {
+  complete: { label: "Đầy đủ", classType: "status-good" },
+  partial: { label: "Bị gián đoạn", classType: "status-attention" },
+  pending: { label: "Đang chốt kết quả", classType: "status-stable" },
+  live: { label: "Đang giám sát", classType: "status-stable" },
+  no_data: { label: "Không có dữ liệu", classType: "status-stable" },
+};
+
 const EvaluationManagementPanel = () => {
   const [classesData, setClassesData] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -162,6 +171,14 @@ const EvaluationManagementPanel = () => {
                     <strong>{classDetail.students.length} em</strong>
                   </div>
                 </div>
+                <div className="evaluation-stat-card" style={{ padding: '12px 20px', minWidth: '160px' }}>
+                  <div className="evaluation-stat-content">
+                    <span>Tiết bị gián đoạn</span>
+                    <strong>
+                      {classDetail.sessions.filter((row) => row.data_status === "partial").length}/{classDetail.sessions.length} tiết
+                    </strong>
+                  </div>
+                </div>
               </div>
             </div>
 
@@ -200,6 +217,56 @@ const EvaluationManagementPanel = () => {
                               <span className={`status-badge ${statusInfo.classType}`}>
                                 <span className="dot"></span>
                                 {statusInfo.label}
+                              </span>
+                            </td>
+                          </tr>
+                        );
+                      })
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div className="evaluation-main-container" style={{ marginTop: '20px' }}>
+              <div className="evaluation-section-header">
+                <h2>Các tiết đã giám sát</h2>
+                <p>Tiết bị gián đoạn (camera AI tắt hoặc khởi động lại giữa tiết) chỉ có dữ liệu cho một phần tiết học.</p>
+              </div>
+
+              <div className="evaluation-table-wrapper">
+                <table className="evaluation-table">
+                  <thead>
+                    <tr>
+                      <th>Ngày</th>
+                      <th>Giờ</th>
+                      <th>Môn học</th>
+                      <th>Số ghế có dữ liệu</th>
+                      <th>Mức độ tập trung trung bình</th>
+                      <th>Dữ liệu</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {classDetail.sessions.length === 0 ? (
+                      <tr>
+                        <td colSpan="6" style={{ textAlign: 'center', color: '#64748b', padding: '40px' }}>
+                          Chưa có tiết nào được giám sát.
+                        </td>
+                      </tr>
+                    ) : (
+                      classDetail.sessions.map((row) => {
+                        const dataInfo = DATA_STATUS[row.data_status] || DATA_STATUS.no_data;
+                        return (
+                          <tr key={row.id}>
+                            <td>{row.session_date || '--'}</td>
+                            <td>{row.start_time || '--'}</td>
+                            <td>{row.subject || '--'}</td>
+                            <td>{row.seats}</td>
+                            <td><strong style={{ color: '#0f172a' }}>{row.attention != null ? `${row.attention}%` : '--'}</strong></td>
+                            <td>
+                              <span className={`status-badge ${dataInfo.classType}`}>
+                                <span className="dot"></span>
+                                {dataInfo.label}
                               </span>
                             </td>
                           </tr>
