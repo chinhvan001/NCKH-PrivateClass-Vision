@@ -1,20 +1,40 @@
-"""Firestore gia trong RAM: test sync chay khong can credential, mang hay firebase_admin.
+"""Firestore gia trong RAM: test sync va backend web chay khong can credential, mang hay firebase_admin.
 
-Chi mo phong phan API ma ``src.sync`` va ``src.config`` dung (``document(path)`` voi
-``get(field_paths=...)/set/delete``, ``collection(path)`` voi ``where(field, "==", value)``,
-``select(fields)``, ``stream()`` va ``on_snapshot``, ``batch()`` voi ``set/commit``) cung cac rang
-buoc khien Firestore that tu choi ghi: toi da 500 write/batch, duong dan
-document/collection dung so doan, gia tri encode duoc. ``field_paths``/``select`` chi tra
-cac field duoc chon, nhu Firestore that. Listener duoc goi dong bo ngay khi ghi. Loi commit
-duoc tiem bang ``fail_next``.
+Chi mo phong phan API ma ``src.sync``, ``src.config`` va backend web (``backend/tests``) dung:
+``document(path)`` voi ``get(field_paths=...)/set/update/delete/collection``,
+``collection(path)`` voi ``document()`` (id tu sinh), ``add``, ``where(field, "==", value)``,
+``select(fields)``, ``order_by``, ``limit``, ``stream()`` va ``on_snapshot``, ``batch()`` voi
+``set/commit``; cung cac rang buoc khien Firestore that tu choi ghi: toi da 500 write/batch,
+duong dan document/collection dung so doan, gia tri encode duoc, ``update`` document chua co.
+``field_paths``/``select`` chi tra cac field duoc chon, nhu Firestore that. ``SERVER_TIMESTAMP``
+thanh gio UTC luc ghi, ``DELETE_FIELD`` xoa field trong ``update``. Listener duoc goi dong bo
+ngay khi ghi. Loi commit duoc tiem bang ``fail_next``.
 """
 
 from __future__ import annotations
 
 import copy
 import datetime
+import uuid
 
 _SCALARS = (type(None), bool, int, float, str, bytes, datetime.datetime)
+
+
+class _Sentinel:
+    """Giong ``firestore.SERVER_TIMESTAMP``/``DELETE_FIELD``: gia tri dac biet server thay khi ghi."""
+
+    def __init__(self, name: str) -> None:
+        self.name = name
+
+    def __repr__(self) -> str:
+        return self.name
+
+    def __deepcopy__(self, memo) -> "_Sentinel":
+        return self  # van so sanh duoc bang ``is`` sau khi copy
+
+
+SERVER_TIMESTAMP = _Sentinel("SERVER_TIMESTAMP")
+DELETE_FIELD = _Sentinel("DELETE_FIELD")
 
 
 class FakeFirestoreError(Exception):
@@ -95,11 +115,23 @@ class FakeDocument:
         return FakeSnapshot(self.id, data)
 
     def set(self, data: dict) -> None:
-        _check_value(data)
-        self._client._write([(self.path, copy.deepcopy(data))])
+        self._client._write([(self.path, _stored(data))])
+
+    def update(self, data: dict) -> None:
+        """Chi doi field top-level duoc gui; document chua co -> loi 404 nhu Firestore that."""
+        current = self._client.docs.get(self.path)
+        if current is None:
+            raise FakeFirestoreError(404, f"No document to update: {self.path}")
+        if any("." in key for key in data):
+            raise NotImplementedError("FakeFirestore khong ho tro field path co dau cham.")
+        merged = {**current, **data}
+        self._client._write([(self.path, _stored({k: v for k, v in merged.items() if v is not DELETE_FIELD}))])
 
     def delete(self) -> None:
         self._client._write([(self.path, None)])
+
+    def collection(self, name: str) -> "FakeCollection":
+        return self._client.collection(f"{self.path}/{name}")
 
 
 class FakeWatch:
@@ -113,21 +145,43 @@ class FakeWatch:
 
 
 class FakeCollection:
-    """Collection, hoac query ``where`` tren no (giong ``Query`` that, ``where`` tra ve ban moi)."""
+    """Collection, hoac query tren no (giong ``Query`` that, moi ham loc tra ve ban moi)."""
 
-    def __init__(self, client: FakeFirestore, path: str, filters: tuple = (), fields=None) -> None:
+    def __init__(self, client: FakeFirestore, path: str) -> None:
         self._client = client
         self.path = path
-        self._filters = filters
-        self._fields = fields
+        self._filters: tuple = ()
+        self._fields = None
+        self._order: tuple[str, bool] | None = None  # (field, giam dan)
+        self._limit: int | None = None
+
+    def _with(self, **changes) -> "FakeCollection":
+        query = copy.copy(self)
+        query.__dict__.update(changes)
+        return query
+
+    def document(self, doc_id: str | None = None) -> FakeDocument:
+        """Khong co ``doc_id``: id ngau nhien 20 ky tu nhu Firestore."""
+        return self._client.document(f"{self.path}/{doc_id or uuid.uuid4().hex[:20]}")
+
+    def add(self, data: dict) -> tuple[None, FakeDocument]:
+        reference = self.document()
+        reference.set(data)
+        return None, reference
 
     def where(self, field: str, op: str, value) -> "FakeCollection":
         if op != "==":
             raise NotImplementedError(f"FakeFirestore chi ho tro '==', khong ho tro {op!r}.")
-        return FakeCollection(self._client, self.path, self._filters + ((field, value),), self._fields)
+        return self._with(_filters=self._filters + ((field, value),))
 
     def select(self, field_paths) -> "FakeCollection":
-        return FakeCollection(self._client, self.path, self._filters, list(field_paths))
+        return self._with(_fields=list(field_paths))
+
+    def order_by(self, field: str, direction: str = "ASCENDING") -> "FakeCollection":
+        return self._with(_order=(field, direction == "DESCENDING"))
+
+    def limit(self, count: int) -> "FakeCollection":
+        return self._with(_limit=count)
 
     def stream(self, retry=None, timeout=None):
         snapshots = self._snapshots()
@@ -142,11 +196,19 @@ class FakeCollection:
         return watch
 
     def _snapshots(self) -> list[FakeSnapshot]:
-        return [
-            FakeSnapshot(snapshot.id, _project(snapshot._data, self._fields))
+        matches = [
+            snapshot
             for snapshot in self._client._snapshots(self.path)
             if all(snapshot._data.get(field) == value for field, value in self._filters)
         ]
+        if self._order is not None:  # nhu Firestore: document thieu field sap xep bi bo
+            field, descending = self._order
+            matches = sorted(
+                (snapshot for snapshot in matches if field in snapshot._data),
+                key=lambda snapshot: snapshot._data[field],
+                reverse=descending,
+            )
+        return [FakeSnapshot(item.id, _project(item._data, self._fields)) for item in matches[: self._limit]]
 
 
 class FakeWriteBatch:
@@ -155,8 +217,7 @@ class FakeWriteBatch:
         self._writes: list[tuple[str, dict]] = []
 
     def set(self, reference: FakeDocument, data: dict) -> None:
-        _check_value(data)
-        self._writes.append((reference.path, copy.deepcopy(data)))
+        self._writes.append((reference.path, _stored(data)))
 
     def commit(self, retry=None, timeout=None) -> None:
         if len(self._writes) > 500:
@@ -167,6 +228,24 @@ class FakeWriteBatch:
             self._client.commits.append([path for path, _ in self._writes])
         if error is not None:
             raise error
+
+
+def _stored(data: dict) -> dict:
+    """Ban server luu: copy, ``SERVER_TIMESTAMP`` -> gio UTC luc ghi, roi kiem tra encode duoc."""
+    now = datetime.datetime.now(datetime.timezone.utc)
+
+    def resolve(value):
+        if value is SERVER_TIMESTAMP:
+            return now
+        if isinstance(value, dict):
+            return {key: resolve(item) for key, item in value.items()}
+        if isinstance(value, (list, tuple)):
+            return [resolve(item) for item in value]
+        return value
+
+    data = resolve(copy.deepcopy(data))
+    _check_value(data)
+    return data
 
 
 def _project(data: dict | None, field_paths) -> dict | None:

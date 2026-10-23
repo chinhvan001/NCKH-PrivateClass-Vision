@@ -4,7 +4,7 @@ from utils.auth import (
     get_current_user,
     is_admin_user,
 )
-from google.cloud import firestore
+from firebase_admin import firestore
 import subprocess
 from firebase_config import db
 

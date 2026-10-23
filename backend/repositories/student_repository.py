@@ -1,7 +1,6 @@
-from google.cloud import firestore
-from firebase_admin import firestore as admin_firestore
+from firebase_admin import firestore
 
-db = admin_firestore.client()
+db = firestore.client()
 
 class StudentRepository:
     @staticmethod

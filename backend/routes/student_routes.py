@@ -1,7 +1,8 @@
 from flask import Blueprint, request, jsonify
+from routes.test_helpers import admin_only
 from services.student_service import StudentService
 
-student_bp = Blueprint('student_bp', __name__)
+student_bp = admin_only(Blueprint('student_bp', __name__))
 
 @student_bp.route('/api/v1/students', methods=['GET'])
 def get_students():

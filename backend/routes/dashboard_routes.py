@@ -1,7 +1,8 @@
 from flask import Blueprint, jsonify
+from routes.test_helpers import admin_only
 from services.dashboard_service import DashboardService
 
-dashboard_bp = Blueprint("dashboard_bp", __name__)
+dashboard_bp = admin_only(Blueprint("dashboard_bp", __name__))
 
 @dashboard_bp.route("/api/admin/dashboard-stats", methods=["GET"])
 def get_dashboard_stats():

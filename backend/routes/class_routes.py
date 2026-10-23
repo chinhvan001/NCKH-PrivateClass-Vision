@@ -9,6 +9,7 @@ from routes.test_helpers import (
     required_string,
     server_timestamp,
 )
+from services.monitoring_service import MAX_GRID_SIDE
 
 class_bp = Blueprint("class_bp", __name__)
 ALLOWED_CLASS_STATUS = {"active", "inactive"}
@@ -21,8 +22,9 @@ def error(message, status=400):
 
 
 def positive_int(value, field_name):
-    if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
-        return None, f"{field_name} phải là số nguyên dương."
+    # Camera AI (edge node) chỉ nhận sơ đồ tối đa MAX_GRID_SIDE hàng/cột.
+    if isinstance(value, bool) or not isinstance(value, int) or not 1 <= value <= MAX_GRID_SIDE:
+        return None, f"{field_name} phải là số nguyên từ 1 đến {MAX_GRID_SIDE}."
     return value, None
 
 
@@ -208,8 +210,10 @@ def ensure_class_seats(class_id, class_doc):
                 changed = True
 
     if changed:
-        data["seat_map"] = seat_map
-        db.collection("classes2").document(class_id).update({"seat_map": seat_map})
+        class_ref = db.collection("classes2").document(class_id)
+        class_ref.update({"seat_map": seat_map})
+        # Đọc lại bản đã lưu: SERVER_TIMESTAMP trong seat_map mới không trả về JSON được.
+        data = class_ref.get().to_dict() or {}
 
     return data
 

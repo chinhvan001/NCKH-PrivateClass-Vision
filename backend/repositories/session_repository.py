@@ -10,13 +10,6 @@ class SessionRepository:
         ]
 
     @staticmethod
-    def get_all_classes():
-        return [
-            {"id": doc.id, **(doc.to_dict() or {})}
-            for doc in db.collection("classes2").stream()
-        ]
-
-    @staticmethod
     def get_all_teachers():
         teachers = []
         for col_name in ["teachers", "users"]:

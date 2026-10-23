@@ -1,5 +1,6 @@
 from repositories.session_repository import SessionRepository
 from routes.test_helpers import json_value, server_timestamp
+from services import monitoring_service
 
 class SessionService:
     @staticmethod
@@ -8,11 +9,6 @@ class SessionService:
         formatted = [{"id": item.get("id"), **json_value(item)} for item in sessions]
         formatted.sort(key=lambda x: x.get("session_date", ""), reverse=True)
         return formatted
-
-    @staticmethod
-    def fetch_all_classes():
-        classes = SessionRepository.get_all_classes()
-        return [{"id": item.get("id"), **json_value(item)} for item in classes]
 
     @staticmethod
     def fetch_all_teachers():
@@ -39,18 +35,27 @@ class SessionService:
         return {"success": True, "data": {"id": doc.id, **json_value(doc.to_dict())}, "status": 201}
 
     @staticmethod
-    def update_session_status(session_id, new_status, valid_transitions):
+    def update_session_status(session_id, new_status, valid_transitions, force=False):
         session_ref, session_doc = SessionRepository.get_session_by_id(session_id)
         if not session_doc.exists:
             return {"success": False, "message": "Không tìm thấy lịch học/phiên.", "status": 404}
-            
-        current_status = (session_doc.to_dict() or {}).get("status")
+
+        session = session_doc.to_dict() or {}
+        current_status = session.get("status")
         if new_status not in valid_transitions.get(current_status, set()):
             return {"success": False, "message": "Chuyển trạng thái không hợp lệ.", "status": 409}
-            
+
         update_data = {"status": new_status}
-        if new_status == "completed":
-            update_data["end_time"] = server_timestamp()
-            
+        if current_status == "scheduled" and new_status == "running":
+            class_data, problem = monitoring_service.check_start(session_id, session, force)
+            if problem:
+                message = monitoring_service.START_PROBLEMS[problem]
+                return {"success": False, "code": problem, "message": message, "status": 409}
+            monitoring_service.freeze_roster(session_id, session["class_id"], class_data)
+            update_data["started_at"] = server_timestamp()
+        elif new_status == "completed":
+            # end_time là giờ kết thúc theo thời khóa biểu, giữ nguyên
+            update_data["ended_at"] = server_timestamp()
+
         updated_doc = SessionRepository.update_status(session_ref, update_data)
         return {"success": True, "data": {"id": updated_doc.id, **json_value(updated_doc.to_dict())}, "status": 200}
