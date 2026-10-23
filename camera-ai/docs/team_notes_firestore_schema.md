@@ -17,7 +17,7 @@ Updated 2026-10-23: the web admin (branch `Web`) is merged into `camera-ai` and 
 - **Volume.** About 950 writes for a 40-seat class and a 45-minute session, against about 10,800 with the previous per-seat records.
 - **Retention.** Every session document carries `expire_at`, so a Firestore TTL policy can delete it.
 - **Security Rules.** `config/firestore.rules` is rewritten for the schema and tested on the emulator in CI (`rules-tests/`).
-- **Web admin side (2026-10-23).** Start, pause, resume and end from the timetable, with the pre-start checks of UC04 step 3; the seating frozen into `session_rosters/{s}` at the start; a live view of seats and alerts; reports and the dashboard from `session_evaluations`; admin sign-in required on every monitoring, report and student endpoint. Tested together with the real edge runtime (`backend/tests/test_edge_contract.py`).
+- **Web admin side (2026-10-23).** Start, pause, resume and end from the timetable, with the pre-start checks of UC04 step 3; the seating frozen into `session_rosters/{s}` at the start; a live view of seats and alerts; reports and the dashboard from `session_evaluations`, with interrupted sessions marked; a parent report job; session deletion with all its edge documents; a camera page fed by the edge heartbeats, with no RTSP URL stored; admin sign-in required on every monitoring, report and student endpoint. Tested together with the real edge runtime (`backend/tests/test_edge_contract.py`).
 
 ## 2. Choices to confirm at the meeting
 
@@ -33,7 +33,7 @@ Updated 2026-10-23: the web admin (branch `Web`) is merged into `camera-ai` and 
 | 8 | Seat→student mapping | Kept as the web admin built it: `seat_map` on `classes2/{c}`, readable by admins and teachers only (never parents). The edge node reads only the counts. Each session's seating is copied to `session_rosters/{s}` at the start | Rules cannot hide one field of a document, so access to the whole class document has to stay narrow; reports need the seating of that lesson, not today's | Confirmed by the web implementation; seat documents (proposed 2026-10-17) dropped |
 | 9 | One camera per class | The edge node is configured with one `class_id` and one `camera_id` | THPT classes keep their room | Classes that change rooms (labs) would need `camera_id` on the session |
 | 10 | Timestamps | `captured_at` and `expire_at` are UTC times from the edge clock (keep NTP on); alert times stay as seconds since the session start | The diagram uses timestamps; the session already has `started_at` | That alerts keep `start_sec` |
-| 11 | Parent view (UC03) | Parents read only `students/{sid}/reports/{s}`, written by a backend job after each session | Parents must not see other children's seats | That the web team builds the job, and what a report contains |
+| 11 | Parent view (UC03) | Parents read only `students2/{sid}/reports/{s}`, written by `backend/jobs/parent_reports.py` after each session: class, subject, date and times, `avg_concentration`, `level`, `observed_min`, alert counts per type, `partial` | Parents must not see other children's seats | The report fields, and who sets `students2.parent_id` |
 | 12 | Who reads `classes2` | The Rules draft lets any teacher read every class (for the live view) and only the homeroom teacher or an admin change `seat_map` | Subject teachers need names on the live seat map | Or a `teacher_ids` list on the class |
 | 13 | Diagram fixes | The second "Teachers" box (bottom left) is a copy of "Parents". Seat IDs are `S01`, `S02`, ... as the web admin writes them, not `S01-ClassID` | | Update the diagram |
 | 14 | `session_rosters/{s}` | New: `class_id`, `seats` (seat → student ID), `created_at`, written by the web admin when a session first starts; read by admins and the session's teacher | Reports and the parent job must map seats to the students of that lesson | The collection, and that the app freezes it too if it starts sessions itself |
@@ -42,9 +42,8 @@ Updated 2026-10-23: the web admin (branch `Web`) is merged into `camera-ai` and 
 
 **Web admin (`backend/`, `frontend/`).** Merged into `camera-ai` on 2026-10-23, and the monitoring side is built (§1). The web team should review these changes before they go back into `Web`. Still open (details in `docs/web_admin_integration.md`, "Still open"):
 
-- The parent report job.
-- Camera health from `edge_nodes` on the camera page, and removing `classrooms` with its camera passwords.
-- Session deletion with its edge documents, and marking `incomplete` sessions in reports.
+- Writing `students2/{sid}.parent_id` so parents can see their children's reports.
+- Scheduling `python -m jobs.parent_reports` on the school server (every 10 minutes).
 - Taking the Firebase Web API key out of the code, and fixing the frontend's existing eslint errors.
 
 **Flutter app (`main`).**
@@ -53,7 +52,7 @@ Updated 2026-10-23: the web admin (branch `Web`) is merged into `camera-ai` and 
 - Start and end sessions through the web API (pre-start checks, roster), or repeat both in the app.
 - The seating screen writes `classes2/{c}.seat_map` instead of `row`/`column` on student documents.
 - The teacher live view reads `session_results` and acknowledges alerts (`status`, `handled_by`, `handled_at`).
-- Parents read `students/{sid}/reports`.
+- Parents find their children with `students2` where `parent_id` is their UID, and read `students2/{sid}/reports`.
 
 **Firebase owner.**
 

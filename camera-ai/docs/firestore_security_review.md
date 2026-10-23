@@ -51,11 +51,12 @@ Recommendation (changed on 2026-10-17 from A): **B**. With personal data and ses
 | `session_evaluations/{e}` | read | read for own sessions | none | write for own class's sessions: ID `{session_id}_{seat_id}`, field allowlist |
 | `sessions/{s}/alerts/{id}` | read | read for own sessions; set only `status` (`acknowledged` or `dismissed`), `handled_by` (own UID) and `handled_at` | none | create for own class's sessions: field and type allowlists |
 | `edge_nodes/{camera_id}` | read | read | none | write own `camera_id` with own `class_id`, field allowlist |
-| `students/{sid}/reports/{r}` | read | none | read own child (`students/{sid}.parent_id`) | none |
+| `students2/{sid}` | read | read | read own children (`parent_id`), through a query on `parent_id` | none |
+| `students2/{sid}/reports/{s}` | read | none | read own child (`students2/{sid}.parent_id`) | none |
 
 Client queries must carry the filter a rule depends on: teachers query `sessions` on `teacher_id` and `session_evaluations` on `session_id`; the edge node queries `sessions` on `class_id`.
 
-Parents get no per-seat data; their view of their own child (UC03) comes from `students/{sid}/reports`, written by a report job with the Admin SDK.
+Parents get no per-seat data; their view of their own child (UC03) comes from `students2/{sid}/reports`, written by the report job (`backend/jobs/parent_reports.py`) with the Admin SDK.
 
 `rules-tests/` checks every cell of this table, plus the query filters and a write by another class's edge node, on the Firestore emulator with `@firebase/rules-unit-testing`. CI runs it on every change under `camera-ai/`; locally run `npm ci` and `npm test` in that folder (Node 24 and Java 21 required). The merged project rules need the same tests before they are deployed.
 
@@ -63,7 +64,7 @@ Parents get no per-seat data; their view of their own child (UC03) comes from `s
 
 1. Confirm option B, and who mints and revokes edge tokens.
 2. Who may read `classes2` and its `seat_map`. The draft lets any teacher read every class, so subject teachers can map the live seat view to students. Limiting it to a class's own teachers needs a list on the class (for example `teacher_ids`) that Rules can check.
-3. Parent reports: confirm that a backend job writes `students/{sid}/reports`, and what a report contains.
+3. Parent reports: confirm the fields the job writes to `students2/{sid}/reports` (`docs/web_admin_integration.md`), and who links parents to students (`parent_id`).
 4. Retention (checklist §3.6): the period, and enabling Firestore TTL on `expire_at` for `session_results`, `session_evaluations` and the `alerts` collection group.
 5. Firestore location, and whether storing students' pseudonymous data outside Vietnam triggers cross-border transfer duties under Vietnamese personal-data rules. Confirm with the mentor.
 6. Who owns credential rotation and revocation.
