@@ -68,8 +68,14 @@ beforeEach(async () => {
       'parents/p1': { name: 'Parent One' },
       'students/st1': { parent_id: 'p1' },
       'students/st2': { parent_id: 'p2' },
-      'classes/c1': { class_name: '11B2', teacher_id: 't1', row_count: 2, column_count: 2 },
-      'classes/c1/seats/S1': { row: 1, column: 1, student_id: 'st1', status: 'assigned' },
+      'classes2/c1': {
+        class_name: '11B2',
+        teacher_id: 't1',
+        row_count: 2,
+        column_count: 2,
+        seat_map: { S01: { seat_id: 'S01', row: 1, column: 1, student_id: 'st1', status: 'occupied' } },
+      },
+      'session_rosters/s1': { class_id: 'c1', seats: { S01: 'st1' } },
       'sessions/s1': { class_id: 'c1', teacher_id: 't1', subject: 'Toan', status: 'scheduled' },
       'sessions/s2': { class_id: 'c2', teacher_id: 't2', subject: 'Van', status: 'running' },
       'session_results/s1': RESULT,
@@ -114,25 +120,31 @@ describe('sessions/{s}', () => {
   });
 });
 
-describe('classes/{c} and seats', () => {
-  test('the edge node reads only its own class, parents read neither', async () => {
-    await assertSucceeds(getDoc(doc(db.edge(), 'classes/c1')));
-    await assertSucceeds(getDocs(collection(db.edge(), 'classes/c1/seats')));
-    await assertFails(getDoc(doc(db.otherEdge(), 'classes/c1')));
-    await assertFails(getDocs(collection(db.otherEdge(), 'classes/c1/seats')));
-    await assertFails(getDoc(doc(db.parent(), 'classes/c1/seats/S1')));
-    await assertFails(getDoc(doc(db.anonymous(), 'classes/c1')));
-    await assertSucceeds(getDoc(doc(db.otherTeacher(), 'classes/c1/seats/S1')));
+describe('classes2/{c} and session rosters', () => {
+  test('the edge node reads only its own class, parents never read seat maps', async () => {
+    await assertSucceeds(getDoc(doc(db.edge(), 'classes2/c1')));
+    await assertFails(getDoc(doc(db.otherEdge(), 'classes2/c1')));
+    await assertFails(getDoc(doc(db.parent(), 'classes2/c1')));
+    await assertFails(getDoc(doc(db.anonymous(), 'classes2/c1')));
+    await assertSucceeds(getDoc(doc(db.otherTeacher(), 'classes2/c1')));
   });
 
-  test('only the homeroom teacher or an admin assigns seats, with allowlisted fields', async () => {
-    const seat = { row: 1, column: 2, student_id: 'st2', status: 'assigned' };
-    await assertSucceeds(setDoc(doc(db.teacher(), 'classes/c1/seats/S2'), seat));
-    await assertFails(setDoc(doc(db.teacher(), 'classes/c1/seats/S3'), { ...seat, full_name: 'Student Two' }));
-    await assertFails(setDoc(doc(db.teacher(), 'classes/c1/seats/S4'), { ...seat, row: 0 }));
-    await assertFails(setDoc(doc(db.otherTeacher(), 'classes/c1/seats/S2'), seat));
-    await assertFails(setDoc(doc(db.edge(), 'classes/c1/seats/S2'), seat));
-    await assertSucceeds(setDoc(doc(db.admin(), 'classes/c1/seats/S2'), seat));
+  test('only the homeroom teacher or an admin changes the seat map, and nothing else', async () => {
+    const seatMap = { S01: { seat_id: 'S01', row: 1, column: 1, student_id: 'st2', status: 'occupied' } };
+    await assertSucceeds(updateDoc(doc(db.teacher(), 'classes2/c1'), { seat_map: seatMap, updated_at: NOW }));
+    await assertFails(updateDoc(doc(db.teacher(), 'classes2/c1'), { class_name: '12A1' }));
+    await assertFails(updateDoc(doc(db.otherTeacher(), 'classes2/c1'), { seat_map: seatMap }));
+    await assertFails(updateDoc(doc(db.edge(), 'classes2/c1'), { seat_map: seatMap }));
+    await assertSucceeds(updateDoc(doc(db.admin(), 'classes2/c1'), { seat_map: {} }));
+  });
+
+  test('the frozen roster of a session is for its teacher and admins only', async () => {
+    await assertSucceeds(getDoc(doc(db.teacher(), 'session_rosters/s1')));
+    await assertSucceeds(getDoc(doc(db.admin(), 'session_rosters/s1')));
+    for (const as of [db.otherTeacher, db.parent, db.edge, db.anonymous]) {
+      await assertFails(getDoc(doc(as(), 'session_rosters/s1')));
+    }
+    await assertFails(setDoc(doc(db.teacher(), 'session_rosters/s1'), { class_id: 'c1', seats: {} }));
   });
 });
 
@@ -165,10 +177,11 @@ describe('edge output', () => {
     await assertFails(setDoc(doc(db.teacher(), 'sessions/s1/alerts/a4'), ALERT));
     const alert = doc(db.teacher(), 'sessions/s1/alerts/a1');
     await assertSucceeds(getDoc(alert));
-    await assertSucceeds(updateDoc(alert, { status: 'acknowledged' }));
-    await assertSucceeds(updateDoc(alert, { status: 'dismissed' }));
-    await assertFails(updateDoc(alert, { status: 'resolved' }));
-    await assertFails(updateDoc(alert, { duration_sec: 0 }));
+    await assertSucceeds(updateDoc(alert, { status: 'acknowledged', handled_by: 't1', handled_at: NOW }));
+    await assertSucceeds(updateDoc(alert, { status: 'dismissed', handled_by: 't1' }));
+    await assertFails(updateDoc(alert, { status: 'acknowledged', handled_by: 't2' }));
+    await assertFails(updateDoc(alert, { status: 'resolved', handled_by: 't1' }));
+    await assertFails(updateDoc(alert, { duration_sec: 0, handled_by: 't1' }));
     await assertFails(getDoc(doc(db.parent(), 'sessions/s1/alerts/a1')));
   });
 

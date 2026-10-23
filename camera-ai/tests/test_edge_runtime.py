@@ -129,7 +129,7 @@ def test_session_start_pause_resume_end_controls_camera_and_writes_results():
     h.steps(2)
     assert len(h.workers) == 2 and h.provider.calls == 6
 
-    h.set_status("ended")
+    h.set_status("completed")
     h.steps(1)
     assert h.workers[1].stopped
     result = h.doc(RESULT)
@@ -158,7 +158,7 @@ def test_live_results_every_10s_and_alerts_counted_per_seat():
     assert h.evaluations() == {}  # tong hop dau tien sau 5 phut giam sat
     assert [doc["type"] for path, doc in h.client.docs.items() if "/alerts/" in path] == ["head_drop"]
 
-    h.set_status("ended")
+    h.set_status("completed")
     h.steps(1)
     evaluations = h.evaluations()
     assert (evaluations["A1"]["distraction"], evaluations["A2"]["distraction"]) == (1, 0)
@@ -257,7 +257,7 @@ def test_restart_mid_session_keeps_session_incomplete_even_when_ended_normally()
     h.client.document(RESULT).set({"monitoring_status": "running"})  # tien trinh truoc chet giua phien
     h.set_status("running")
     h.steps(2)
-    h.set_status("ended")
+    h.set_status("completed")
     h.steps(1)
     assert h.doc(RESULT)["monitoring_status"] == "incomplete"
 

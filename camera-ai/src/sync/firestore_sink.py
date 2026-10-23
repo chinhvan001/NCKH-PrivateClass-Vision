@@ -48,10 +48,10 @@ _COMMIT_TIMEOUT_SEC = 10.0
 # outside_schedule: phien dang chay ngoai cua so lich trong config, camera khong bat.
 EDGE_STATUSES = frozenset({"idle", "monitoring", "paused", "unavailable", "outside_schedule"})
 
-# ``status`` cua phien (schema cua nhom) -> trang thai EdgeRuntime dung. Gia tri khac giu
-# nguyen: ``paused`` van chay duoc; ``scheduled``/``cancelled`` khong phai phien song.
-# ponytail: "live"/"completed" la gia tri cu cua nhanh Web; bo khi Web chuyen sang running/ended.
-WEB_STATUS_TO_STATE = {"running": "active", "ended": "ended", "live": "active", "completed": "ended"}
+# ``status`` web admin ghi (scheduled -> running <-> paused -> completed, hoac cancelled) ->
+# trang thai EdgeRuntime dung. Gia tri khac giu nguyen: ``paused`` van chay duoc;
+# ``scheduled``/``cancelled`` khong phai phien song. "live"/"ended" la ten cu, van nhan.
+WEB_STATUS_TO_STATE = {"running": "active", "completed": "ended", "live": "active", "ended": "ended"}
 
 
 @dataclass(frozen=True)

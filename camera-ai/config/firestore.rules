@@ -44,7 +44,7 @@ service cloud.firestore {
     }
 
     function homeroomOf(classId) {
-      return signedIn() && get(/databases/$(database)/documents/classes/$(classId)).data.teacher_id == request.auth.uid;
+      return signedIn() && get(/databases/$(database)/documents/classes2/$(classId)).data.teacher_id == request.auth.uid;
     }
 
     // UC04: start, pause, resume, end; cancel only before the start.
@@ -64,7 +64,8 @@ service cloud.firestore {
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'started_at', 'ended_at'])
         && validTransition(resource.data.status, request.resource.data.status);
 
-      // UC09: written by the edge node; the session's teacher may only acknowledge or dismiss.
+      // UC09: written by the edge node; the session's teacher may only acknowledge or dismiss,
+      // recording who handled it.
       match /alerts/{alertId} {
         allow read: if isAdmin() || teachesSession(sessionId);
         allow create: if edgeOfSession(sessionId)
@@ -72,25 +73,26 @@ service cloud.firestore {
           && request.resource.data.session_id == sessionId
           && request.resource.data.type in ['head_drop', 'back_turn', 'side_conversation'];
         allow update: if teachesSession(sessionId)
-          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status'])
-          && request.resource.data.status in ['acknowledged', 'dismissed'];
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'handled_by', 'handled_at'])
+          && request.resource.data.status in ['acknowledged', 'dismissed']
+          && request.resource.data.handled_by == request.auth.uid;
       }
     }
 
-    // Written by the web backend. The edge node reads only row_count and column_count.
-    match /classes/{classId} {
+    // Written by the web backend. seat_map holds the seat -> student mapping (checklist 3.2):
+    // any teacher may read it for the live seat view; only the homeroom teacher
+    // (classes2/{c}.teacher_id) or an admin changes it. The edge node asks for row_count
+    // and column_count only.
+    match /classes2/{classId} {
       allow read: if isAdmin() || isTeacher() || isEdgeOf(classId);
+      allow update: if (isAdmin() || homeroomOf(classId))
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['seat_map', 'updated_at']);
+    }
 
-      // Seat -> student mapping (checklist 3.2). Any teacher may read it for the live seat map;
-      // only the homeroom teacher (classes/{c}.teacher_id) or an admin changes it.
-      match /seats/{seatId} {
-        allow read: if isAdmin() || isTeacher() || isEdgeOf(classId);
-        allow create, update: if (isAdmin() || homeroomOf(classId))
-          && request.resource.data.keys().hasOnly(['row', 'column', 'student_id', 'status'])
-          && request.resource.data.row is int && request.resource.data.row >= 1
-          && request.resource.data.column is int && request.resource.data.column >= 1;
-        allow delete: if isAdmin() || homeroomOf(classId);
-      }
+    // Seat -> student mapping frozen by the web backend when a session starts, so reports keep
+    // the seating of that lesson. Never readable by the edge node or parents.
+    match /session_rosters/{sessionId} {
+      allow read: if isAdmin() || teachesSession(sessionId);
     }
 
     // UC07: live seat states, one document per session, overwritten by the edge node.
