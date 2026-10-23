@@ -1,16 +1,30 @@
 import { useEffect, useMemo, useState } from "react";
 import Icon from "../../common/Icon";
 import ConfirmModal from "../../common/ConfirmModal";
-import CustomScrollBar from "../../common/CustomScrollBar";
+import CustomScrollBar from "../../common/CustomScrollbar";
 
 import {
   getCameras,
   createCamera,
-  configureCamera,
   deleteCamera,
-} from "../../../services/cameraService";
+} from "../../../services/CameraService";
 
 import AddCameraForm from "./AddCameraForm";
+
+// Trạng thái trong heartbeat của camera AI (edge_nodes/{camera_id})
+const EDGE_STATUS = {
+  idle: "Sẵn sàng",
+  monitoring: "Đang giám sát",
+  paused: "Tạm dừng",
+  unavailable: "Tạm thời không khả dụng",
+  outside_schedule: "Ngoài khung giờ giám sát",
+};
+
+const edgeLabel = (edge) => {
+  if (!edge) return "Chưa có tín hiệu";
+  if (!edge.online) return "Offline";
+  return EDGE_STATUS[edge.status] || edge.status;
+};
 
 const CameraManagementPanel = () => {
   const [cameras, setCameras] = useState([]);
@@ -23,7 +37,6 @@ const CameraManagementPanel = () => {
 
   const [showAddCamera, setShowAddCamera] = useState(false);
 
-  const [configuringCameraId, setConfiguringCameraId] = useState(null);
   const [deletingCameraId, setDeletingCameraId] = useState(null);
   const [confirmModal, setConfirmModal] = useState({
     open: false,
@@ -77,8 +90,8 @@ const CameraManagementPanel = () => {
     (camera) => camera.status !== "online",
   ).length;
 
-  const unconfiguredCameras = cameras.filter(
-    (camera) => !camera.is_configured,
+  const camerasWithoutEdge = cameras.filter(
+    (camera) => !camera.edge,
   ).length;
 
   const filteredCameras = useMemo(() => {
@@ -90,6 +103,7 @@ const CameraManagementPanel = () => {
         (camera.name || "").toLowerCase().includes(keyword) ||
         (camera.camera_id || "").toLowerCase().includes(keyword) ||
         (camera.classroom_name || "").toLowerCase().includes(keyword) ||
+        (camera.edge?.class_name || "").toLowerCase().includes(keyword) ||
         (camera.ip_address || "").toLowerCase().includes(keyword);
 
       const matchRoom = roomFilter === "all" || camera.room_id === roomFilter;
@@ -103,23 +117,6 @@ const CameraManagementPanel = () => {
 
   const handleRefresh = () => {
     loadCameras();
-  };
-
-  const handleConfigureCamera = async (camera) => {
-    try {
-      setConfiguringCameraId(camera.camera_id);
-      setError("");
-
-      await configureCamera(camera.camera_id);
-
-      await loadCameras();
-    } catch (error) {
-      console.error("Configure camera error:", error);
-
-      setError(error.message || "Không thể cấu hình camera.");
-    } finally {
-      setConfiguringCameraId(null);
-    }
   };
 
   const handleDeleteCamera = (camera) => {
@@ -227,11 +224,11 @@ const CameraManagementPanel = () => {
             </div>
 
             <div>
-              <span>Chưa cấu hình</span>
+              <span>Chưa có camera AI</span>
 
-              <strong>{unconfiguredCameras}</strong>
+              <strong>{camerasWithoutEdge}</strong>
 
-              <small>Cần cấu hình</small>
+              <small>Chưa gửi tín hiệu</small>
             </div>
           </article>
         </div>
@@ -323,7 +320,7 @@ const CameraManagementPanel = () => {
                 <th>Địa chỉ IP</th>
                 <th>RTSP Port</th>
                 <th>Trạng thái</th>
-                <th>Cấu hình</th>
+                <th>Camera AI</th>
                 <th>Thao tác</th>
               </tr>
             </thead>
@@ -351,7 +348,7 @@ const CameraManagementPanel = () => {
                 </tr>
               ) : (
                 filteredCameras.map((camera) => (
-                  <tr key={camera.camera_id || camera.id}>
+                  <tr key={camera.id}>
                     <td>
                       <div className="camera-cell">
                         <div className="camera-table-icon">
@@ -361,7 +358,7 @@ const CameraManagementPanel = () => {
                         <div>
                           <strong>{camera.name || "Chưa đặt tên"}</strong>
 
-                          <span>{camera.camera_id || "--"}</span>
+                          <span>{camera.room_id || "Chưa khai báo phòng"}</span>
                         </div>
                       </div>
                     </td>
@@ -401,45 +398,35 @@ const CameraManagementPanel = () => {
                     <td>
                       <span
                         className={`camera-config-badge ${
-                          camera.is_configured ? "configured" : "not-configured"
+                          camera.edge?.online ? "configured" : "not-configured"
                         }`}
+                        title={
+                          camera.edge?.updated_at
+                            ? `Tín hiệu lúc ${new Date(camera.edge.updated_at).toLocaleString("vi-VN")}`
+                            : undefined
+                        }
                       >
                         <i />
 
-                        {camera.is_configured ? "Đã cấu hình" : "Chưa cấu hình"}
+                        {edgeLabel(camera.edge)}
+                        {camera.edge?.class_name ? ` · ${camera.edge.class_name}` : ""}
                       </span>
                     </td>
 
                     <td>
                       <div className="camera-row-actions">
-                        <button
-                          type="button"
-                          className="configure-camera-button"
-                          onClick={() => handleConfigureCamera(camera)}
-                          disabled={
-                            camera.is_configured ||
-                            configuringCameraId === camera.camera_id ||
-                            deletingCameraId === camera.camera_id
-                          }
-                        >
-                          {configuringCameraId === camera.camera_id
-                            ? "Đang cấu hình..."
-                            : "Cấu hình"}
-                        </button>
-
-                        <button
-                          type="button"
-                          className="delete-camera-button"
-                          onClick={() => handleDeleteCamera(camera)}
-                          disabled={
-                            deletingCameraId === camera.camera_id ||
-                            configuringCameraId === camera.camera_id
-                          }
-                        >
-                          {deletingCameraId === camera.camera_id
-                            ? "Đang xóa..."
-                            : "Xóa"}
-                        </button>
+                        {camera.room_id && (
+                          <button
+                            type="button"
+                            className="delete-camera-button"
+                            onClick={() => handleDeleteCamera(camera)}
+                            disabled={deletingCameraId === camera.camera_id}
+                          >
+                            {deletingCameraId === camera.camera_id
+                              ? "Đang xóa..."
+                              : "Xóa"}
+                          </button>
+                        )}
                       </div>
                     </td>
                   </tr>

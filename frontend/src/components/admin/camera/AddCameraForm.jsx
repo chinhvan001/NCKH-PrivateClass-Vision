@@ -1,89 +1,20 @@
-import { useState } from "react";
 import Icon from "../../common/Icon";
-import CustomScrollBar from "../../common/CustomScrollBar";
-import { testCameraConnection } from "../../../services/cameraService";
 
 const AddCameraForm = ({
     onClose,
     onSubmit,
 }) => {
-    const [checkingConnection, setCheckingConnection] = useState(false);
-    const [connectionStatus, setConnectionStatus] = useState("idle");
-    const [connectionMessage, setConnectionMessage] = useState("");
+    const handleSubmit = (event) => {
+        event.preventDefault();
 
-    const getFormData = (form) => {
-        const formData = new FormData(form);
+        const formData = new FormData(event.currentTarget);
 
-        return {
+        onSubmit({
             room_id: formData.get("room_id").trim(),
             camera_name: formData.get("camera_name").trim(),
             ip_address: formData.get("ip_address").trim(),
             rtsp_port: formData.get("rtsp_port").trim(),
-            rtsp_url: formData.get("rtsp_url").trim(),
-        };
-    };
-
-    const handleTestConnection = async (event) => {
-        event.preventDefault();
-
-        const cameraData = getFormData(event.currentTarget.form);
-
-        if (!cameraData.rtsp_url) {
-            setConnectionStatus("error");
-            setConnectionMessage("Vui lòng nhập RTSP URL.");
-            return;
-        }
-
-        try {
-            setCheckingConnection(true);
-            setConnectionStatus("idle");
-            setConnectionMessage("");
-
-            const result = await testCameraConnection(
-                cameraData.rtsp_url
-            );
-
-            if (result.connected) {
-                setConnectionStatus("success");
-                setConnectionMessage(
-                    "Kết nối camera thành công."
-                );
-            } else {
-                setConnectionStatus("error");
-                setConnectionMessage(
-                    "Không thể kết nối tới camera."
-                );
-            }
-        } catch (error) {
-            console.error(
-                "Test camera connection error:",
-                error
-            );
-
-            setConnectionStatus("error");
-            setConnectionMessage(
-                error.message ||
-                "Không thể kiểm tra kết nối camera."
-            );
-        } finally {
-            setCheckingConnection(false);
-        }
-    };
-
-    const handleSubmit = (event) => {
-        event.preventDefault();
-
-        if (connectionStatus !== "success") {
-            setConnectionStatus("error");
-            setConnectionMessage(
-                "Vui lòng kiểm tra kết nối camera trước khi thêm."
-            );
-            return;
-        }
-
-        const cameraData = getFormData(event.currentTarget);
-
-        onSubmit(cameraData);
+        });
     };
 
     return (
@@ -155,6 +86,10 @@ const AddCameraForm = ({
                                 placeholder="Ví dụ: Camera 201"
                                 required
                             />
+
+                            <small>
+                                Trùng camera_id trong cấu hình của camera AI.
+                            </small>
                         </div>
 
                         <div className="camera-form-field">
@@ -186,25 +121,6 @@ const AddCameraForm = ({
                                 required
                             />
                         </div>
-
-                        <div className="camera-form-field camera-form-field-full">
-                            <label htmlFor="rtsp_url">
-                                RTSP URL
-                                <span>*</span>
-                            </label>
-
-                            <input
-                                id="rtsp_url"
-                                name="rtsp_url"
-                                type="text"
-                                placeholder="Ví dụ: rtsp://192.168.1.103:554/stream"
-                                required
-                            />
-
-                            <small>
-                                Địa chỉ luồng RTSP dùng để kết nối camera.
-                            </small>
-                        </div>
                     </div>
 
                     <div className="camera-form-note">
@@ -214,35 +130,10 @@ const AddCameraForm = ({
                         />
 
                         <p>
-                            Camera cần được kiểm tra kết nối trước khi hoàn tất cấu hình.
+                            Địa chỉ RTSP (kèm tài khoản, mật khẩu của camera) chỉ được cấu hình trên máy camera AI,
+                            web không lưu. Tình trạng camera hiển thị khi camera AI gửi tín hiệu.
                         </p>
                     </div>
-
-                    {connectionStatus === "success" && (
-                        <div className="camera-connection-status camera-connection-success">
-                            <Icon
-                                name="check"
-                                size={17}
-                            />
-
-                            <span>
-                                {connectionMessage}
-                            </span>
-                        </div>
-                    )}
-
-                    {connectionStatus === "error" && (
-                        <div className="camera-connection-status camera-connection-error">
-                            <Icon
-                                name="alertCircle"
-                                size={17}
-                            />
-
-                            <span>
-                                {connectionMessage}
-                            </span>
-                        </div>
-                    )}
 
                     <div className="camera-modal-actions">
                         <button
@@ -254,29 +145,8 @@ const AddCameraForm = ({
                         </button>
 
                         <button
-                            type="button"
-                            className="camera-test-button"
-                            onClick={handleTestConnection}
-                            disabled={checkingConnection}
-                        >
-                            <Icon
-                                name="refresh"
-                                size={16}
-                            />
-
-                            <span>
-                                {checkingConnection
-                                    ? "Đang kiểm tra..."
-                                    : "Kiểm tra kết nối"}
-                            </span>
-                        </button>
-
-                        <button
                             type="submit"
                             className="camera-save-button"
-                            disabled={
-                                connectionStatus !== "success"
-                            }
                         >
                             <Icon
                                 name="plus"

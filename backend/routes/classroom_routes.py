@@ -1,4 +1,5 @@
 from flask import Blueprint, jsonify, request
+from firebase_admin import firestore
 from firebase_config import db
 from utils.auth import (
     verify_request_token,
@@ -66,7 +67,6 @@ def build_classroom_data(doc):
         "camera_name": data.get("camera_name", ""),
         "ip_address": data.get("ip_address", ""),
         "rtsp_port": data.get("rtsp_port", ""),
-        "rtsp_url": data.get("rtsp_url", ""),
         "row_number": data.get("row_number", 0),
         "column_number": data.get("column_number", 0),
         "status": data.get("status", "offline"),
@@ -148,10 +148,6 @@ def classrooms():
             data.get("rtsp_port", "")
         ).strip()
 
-        rtsp_url = str(
-            data.get("rtsp_url", "")
-        ).strip()
-
         status = str(
             data.get("status", "offline")
         ).strip().lower()
@@ -188,7 +184,6 @@ def classrooms():
             "camera_name": camera_name,
             "ip_address": ip_address,
             "rtsp_port": rtsp_port,
-            "rtsp_url": rtsp_url,
             "row_number": row_number,
             "column_number": column_number,
             "status": status,
@@ -366,12 +361,8 @@ def classroom_detail(classroom_id):
                     current_data.get("rtsp_port", "")
                 )
             ).strip(),
-            "rtsp_url": str(
-                data.get(
-                    "rtsp_url",
-                    current_data.get("rtsp_url", "")
-                )
-            ).strip(),
+            # Địa chỉ RTSP kèm mật khẩu chỉ nằm trên camera AI: xóa giá trị cũ nếu còn
+            "rtsp_url": firestore.DELETE_FIELD,
             "row_number": row_number,
             "column_number": column_number,
             "status": status,
