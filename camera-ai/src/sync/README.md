@@ -44,8 +44,7 @@ Sessions, classes and seats belong to the web admin and the app (`docs/web_admin
 | Path | Edge node | Content |
 |---|---|---|
 | `sessions/{session_id}` | listens to those with its `class_id` | `status`, written by the web admin or app (`docs/edge_node.md`) |
-| `classes/{class_id}` | reads `row_count`, `column_count` at session start | `config/class_layout.py` |
-| `classes/{class_id}/seats/{seat_id}` | reads `row`, `column` at session start | never `student_id` |
+| `classes2/{class_id}` | reads `row_count`, `column_count` at session start | `config/class_layout.py`; a field projection, so `seat_map` (seat → student) is never read |
 | `session_results/{session_id}` | reads once at session start, then overwrites | `SessionResult.to_dict()` + `expire_at` |
 | `session_evaluations/{session_id}_{seat_id}` | overwrites | `SeatEvaluation.to_dict()` + `expire_at` |
 | `sessions/{session_id}/alerts/{doc_id}` | creates | `AlertEvent.to_dict()` + `expire_at` |
@@ -65,7 +64,7 @@ Sessions, classes and seats belong to the web admin and the app (`docs/web_admin
 | Duplicates | Alert IDs are fixed when an alert is queued, and the other documents have deterministic paths. Retrying after an ambiguous failure (the server committed but the client timed out) overwrites the same documents instead of duplicating them. | |
 | Rejected data | On HTTP 400 or a client-side encoding error, the batch is dropped and logged, so one bad batch cannot block the queue forever. | |
 | Offline queue (UC02 alternate flow) | Alerts: at most `max_queue`, in RAM; when full the oldest is dropped and counted in `dropped`. Overwritten documents: one per path. | 20,000 alerts |
-| Session listener | A Firestore watch on `sessions` where `class_id` is this node's class. It maps `status` to the runtime's states (`running` → `active`, `ended` → `ended`, and the `Web` branch's older `live`/`completed` the same way; anything else unchanged). It dies when the network drops; the runtime subscribes again once flushes succeed (`docs/edge_node.md`, Known limits). | |
+| Session listener | A Firestore watch on `sessions` where `class_id` is this node's class. It maps `status` to the runtime's states (`running` → `active`, `completed` → `ended`, and the older `live`/`ended` the same way; anything else unchanged). It dies when the network drops; the runtime subscribes again once flushes succeed (`docs/edge_node.md`, Known limits). | |
 | Logging | Only the error type and queue counters. Never document contents or server error messages, which may echo them. | |
 
 Limits:

@@ -1,6 +1,6 @@
 # Firestore Access Review: Edge Node
 
-Prepared 2026-10-04 for the review with the Firebase owner, updated 2026-10-17 for the team's Firestore schema. It covers how the camera-ai edge node authenticates to Firestore, and the Security Rules draft for the paths camera-ai uses (`config/firestore.rules`). Decisions from the review update `cloud_data_compliance_checklist.md` §3.7.
+Prepared 2026-10-04 for the review with the Firebase owner, updated 2026-10-17 for the team's Firestore schema and 2026-10-23 for the web admin's `classes2` seat plan. It covers how the camera-ai edge node authenticates to Firestore, and the Security Rules draft for the paths camera-ai uses (`config/firestore.rules`). Decisions from the review update `cloud_data_compliance_checklist.md` §3.7.
 
 ## 1. Current setup
 
@@ -11,8 +11,7 @@ Prepared 2026-10-04 for the review with the Firebase owner, updated 2026-10-17 f
 | Path | Edge access | Data |
 |---|---|---|
 | `sessions/{s}` | listen (query `class_id == c`) | Session `status`, written by the web admin or app. The document also holds `teacher_id`, `subject`, `started_at`, `ended_at`. |
-| `classes/{c}` | read `row_count`, `column_count` | Class document. |
-| `classes/{c}/seats/{seat_id}` | read `row`, `column` | Seat documents also hold `student_id`; the edge node asks for the two fields only. |
+| `classes2/{c}` | read `row_count`, `column_count` | Class document. It also holds `seat_map` (seat → student ID); the edge node asks for the two counts only. |
 | `session_results/{s}` | read once, overwrite | `SessionResult` |
 | `session_evaluations/{s}_{seat}` | overwrite | `SeatEvaluation` |
 | `sessions/{s}/alerts/{id}` | create | `AlertEvent` |
@@ -45,12 +44,12 @@ Recommendation (changed on 2026-10-17 from A): **B**. With personal data and ses
 
 | Path | Admin | Teacher | Parent | Edge node (option B claims) |
 |---|---|---|---|---|
-| `sessions/{s}` | read | read own (`teacher_id`); change only `status`, `started_at`, `ended_at`: `scheduled` → `running` or `cancelled`, `running` → `paused` or `ended`, `paused` → `running` or `ended` | none | read own class (`class_id`) |
-| `classes/{c}` | read | read | none | read own class |
-| `classes/{c}/seats/{seat}` | read, write (field allowlist), delete | read; write and delete only as the homeroom teacher (`classes/{c}.teacher_id`), field allowlist | none | read own class |
+| `sessions/{s}` | read | read own (`teacher_id`); change only `status`, `started_at`, `ended_at`: `scheduled` → `running` or `cancelled`, `running` → `paused` or `completed`, `paused` → `running` or `completed` | none | read own class (`class_id`) |
+| `classes2/{c}` | read; change only `seat_map`, `updated_at` | read; change only `seat_map`, `updated_at` as the homeroom teacher (`classes2/{c}.teacher_id`) | none | read own class. Rules cannot hide `seat_map` from it; the edge node asks for the counts only |
+| `session_rosters/{s}` | read | read for own sessions | none | none |
 | `session_results/{s}` | read | read for own sessions | none | write for own class's sessions: field allowlist, own `camera_id` |
 | `session_evaluations/{e}` | read | read for own sessions | none | write for own class's sessions: ID `{session_id}_{seat_id}`, field allowlist |
-| `sessions/{s}/alerts/{id}` | read | read for own sessions; set `status` to `acknowledged` or `dismissed` only | none | create for own class's sessions: field and type allowlists |
+| `sessions/{s}/alerts/{id}` | read | read for own sessions; set only `status` (`acknowledged` or `dismissed`), `handled_by` (own UID) and `handled_at` | none | create for own class's sessions: field and type allowlists |
 | `edge_nodes/{camera_id}` | read | read | none | write own `camera_id` with own `class_id`, field allowlist |
 | `students/{sid}/reports/{r}` | read | none | read own child (`students/{sid}.parent_id`) | none |
 
@@ -63,7 +62,7 @@ Parents get no per-seat data; their view of their own child (UC03) comes from `s
 ## 4. Decisions needed
 
 1. Confirm option B, and who mints and revokes edge tokens.
-2. Who may read seat documents. The draft lets any teacher read them, so subject teachers can map the live seat view to students. Limiting it to a class's own teachers needs a list on the class (for example `teacher_ids`) that Rules can check.
+2. Who may read `classes2` and its `seat_map`. The draft lets any teacher read every class, so subject teachers can map the live seat view to students. Limiting it to a class's own teachers needs a list on the class (for example `teacher_ids`) that Rules can check.
 3. Parent reports: confirm that a backend job writes `students/{sid}/reports`, and what a report contains.
 4. Retention (checklist §3.6): the period, and enabling Firestore TTL on `expire_at` for `session_results`, `session_evaluations` and the `alerts` collection group.
 5. Firestore location, and whether storing students' pseudonymous data outside Vietnam triggers cross-border transfer duties under Vietnamese personal-data rules. Confirm with the mentor.

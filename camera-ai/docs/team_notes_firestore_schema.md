@@ -2,10 +2,12 @@
 
 Written 2026-10-17 for the next team meeting (T0). camera-ai now follows the team's Firestore schema diagram. Where the diagram says nothing, or where following it literally would leak data, camera-ai made a choice and wrote it down here; each one needs the team's confirmation. The contract itself is in `docs/web_admin_integration.md`, the edge behaviour in `docs/edge_node.md`, and the privacy status in `docs/cloud_data_compliance_checklist.md`.
 
+Updated 2026-10-23: the web admin (branch `Web`) is merged into `camera-ai` and both sides now talk through the contract. Where the web admin had already built something differently (`classes2`, `seat_map`, `S01` seat IDs, `completed`), camera-ai follows it; §2 marks what that settled.
+
 ## 1. What camera-ai does now
 
-- **Sessions.** The edge node listens to `sessions` where `class_id` is its class and reacts to `status`: `running` opens the camera, `paused` closes it, `ended` finishes the session, `cancelled` or a deleted document stops it as incomplete. It also accepts the `Web` branch's current `live` and `completed` until the web switches.
-- **Seat plan.** At the start of each session it reads `row_count`/`column_count` from `classes/{class_id}` and `row`/`column` from `classes/{class_id}/seats`, never `student_id`. While a class has no seat documents it numbers seats `S1`..`Sn` row by row, matching the `Web` branch's `seat_assignments` keys.
+- **Sessions.** The edge node listens to `sessions` where `class_id` is its class and reacts to `status`: `running` opens the camera, `paused` closes it, `completed` finishes the session, `cancelled` or a deleted document stops it as incomplete. It still accepts the older `live` and `ended`.
+- **Seat plan.** At the start of each session it reads only `row_count`/`column_count` from `classes2/{class_id}` and numbers the seats `S01`, `S02`, ... row by row, the keys the web admin writes in `seat_map`. It never reads `seat_map`.
 - **Seat positions in the image.** The installer enters the image position of the four corner seats in the edge node's local config; every other seat is placed by a perspective transform. No camera image is ever needed on the web side.
 - **Output.**
   - `session_results/{session_id}`: live state of every seat, overwritten every 10 s of monitoring.
@@ -15,44 +17,42 @@ Written 2026-10-17 for the next team meeting (T0). camera-ai now follows the tea
 - **Volume.** About 950 writes for a 40-seat class and a 45-minute session, against about 10,800 with the previous per-seat records.
 - **Retention.** Every session document carries `expire_at`, so a Firestore TTL policy can delete it.
 - **Security Rules.** `config/firestore.rules` is rewritten for the schema and tested on the emulator in CI (`rules-tests/`).
+- **Web admin side (2026-10-23).** Start, pause, resume and end from the timetable, with the pre-start checks of UC04 step 3; the seating frozen into `session_rosters/{s}` at the start; a live view of seats and alerts; reports and the dashboard from `session_evaluations`; admin sign-in required on every monitoring, report and student endpoint. Tested together with the real edge runtime (`backend/tests/test_edge_contract.py`).
 
 ## 2. Choices to confirm at the meeting
 
 | # | Topic | What camera-ai did | Why | To confirm |
 |---|---|---|---|---|
-| 1 | Alerts (UC09) | `sessions/{session_id}/alerts/{id}`: `session_id`, `seat_id`, `type`, `start_sec`, `duration_sec`; the teacher adds `status` (`acknowledged`, `dismissed`) | The diagram has no alert collection, and UC09 needs one | Path and fields |
+| 1 | Alerts (UC09) | `sessions/{session_id}/alerts/{id}`: `session_id`, `seat_id`, `type`, `start_sec`, `duration_sec`; the web admin or teacher adds `status` (`acknowledged`, `dismissed`), `handled_by`, `handled_at` | The diagram has no alert collection, and UC09 needs one | Path and fields; the web admin uses them |
 | 2 | Edge heartbeat (UC04, UC10) | `edge_nodes/{camera_id}`: `class_id`, `online`, `status`, `session_id`, `fps`, `camera_ok`, `last_frame_at`, `updated_at` | The diagram has no device status, and the pre-start check needs one | Path and fields |
-| 3 | Session status values | `scheduled` → `running` → `paused` ↔ `running` → `ended`; `cancelled` before the start | The diagram shows only `running` | The full list, and who sets each value |
+| 3 | Session status values | Settled by the web admin: `scheduled` → `running` ↔ `paused` → `completed`; `cancelled` before the start | The diagram shows only `running` | Who sets them in the app |
 | 4 | Metrics | `concentration`: score of the last 60 s. `avg_concentration`: score since the start. `distraction`: number of alerts. `interaction`: number of side-conversation alerts. Seat `status`: `focused`, `drowsy`, `distracted`, `away` | The diagram names the fields without defining them | Especially `interaction`: if it should mean participation (raising hands), the edge cannot measure it yet |
 | 5 | `session_results` | One document per session (ID = session ID), overwritten every 10 s, plus a new `monitoring_status` field (`running`, `completed`, `incomplete`) | UC04 needs a way to mark a session whose data is partial | The overwrite (no history inside a session) and the extra field |
 | 6 | `session_evaluations` | Collection name `session_evaluations`, ID `{session_id}_{seat_id}`, overwritten every 5 minutes and at the end, plus a new `observed_sec` field | Reports must ignore seats where someone only walked past, and weight class averages | Name, ID and the extra field |
 | 7 | Seat positions | Four corner seats in the edge node's local config; seats have only `row` and `column` in Firestore | The diagram has no image coordinates, and a web calibration screen would need camera images on the web side | That calibration stays on the edge node |
-| 8 | Seat→student mapping | `classes/{class_id}/seats/{seat_id}` documents (`row`, `column`, `student_id`, `status`) instead of a `seat_map` field on the class | Rules cannot hide one field of a document: anyone allowed to read a class (parents included) would see every child's seat | Moving `seat_map` into documents |
+| 8 | Seat→student mapping | Kept as the web admin built it: `seat_map` on `classes2/{c}`, readable by admins and teachers only (never parents). The edge node reads only the counts. Each session's seating is copied to `session_rosters/{s}` at the start | Rules cannot hide one field of a document, so access to the whole class document has to stay narrow; reports need the seating of that lesson, not today's | Confirmed by the web implementation; seat documents (proposed 2026-10-17) dropped |
 | 9 | One camera per class | The edge node is configured with one `class_id` and one `camera_id` | THPT classes keep their room | Classes that change rooms (labs) would need `camera_id` on the session |
 | 10 | Timestamps | `captured_at` and `expire_at` are UTC times from the edge clock (keep NTP on); alert times stay as seconds since the session start | The diagram uses timestamps; the session already has `started_at` | That alerts keep `start_sec` |
 | 11 | Parent view (UC03) | Parents read only `students/{sid}/reports/{s}`, written by a backend job after each session | Parents must not see other children's seats | That the web team builds the job, and what a report contains |
-| 12 | Who reads seats | The Rules draft lets any teacher read seat documents (for the live view) and only the homeroom teacher change them | Subject teachers need names on the live seat map | Or a `teacher_ids` list on the class |
-| 13 | Diagram fixes | The second "Teachers" box (bottom left) is a copy of "Parents"; the seat ID example `S01-ClassID` differs from the `Web` branch's `S1` | | Which seat ID format the app and web write |
+| 12 | Who reads `classes2` | The Rules draft lets any teacher read every class (for the live view) and only the homeroom teacher or an admin change `seat_map` | Subject teachers need names on the live seat map | Or a `teacher_ids` list on the class |
+| 13 | Diagram fixes | The second "Teachers" box (bottom left) is a copy of "Parents". Seat IDs are `S01`, `S02`, ... as the web admin writes them, not `S01-ClassID` | | Update the diagram |
+| 14 | `session_rosters/{s}` | New: `class_id`, `seats` (seat → student ID), `created_at`, written by the web admin when a session first starts; read by admins and the session's teacher | Reports and the parent job must map seats to the students of that lesson | The collection, and that the app freezes it too if it starts sessions itself |
 
 ## 3. What each part of the team needs to do
 
-**Web admin (branch `Web`).** The branch was last changed on 2026-09-20 and still uses the earlier model. The review and nine concrete tasks are in `docs/web_admin_integration.md` ("State of the `Web` branch" and "Tasks for the web and app teams"). In short:
+**Web admin (`backend/`, `frontend/`).** Merged into `camera-ai` on 2026-10-23, and the monitoring side is built (§1). The web team should review these changes before they go back into `Web`. Still open (details in `docs/web_admin_integration.md`, "Still open"):
 
-- Sessions on the schema: `teacher_id`, `started_at`/`ended_at`, statuses `running`/`ended`, start and end buttons.
-- Seat documents instead of `seat_assignments`.
-- Pre-start check on the heartbeat.
-- Live view and alerts from `session_results` and `alerts`.
-- Reports from `session_evaluations`.
 - The parent report job.
-- Camera health from `edge_nodes`.
-- Removing `classrooms` (which stores camera passwords in Firestore), `enrollments` and `monitoring_sessions`.
-- Taking the Firebase Web API key out of the code.
+- Camera health from `edge_nodes` on the camera page, and removing `classrooms` with its camera passwords.
+- Session deletion with its edge documents, and marking `incomplete` sessions in reports.
+- Taking the Firebase Web API key out of the code, and fixing the frontend's existing eslint errors.
 
 **Flutter app (`main`).**
 
-- Read `sessions` instead of `monitoring_sessions`.
-- The seating screen writes seat documents instead of `row`/`column` on student documents.
-- The teacher live view reads `session_results` and acknowledges alerts.
+- Read `sessions` instead of `monitoring_sessions`, with the statuses above.
+- Start and end sessions through the web API (pre-start checks, roster), or repeat both in the app.
+- The seating screen writes `classes2/{c}.seat_map` instead of `row`/`column` on student documents.
+- The teacher live view reads `session_results` and acknowledges alerts (`status`, `handled_by`, `handled_at`).
 - Parents read `students/{sid}/reports`.
 
 **Firebase owner.**
@@ -75,7 +75,7 @@ Written 2026-10-17 for the next team meeting (T0). camera-ai now follows the tea
 
 - Edge sign-in with custom tokens (option B), replacing the Admin SDK key.
 - A small helper that turns the four corner seats into a seat file for the demo, so installers can check the calibration on the anonymized preview.
-- End-to-end test with the web admin and app on a test Firebase project, once tasks 1–4 of the web list are done.
+- End-to-end test with the web admin and app on a real test Firebase project (the web side already runs against the edge runtime on a fake database in `backend/tests/test_edge_contract.py`).
 - FCM push for alerts (UC09), after the alert path is confirmed.
 
 ## 5. Git history rewrite of `camera-ai`

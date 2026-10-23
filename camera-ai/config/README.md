@@ -21,7 +21,7 @@ The schema rejects unknown keys such as `rtsp_url`, `student_id`, `name`, face m
 
 ## Corner seats
 
-Firestore only knows each seat's row and column (`classes/{class_id}/seats`). Where a seat appears in the image depends on how the camera is mounted, so it stays on the edge node: give the image position of the four corner seats, at shoulder height of a seated student, keyed by their row and column labels in the class seating plan:
+Firestore only knows how many rows and columns the class has (`row_count`, `column_count` on `classes2/{class_id}`). Where a seat appears in the image depends on how the camera is mounted, so it stays on the edge node: give the image position of the four corner seats, at shoulder height of a seated student, keyed by their row and column labels in the class seating plan:
 
 | Key | Seat |
 |---|---|

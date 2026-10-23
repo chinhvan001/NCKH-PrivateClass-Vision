@@ -39,16 +39,16 @@ The edge node listens to the top-level `sessions` collection, filtered on `class
 | `scheduled` | Ignored. |
 | `running` | Starts the session if none is running: loads the class seat plan, then opens the camera inside the schedule. |
 | `paused` | Closes the camera and pauses alerts. Going back to `running` reopens it, and behaviour episodes start over. |
-| `ended` | Closes the camera, writes the final evaluations and sets `monitoring_status` to `completed`. |
+| `completed` | Closes the camera, writes the final evaluations and sets `monitoring_status` to `completed`. |
 | `cancelled`, document deleted, or any other value | Closes the camera and sets `monitoring_status` to `incomplete`. |
 
-Until the `Web` branch switches to the schema, `live` counts as `running` and `completed` as `ended`.
+The web admin sets these values (`backend/routes/session_routes.py`); the older `live` still counts as `running` and `ended` as `completed`.
 
 The edge node reads only `class_id` and `status`; `started_at` and `ended_at` are ignored, and the `schedule` windows bound when the camera may open.
 
 - Keep at most one `running` or `paused` session per class. If there are several, the edge node takes the one with the smallest ID.
 - Session IDs must match `[A-Za-z0-9_-]{1,64}`. Firestore auto-IDs do.
-- The seat plan is loaded when the session starts and fixed for the whole session: `row_count`/`column_count` from `classes/{class_id}` and `row`/`column` from `classes/{class_id}/seats` (never `student_id`). While a class has no seat documents, seats are numbered `S1`..`Sn` row by row, like the `Web` branch's `seat_assignments`. If the plan cannot be loaded (missing class, more than 50 rows or columns, no valid seat, corner seats not forming a convex quadrilateral, Firestore unreachable), the heartbeat reports `unavailable` and the edge node retries every 10 s.
+- The seat plan is loaded when the session starts and fixed for the whole session: only `row_count`/`column_count` from `classes2/{class_id}` (a field projection: the class's `seat_map`, which maps seats to students, is never read). Seats are numbered `S01`, `S02`, ... row by row, the same keys the web admin writes in `seat_map`. If the plan cannot be loaded (missing class, more than 50 rows or columns, corner seats not forming a convex quadrilateral, Firestore unreachable), the heartbeat reports `unavailable` and the edge node retries every 10 s.
 
 ## Live seat states: `session_results/{session_id}`
 
@@ -63,7 +63,7 @@ Written when the session starts, then every 10 s of monitored time, and once mor
 | `monitoring_status` | Meaning |
 |---|---|
 | `running` | Written while the session runs. |
-| `completed` | The session was set to `ended`. |
+| `completed` | The session was set to `completed`. |
 | `incomplete` | The session stopped without being ended (cancelled, document deleted, edge node shut down), or the edge node restarted during it and the scores cover only the part after the restart (UC04 alternate flow). A result still `running` after the session ended means the edge node died; treat it as incomplete. |
 
 ## Per-seat evaluations: `session_evaluations/{session_id}_{seat_id}`
@@ -71,11 +71,11 @@ Written when the session starts, then every 10 s of monitored time, and once mor
 Written every 5 minutes of monitored time and when the session stops, one document per seat seen. Fields: `session_id`, `seat_id`, `captured_at`, `concentration` (last 60 s), `avg_concentration` (whole session), `distraction` (alerts of any type for this seat), `observed_sec` (time the seat was seen), `expire_at`.
 
 - Use `observed_sec` to drop seats where someone only walked past, and to weight class averages.
-- For reports and exports (UC03, UC11), map `seat_id` to students through `classes/{class_id}/seats`.
+- For reports and exports (UC03, UC11), map `seat_id` to students through `session_rosters/{session_id}`, the seating the web admin freezes when the session starts (`docs/web_admin_integration.md`).
 
 ## Alerts: `sessions/{session_id}/alerts/{id}`
 
-Fields: `session_id`, `seat_id`, `type` (`head_drop`, `back_turn`, `side_conversation`), `start_sec`, `duration_sec`, `expire_at`. The teacher adds `status` (`acknowledged` or `dismissed`); an alert without `status` is new.
+Fields: `session_id`, `seat_id`, `type` (`head_drop`, `back_turn`, `side_conversation`), `start_sec`, `duration_sec`, `expire_at`. The web admin or the teacher adds `status` (`acknowledged` or `dismissed`), `handled_by` and `handled_at`; an alert without `status` is new.
 
 ## Heartbeat: `edge_nodes/{camera_id}`
 

@@ -1,6 +1,6 @@
 """Toa do ghe trong anh tu so do hang/cot cua lop va 4 ghe goc hieu chinh tren edge.
 
-Firestore chi co hang/cot cua tung ghe (``classes/{class_id}/seats``). Vi tri
+Firestore chi co so hang/cot cua lop (``classes2/{class_id}``). Vi tri
 tren anh phu thuoc cach lap camera nen nam trong config local cua edge: toa do
 tam 4 ghe goc. Ghe con lai duoc suy ra bang phep bien doi phoi canh
 (homography) tu o vuong don vi sang tu giac 4 ghe goc -- dung cho mat phang

@@ -54,7 +54,7 @@ def _unit(value: Any, path: str, *, allow_zero: bool = False) -> float:
 @dataclass(frozen=True)
 class CameraLocalConfig:
     camera_id: str  # vd "Camera 201", ten document edge_nodes/{camera_id}
-    class_id: str  # document classes/{class_id}: 1 lop = 1 phong = 1 camera
+    class_id: str  # document classes2/{class_id}: 1 lop = 1 phong = 1 camera
     source_env: str
     width: Optional[int]
     height: Optional[int]

@@ -16,7 +16,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Edit scope
 
-- Only modify files under `camera-ai/` and `.github/`, plus `.env`, `.env.example`, `.gitignore` and `CLAUDE.md`. Do not touch anything else in the repo (e.g. `Web`, `flutter_privateclass_vision`).
+- Only modify files under `camera-ai/`, `backend/`, `frontend/` and `.github/`, plus `.env`, `.env.example`, `.gitignore` and `CLAUDE.md`. Do not touch anything else in the repo, in particular the Flutter app at the root (`lib/`, `android/`, `ios/`, `pubspec.yaml`, the root `firebase.json` and `firestore.rules`, ...) and `flutter_privateclass_vision`.
+- `backend/` and `frontend/` are the web team's code (branch `Web`): change them only for the web ↔ edge integration.
 
 ## Git rules
 
@@ -24,7 +25,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Repo layout
 
-Only `camera-ai/` contains code. `Web` and `flutter_privateclass_vision` at the root are empty placeholder files.
+This branch (`camera-ai`) holds three parts: `camera-ai/` (the edge pipeline), `backend/` + `frontend/` (the web admin, merged from branch `Web` on 2026-10-23) and the Flutter app at the root (from `main`). `flutter_privateclass_vision` at the root is an empty placeholder file.
+
+- `backend/`: Flask API on the Firebase Admin SDK (`firebase_config.py`; blueprints in `routes/`, logic in `services/`). Endpoints check an admin's Firebase ID token with `routes/test_helpers.py::require_admin` (or `admin_only` for a whole blueprint).
+- `frontend/`: React 19 + Vite; the dev server proxies `/api` to `127.0.0.1:5000`. `src/firebase.js` (exports `auth`, `googleProvider`) is gitignored and must exist locally to build. API calls take headers from `src/utils/AuthSession.js::getAuthHeaders`.
 
 `camera-ai/` is a Python edge pipeline that scores classroom engagement from **pose skeletons only**, keyed by a pseudonymous `seat_id` (a calibrated seat position, never an identity).
 
@@ -59,6 +63,17 @@ black src tests tools
 python tests/demo_camera_ai.py <video> --seats config/seat_grid.json --engagement-jsonl engagement.jsonl
 ```
 
+Web admin, from the repo root (CI: `.github/workflows/web-ci.yml`):
+
+```powershell
+# Backend tests: firebase_admin is stubbed with camera-ai's FakeFirestore (backend/tests/conftest.py), so no
+# credentials; test_edge_contract.py runs the real EdgeRuntime too. Needs Flask, flask-cors, requests in the venv.
+camera-ai/venv/Scripts/python -m pytest backend/tests -q
+
+# Frontend build (needs frontend/src/firebase.js); `npm run lint` still fails on 42 existing errors, keep new code clean
+cd frontend; npm ci; npm run build
+```
+
 CI excludes `smoke_test.py` (opens a real webcam). Tests must stay headless: no webcam, GPU, network, model weights, or Firebase credentials (test Firestore code against `tests/fake_firestore.py`). Tests are flat in `tests/test_*.py`; module READMEs that mention `tests/capture/` or `tests/seating/` are outdated.
 
 `tests/demo_camera_ai.py` is a script, not a test (pytest skips it since it isn't named `test_*`). Other tools live in `tools/` (synthetic classroom video generator, SCB-Dataset person-detection evaluation); see `tools/README.md`.
@@ -81,10 +96,10 @@ capture (CameraCapture / CaptureWorker + FrameBuffer)
 - `detection/`: the public API exports only `PoseDetector` and `PersonDetector` (YOLO11 person boxes, used for head-count coverage only). There is no face detection code; `tests/test_privacy_guards.py` fails if `src/` imports a face-detection library.
 - `engagement/`: `posture.py` computes head-drop ratio and torso angle; `posture_monitor.py` handles per-seat baseline calibration, smoothing, and thresholds; `engagement_score.py` turns time spent in each state into a 0–100 score (`rolling_engagement.py` is the windowed variant). `side_conversation.py`, `back_turn.py`, and `hand_activity.py` are optional pose-only alert detectors; back-turn is only valid for `frontal` cameras.
 - `seating/`: a `SeatGrid` is tied to one camera mount and must be recalibrated if the camera moves. Use `SeatTracker` for video (continuity + occlusion tolerance) and `assign_seats` for single frames. `seat_layout.py` places seats from row/column with a perspective homography of the four calibrated corner seats.
-- `config/`: `local_schema.py` is a strict JSON schema, version 2 (`config/local_pipeline.example.json`), that **rejects unknown keys** such as `rtsp_url`, `student_id`, `name`. The camera source is referenced by env var name (`camera.source_env`), never stored inline; `camera.class_id`/`camera_id` name the class and the heartbeat document; `seating.corner_seats` holds the calibration. `class_layout.py` reads the class seat plan from Firestore at session start with field projections (`classes/{c}` row/column counts, `classes/{c}/seats` row/column, never `student_id`), capped at 50x50, kept in RAM only.
+- `config/`: `local_schema.py` is a strict JSON schema, version 2 (`config/local_pipeline.example.json`), that **rejects unknown keys** such as `rtsp_url`, `student_id`, `name`. The camera source is referenced by env var name (`camera.source_env`), never stored inline; `camera.class_id`/`camera_id` name the class and the heartbeat document; `seating.corner_seats` holds the calibration. `class_layout.py` reads only `row_count`/`column_count` of `classes2/{c}` at session start (a field projection: never the class's `seat_map`, which maps seats to students), numbers seats `S01`, `S02`, ... row by row like the web admin's `seat_map` keys, caps the plan at 50x50 and keeps it in RAM only.
 - `pipeline/edge_runtime.py`: the Firestore listener only stores `{session_id: state}`; every decision (camera on/off, session start/end, heartbeat, results) happens in `step()` on the main thread. `session_results` every 10 s and `session_evaluations` every 5 min of monitored time (plus at the end); alerts use monitored seconds since the session start. A seat plan that fails to load reports `unavailable` and retries. Session contract, statuses and limits: `camera-ai/docs/edge_node.md`.
 - `sync/`: one `FirestoreSink` per edge node for the whole process (not per session). `add_alert`/`set_*` run inside the frame loop, so they only update RAM (bounded alert queue, latest-only overwritten documents); a background thread commits in batches with backoff and adds `expire_at` to session documents. Credentials come only from `GOOGLE_APPLICATION_CREDENTIALS` via `firestore_client_from_env()`; `main.py` shares the client with `class_layout.py`. The Admin SDK bypasses Security Rules: read `camera-ai/docs/firestore_security_review.md` before changing Firestore access. Details: `camera-ai/src/sync/README.md`.
-- The project follows the team's Firestore schema (web admin on branch `Web`, Flutter app on `main`); the sides talk only through Firestore. The edge node listens to top-level `sessions` filtered on `class_id`, maps `status` with `sync/firestore_sink.py::WEB_STATUS_TO_STATE` (`running` -> `active`, `ended` -> `ended`; the `Web` branch's older `live`/`completed` too), and writes `session_results/{s}`, `session_evaluations/{s}_{seat}`, `sessions/{s}/alerts` and `edge_nodes/{camera_id}`. Contract and web/app tasks: `camera-ai/docs/web_admin_integration.md`; choices still to confirm with the team: `camera-ai/docs/team_notes_firestore_schema.md`.
+- The project follows the team's Firestore schema as the web admin built it (Flutter app on `main`); the sides talk only through Firestore. The edge node listens to top-level `sessions` filtered on `class_id`, maps `status` with `sync/firestore_sink.py::WEB_STATUS_TO_STATE` (`running` -> `active`, `completed` -> `ended`; the older `live`/`ended` too), and writes `session_results/{s}`, `session_evaluations/{s}_{seat}`, `sessions/{s}/alerts` and `edge_nodes/{camera_id}`. The web side of the contract is `backend/services/monitoring_service.py` (pre-start checks, `session_rosters/{s}` frozen at the start, live view, alerts, edge status) plus `services/evaluation_service.py`/`dashboard_service.py`; `backend/tests/test_edge_contract.py` runs both sides on one fake database, so change them together. Contract and open web/app tasks: `camera-ai/docs/web_admin_integration.md`; choices still to confirm with the team: `camera-ai/docs/team_notes_firestore_schema.md`.
 
 ## Privacy invariants (enforced by tests, don't break)
 
