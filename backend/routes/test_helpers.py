@@ -73,8 +73,21 @@ def server_timestamp():
     return firestore.SERVER_TIMESTAMP
 
 
+def commit_writes(writes, batch_size=450):
+    """writes: [(document_ref, data)], data None là xóa. Firestore nhận tối đa 500 thao tác mỗi batch."""
+    for start in range(0, len(writes), batch_size):
+        batch = db.batch()
+        for ref, data in writes[start:start + batch_size]:
+            if data is None:
+                batch.delete(ref)
+            else:
+                batch.set(ref, data)
+        batch.commit()
+
+
 __all__ = [
     "admin_only",
+    "commit_writes",
     "db",
     "get_json_body",
     "get_document",

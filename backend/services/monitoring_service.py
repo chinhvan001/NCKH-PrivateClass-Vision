@@ -2,21 +2,24 @@
 
 Edge node nghe sessions có class_id của lớp và ghi session_results/{s}, session_evaluations/{s}_{seat},
 sessions/{s}/alerts/{id} và edge_nodes/{camera_id}. Web chỉ đọc các document đó; riêng cảnh báo,
-web ghi thêm status, handled_by, handled_at khi xử lý.
+web ghi thêm status, handled_by, handled_at khi xử lý, và xóa chúng khi xóa tiết.
 """
 
 from datetime import datetime, timezone
 
 from firebase_admin import firestore
 
-from routes.test_helpers import db, json_document, json_value, server_timestamp
+from routes.test_helpers import commit_writes, db, json_document, json_value, server_timestamp
 
 EDGE_STALE_SEC = 30  # edge node gửi heartbeat 10 s/lần
 MAX_GRID_SIDE = 50  # edge node từ chối sơ đồ lớn hơn
 LIVE_STATUSES = ("running", "paused")  # edge node coi cả hai là tiết đang giám sát
+ALERT_TYPES = ("head_drop", "back_turn", "side_conversation")
 ALERT_STATUSES = {"acknowledged", "dismissed"}
 ALERT_LIMIT = 20
 EMPTY_STUDENT_IDS = (None, "", "None", "null", "undefined")
+# Edge node mất mạng lúc kết thúc tiết thì chốt kết quả muộn: chờ tối đa chừng này rồi coi là gián đoạn.
+FINALIZE_WAIT_SEC = 1800
 
 START_PROBLEMS = {
     "class_busy": "Lớp đang có một tiết khác được giám sát. Hãy kết thúc tiết đó trước.",
@@ -51,12 +54,38 @@ def seat_assignments(class_data):
     }
 
 
+def roster_data(session_id):
+    """Document session_rosters/{s} (bản chốt ghế -> học sinh, trạng thái báo cáo phụ huynh), hoặc None."""
+    doc = db.collection("session_rosters").document(session_id).get()
+    return (doc.to_dict() or {}) if doc.exists else None
+
+
 def roster(session_id, class_data):
     """Ghế -> học sinh của tiết: bản chốt lúc bắt đầu, nếu không có thì seat_map hiện tại của lớp."""
-    doc = db.collection("session_rosters").document(session_id).get()
-    if doc.exists:
-        return (doc.to_dict() or {}).get("seats") or {}
-    return seat_assignments(class_data)
+    data = roster_data(session_id)
+    return (data.get("seats") or {}) if data is not None else seat_assignments(class_data)
+
+
+def result_status(session_id):
+    """monitoring_status của session_results/{s}, None nếu camera AI chưa ghi kết quả nào."""
+    doc = db.collection("session_results").document(session_id).get(field_paths=["monitoring_status"])
+    return (doc.to_dict() or {}).get("monitoring_status") if doc.exists else None
+
+
+def data_status(session, monitoring_status):
+    """Dữ liệu camera AI của một tiết: "live" (đang giám sát), "pending" (camera AI chưa chốt),
+    "complete", "partial" (tiết bị gián đoạn: chỉ có một phần) hoặc "no_data"."""
+    if session.get("status") in LIVE_STATUSES:
+        return "live"
+    if monitoring_status is None:
+        return "no_data"
+    if monitoring_status == "completed":
+        return "complete"
+    if monitoring_status == "running":  # tiết đã kết thúc mà edge node chưa chốt
+        ended_at = session.get("ended_at")
+        if isinstance(ended_at, datetime) and (utc_now() - ended_at).total_seconds() < FINALIZE_WAIT_SEC:
+            return "pending"
+    return "partial"
 
 
 def is_online(heartbeat):
@@ -148,7 +177,9 @@ def seat_plan(session_id):
     if size is None:
         return {"row_count": 0, "column_count": 0, "seats": []}
     rows, columns = size
-    seats = roster(session_id, class_data)
+    frozen = roster_data(session_id)
+    seats = (frozen.get("seats") or {}) if frozen is not None else seat_assignments(class_data)
+    frozen = frozen or {}
     names = {}
     for student_id in set(seats.values()):
         doc = db.collection("students2").document(student_id).get(field_paths=["full_name"])
@@ -166,7 +197,42 @@ def seat_plan(session_id):
                     "student_name": names.get(student_id, ""),
                 }
             )
-    return {"row_count": rows, "column_count": columns, "seats": plan}
+    return {
+        "row_count": rows,
+        "column_count": columns,
+        "seats": plan,
+        # Job báo cáo phụ huynh ghi 2 field này sau khi tiết kết thúc (services/report_service.py)
+        "report_count": frozen.get("report_count"),
+        "reports_at": json_value(frozen.get("reports_at")),
+    }
+
+
+def delete_session(session_id):
+    """Xóa tiết cùng dữ liệu của nó: cảnh báo, kết quả và đánh giá của camera AI, bản chốt ghế, báo cáo
+    phụ huynh. Trả "not_found", "live" (đang giám sát, phải kết thúc trước) hoặc None khi đã xóa."""
+    session_ref = db.collection("sessions").document(session_id)
+    session_doc = session_ref.get()
+    if not session_doc.exists:
+        return "not_found"
+    if (session_doc.to_dict() or {}).get("status") in LIVE_STATUSES:
+        return "live"
+    students = set(((roster_data(session_id) or {}).get("seats") or {}).values())
+    alerts = session_ref.collection("alerts")
+    evaluations = db.collection("session_evaluations")
+    writes = [(alerts.document(doc.id), None) for doc in alerts.stream()]
+    writes += [
+        (evaluations.document(doc.id), None) for doc in evaluations.where("session_id", "==", session_id).stream()
+    ]
+    writes += [
+        (db.collection("students2").document(student_id).collection("reports").document(session_id), None)
+        for student_id in students
+    ]
+    writes += [(db.collection(name).document(session_id), None) for name in ("session_results", "session_rosters")]
+    commit_writes(writes)
+    # ponytail: edge node mất mạng mà vẫn tưởng tiết đang chạy sẽ ghi lại kết quả khi có mạng;
+    # các document đó có expire_at nên TTL của Firestore dọn được
+    session_ref.delete()  # xóa sau cùng: lỗi giữa chừng thì tiết vẫn còn để xóa lại
+    return None
 
 
 def handle_alert(session_id, alert_id, status, uid):

@@ -66,8 +66,8 @@ beforeEach(async () => {
       'teachers/t1': { name: 'Teacher One' },
       'teachers/t2': { name: 'Teacher Two' },
       'parents/p1': { name: 'Parent One' },
-      'students/st1': { parent_id: 'p1' },
-      'students/st2': { parent_id: 'p2' },
+      'students2/st1': { full_name: 'Student One', parent_id: 'p1' },
+      'students2/st2': { full_name: 'Student Two', parent_id: 'p2' },
       'classes2/c1': {
         class_name: '11B2',
         teacher_id: 't1',
@@ -82,8 +82,8 @@ beforeEach(async () => {
       'session_evaluations/s1_S1': { ...EVALUATION, seat_id: 'S1' },
       'sessions/s1/alerts/a1': ALERT,
       'edge_nodes/cam-1': HEARTBEAT,
-      'students/st1/reports/s1': { concentration: 80 },
-      'students/st2/reports/s1': { concentration: 60 },
+      'students2/st1/reports/s1': { session_id: 's1', avg_concentration: 80, partial: false },
+      'students2/st2/reports/s1': { session_id: 's1', avg_concentration: 60, partial: false },
     };
     for (const [path, data] of Object.entries(docs)) await setDoc(doc(seed, path), data);
   });
@@ -196,12 +196,23 @@ describe('edge output', () => {
   });
 });
 
-describe('students/{sid}/reports', () => {
+describe('students2/{sid} and its reports', () => {
+  test('a parent finds and reads only their own children, staff read every student, nobody writes from a client', async () => {
+    await assertSucceeds(getDocs(query(collection(db.parent(), 'students2'), where('parent_id', '==', 'p1'))));
+    await assertSucceeds(getDoc(doc(db.parent(), 'students2/st1')));
+    await assertFails(getDoc(doc(db.parent(), 'students2/st2')));
+    await assertFails(getDocs(collection(db.parent(), 'students2')));
+    await assertSucceeds(getDoc(doc(db.teacher(), 'students2/st2')));
+    await assertFails(getDoc(doc(db.edge(), 'students2/st1')));
+    await assertFails(updateDoc(doc(db.parent(), 'students2/st1'), { full_name: 'X' }));
+  });
+
   test('a parent reads only their own child\'s reports, and nobody writes them from a client', async () => {
-    await assertSucceeds(getDoc(doc(db.parent(), 'students/st1/reports/s1')));
-    await assertFails(getDoc(doc(db.parent(), 'students/st2/reports/s1')));
-    await assertFails(getDoc(doc(db.teacher(), 'students/st1/reports/s1')));
-    await assertSucceeds(getDoc(doc(db.admin(), 'students/st1/reports/s1')));
-    await assertFails(setDoc(doc(db.parent(), 'students/st1/reports/s2'), { concentration: 100 }));
+    await assertSucceeds(getDoc(doc(db.parent(), 'students2/st1/reports/s1')));
+    await assertSucceeds(getDocs(collection(db.parent(), 'students2/st1/reports')));
+    await assertFails(getDoc(doc(db.parent(), 'students2/st2/reports/s1')));
+    await assertFails(getDoc(doc(db.teacher(), 'students2/st1/reports/s1')));
+    await assertSucceeds(getDoc(doc(db.admin(), 'students2/st1/reports/s1')));
+    await assertFails(setDoc(doc(db.parent(), 'students2/st1/reports/s2'), { avg_concentration: 100 }));
   });
 });

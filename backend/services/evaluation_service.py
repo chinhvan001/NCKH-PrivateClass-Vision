@@ -1,6 +1,6 @@
 from routes.class_routes import get_vietnamese_sort_key, teacher_name
 from routes.test_helpers import db
-from services.monitoring_service import roster
+from services.monitoring_service import data_status, result_status, roster
 
 # Đánh giá theo ghế do edge node ghi (session_evaluations/{session}_{seat}): avg_concentration 0-100
 # từ đầu tiết, observed_sec là thời gian ghế có người. Ghế chỉ có người đi ngang qua không được tính.
@@ -75,7 +75,7 @@ class EvaluationService:
 
     @staticmethod
     def get_class_details(class_id):
-        """Báo cáo từng học sinh của lớp, None nếu không có lớp."""
+        """Báo cáo từng học sinh và từng tiết của lớp, None nếu không có lớp."""
         class_doc = db.collection("classes2").document(class_id).get()
         if not class_doc.exists:
             return None
@@ -104,6 +104,28 @@ class EvaluationService:
             })
         students.sort(key=lambda item: get_vietnamese_sort_key(item["name"]))
 
+        # Từng tiết đã diễn ra, đánh dấu tiết bị gián đoạn (data_status "partial")
+        by_session = {}
+        for evaluation in filter(usable, evaluations):
+            by_session.setdefault(evaluation["session_id"], []).append(evaluation)
+        session_rows = []
+        for session_id, session in sessions.items():
+            if session.get("status") not in ("running", "paused", "completed"):
+                continue  # chưa diễn ra hoặc đã hủy
+            items = by_session.get(session_id, [])
+            observed = sum(item["observed_sec"] for item in items)
+            weighted = sum(item["avg_concentration"] * item["observed_sec"] for item in items)
+            session_rows.append({
+                "id": session_id,
+                "session_date": session.get("session_date"),
+                "start_time": session.get("start_time"),
+                "subject": session.get("subject"),
+                "data_status": data_status(session, result_status(session_id)),
+                "seats": len(items),
+                "attention": round(weighted / observed, 1) if observed else None,
+            })
+        session_rows.sort(key=lambda row: (row["session_date"] or "", row["start_time"] or ""), reverse=True)
+
         class_name = data.get("class_name") or class_id
         subject = data.get("subject") or next((s["subject"] for s in sessions.values() if s.get("subject")), "Chưa rõ")
         return {
@@ -113,4 +135,5 @@ class EvaluationService:
             "teacher": teacher_name(data.get("teacher_id")),
             "classroom": class_name,
             "students": students,
+            "sessions": session_rows,
         }

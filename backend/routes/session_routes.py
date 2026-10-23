@@ -83,6 +83,19 @@ def update_status(session_id):
     return jsonify(result), result["status"]
 
 
+@session_bp.route("/api/admin/schedules/<session_id>", methods=["DELETE"])
+def delete_schedule(session_id):
+    _, auth_error = require_admin()
+    if auth_error:
+        return auth_error
+    problem = monitoring_service.delete_session(session_id)
+    if problem == "not_found":
+        return error("Không tìm thấy lịch học/phiên.", 404)
+    if problem == "live":
+        return error("Tiết đang được giám sát. Hãy kết thúc tiết trước khi xóa.", 409)
+    return jsonify({"success": True}), 200
+
+
 @session_bp.route("/api/admin/schedules/<session_id>/monitoring", methods=["GET"])
 def get_monitoring(session_id):
     _, auth_error = require_admin()

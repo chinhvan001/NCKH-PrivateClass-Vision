@@ -2,10 +2,11 @@
 
 Chi mo phong phan API ma ``src.sync``, ``src.config`` va backend web (``backend/tests``) dung:
 ``document(path)`` voi ``get(field_paths=...)/set/update/delete/collection``,
-``collection(path)`` voi ``document()`` (id tu sinh), ``add``, ``where(field, "==", value)``,
-``select(fields)``, ``order_by``, ``limit``, ``stream()`` va ``on_snapshot``, ``batch()`` voi
-``set/commit``; cung cac rang buoc khien Firestore that tu choi ghi: toi da 500 write/batch,
-duong dan document/collection dung so doan, gia tri encode duoc, ``update`` document chua co.
+``collection(path)`` voi ``document()`` (id tu sinh), ``add``, ``where(field, op, value)`` (``==``,
+``<``, ``<=``, ``>``, ``>=``), ``select(fields)``, ``order_by``, ``limit``, ``stream()`` va
+``on_snapshot``, ``batch()`` voi ``set/delete/commit``; cung cac rang buoc khien Firestore that tu
+choi ghi: toi da 500 write/batch, duong dan document/collection dung so doan, gia tri encode duoc,
+``update`` document chua co.
 ``field_paths``/``select`` chi tra cac field duoc chon, nhu Firestore that. ``SERVER_TIMESTAMP``
 thanh gio UTC luc ghi, ``DELETE_FIELD`` xoa field trong ``update``. Listener duoc goi dong bo
 ngay khi ghi. Loi commit duoc tiem bang ``fail_next``.
@@ -15,9 +16,11 @@ from __future__ import annotations
 
 import copy
 import datetime
+import operator
 import uuid
 
 _SCALARS = (type(None), bool, int, float, str, bytes, datetime.datetime)
+_OPERATORS = {"==": operator.eq, "<": operator.lt, "<=": operator.le, ">": operator.gt, ">=": operator.ge}
 
 
 class _Sentinel:
@@ -170,9 +173,9 @@ class FakeCollection:
         return None, reference
 
     def where(self, field: str, op: str, value) -> "FakeCollection":
-        if op != "==":
-            raise NotImplementedError(f"FakeFirestore chi ho tro '==', khong ho tro {op!r}.")
-        return self._with(_filters=self._filters + ((field, value),))
+        if op not in _OPERATORS:
+            raise NotImplementedError(f"FakeFirestore khong ho tro {op!r}.")
+        return self._with(_filters=self._filters + ((field, op, value),))
 
     def select(self, field_paths) -> "FakeCollection":
         return self._with(_fields=list(field_paths))
@@ -199,7 +202,7 @@ class FakeCollection:
         matches = [
             snapshot
             for snapshot in self._client._snapshots(self.path)
-            if all(snapshot._data.get(field) == value for field, value in self._filters)
+            if all(_matches(snapshot._data, *condition) for condition in self._filters)
         ]
         if self._order is not None:  # nhu Firestore: document thieu field sap xep bi bo
             field, descending = self._order
@@ -214,10 +217,13 @@ class FakeCollection:
 class FakeWriteBatch:
     def __init__(self, client: FakeFirestore) -> None:
         self._client = client
-        self._writes: list[tuple[str, dict]] = []
+        self._writes: list[tuple[str, dict | None]] = []
 
     def set(self, reference: FakeDocument, data: dict) -> None:
         self._writes.append((reference.path, _stored(data)))
+
+    def delete(self, reference: FakeDocument) -> None:
+        self._writes.append((reference.path, None))
 
     def commit(self, retry=None, timeout=None) -> None:
         if len(self._writes) > 500:
@@ -228,6 +234,16 @@ class FakeWriteBatch:
             self._client.commits.append([path for path, _ in self._writes])
         if error is not None:
             raise error
+
+
+def _matches(data: dict, field: str, op: str, value) -> bool:
+    """``==`` so ca field thieu (coi la None); so sanh khoang bo document thieu field hoac khac kieu, nhu Firestore."""
+    if op == "==":
+        return data.get(field) == value
+    try:
+        return field in data and _OPERATORS[op](data[field], value)
+    except TypeError:
+        return False
 
 
 def _stored(data: dict) -> dict:

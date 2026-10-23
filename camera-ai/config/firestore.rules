@@ -122,10 +122,18 @@ service cloud.firestore {
         && request.resource.data.keys().hasOnly(['class_id', 'online', 'status', 'session_id', 'fps', 'camera_ok', 'last_frame_at', 'updated_at']);
     }
 
-    // UC03 for parents: per-student reports written by the report job (Admin SDK).
-    match /students/{studentId}/reports/{reportId} {
-      allow read: if isAdmin()
-        || (signedIn() && get(/databases/$(database)/documents/students/$(studentId)).data.parent_id == request.auth.uid);
+    // Students, written by the web backend. A parent finds their children with a query on parent_id;
+    // staff read every student for the live seat view. Never readable by edge nodes.
+    match /students2/{studentId} {
+      allow read: if isAdmin() || isTeacher()
+        || (signedIn() && resource.data.parent_id == request.auth.uid);
+
+      // UC03 for parents: one report per finished session, written by the report job
+      // (backend/jobs/parent_reports.py, Admin SDK).
+      match /reports/{sessionId} {
+        allow read: if isAdmin()
+          || (signedIn() && get(/databases/$(database)/documents/students2/$(studentId)).data.parent_id == request.auth.uid);
+      }
     }
     // Every path not matched above is denied by this draft.
   }

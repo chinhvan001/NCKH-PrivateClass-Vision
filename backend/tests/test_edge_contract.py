@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 import numpy as np
 import pytest
 
-from services import monitoring_service
+from services import monitoring_service, report_service
 from src.capture import Frame
 from src.config import LocalPipelineConfig, load_class_seat_grid
 from src.pipeline import EdgeRuntime
@@ -122,3 +122,15 @@ def test_admin_starts_and_ends_a_session_that_the_edge_node_monitors(client, db,
     assert scores["Trần Thị Bình"] == (100.0, "good")
     assert scores["Nguyễn Văn An"][0] < 70.0 and scores["Nguyễn Văn An"][1] == "attention"
     assert set(scores) == {"Nguyễn Văn An", "Trần Thị Bình"}
+    sessions = client.get("/api/v1/evaluations/classes/CLASS-1/details", headers=admin).get_json()["data"]["sessions"]
+    assert [(row["id"], row["data_status"], row["seats"]) for row in sessions] == [("s1", "complete", 2)]
+
+    # Job báo cáo phụ huynh, rồi xóa tiết: không còn document nào của tiết, kể cả do edge node ghi
+    assert report_service.build_pending_reports() == {"s1": 2}
+    binh = db.docs["students2/binh/reports/s1"]
+    assert (binh["avg_concentration"], binh["level"], binh["partial"]) == (100, "good", False)
+    assert db.docs["students2/an/reports/s1"]["alerts"]["head_drop"] == 1
+    assert client.delete("/api/admin/schedules/s1", headers=admin).status_code == 200
+    edge(1)
+    assert [path for path in db.docs if any(part == "s1" or part.startswith("s1_") for part in path.split("/"))] == []
+    assert db.docs["edge_nodes/CAM-1"]["status"] == "idle"
