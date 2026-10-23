@@ -103,13 +103,14 @@ describe('sessions/{s}', () => {
 
   test('the teacher starts, pauses, resumes and ends a session, nothing else', async () => {
     const session = doc(db.teacher(), 'sessions/s1');
-    await assertFails(updateDoc(session, { status: 'ended' }));
+    await assertFails(updateDoc(session, { status: 'completed' }));
     await assertFails(updateDoc(session, { status: 'running', subject: 'Ly' }));
     await assertSucceeds(updateDoc(session, { status: 'running', started_at: NOW }));
     await assertSucceeds(updateDoc(session, { status: 'paused' }));
     await assertSucceeds(updateDoc(session, { status: 'running' }));
     await assertFails(updateDoc(session, { status: 'scheduled' }));
-    await assertSucceeds(updateDoc(session, { status: 'ended', ended_at: NOW }));
+    await assertFails(updateDoc(session, { status: 'ended', ended_at: NOW }));
+    await assertSucceeds(updateDoc(session, { status: 'completed', ended_at: NOW }));
   });
 
   test('clients never create or delete sessions, and only the session teacher updates them', async () => {

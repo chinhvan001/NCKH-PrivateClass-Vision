@@ -47,11 +47,12 @@ service cloud.firestore {
       return signedIn() && get(/databases/$(database)/documents/classes2/$(classId)).data.teacher_id == request.auth.uid;
     }
 
-    // UC04: start, pause, resume, end; cancel only before the start.
+    // UC04: start, pause, resume, end; cancel only before the start. Same as the web backend's
+    // VALID_TRANSITIONS (backend/routes/session_routes.py).
     function validTransition(before, after) {
       return (before == 'scheduled' && after in ['running', 'cancelled'])
-        || (before == 'running' && after in ['paused', 'ended'])
-        || (before == 'paused' && after in ['running', 'ended']);
+        || (before == 'running' && after in ['paused', 'completed'])
+        || (before == 'paused' && after in ['running', 'completed']);
     }
 
     // Created and deleted by the web backend. Teachers' queries filter on teacher_id,
