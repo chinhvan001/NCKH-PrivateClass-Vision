@@ -94,4 +94,4 @@ Tests: `backend/tests` runs the Flask API on camera-ai's `tests/fake_firestore.p
 4. Press "Kết thúc": `monitoring_status` turns `completed`, one `session_evaluations` document per seat appears, the heartbeat returns to `idle`, and the class shows up in "Phân tích & đánh giá".
 5. Run `python -m jobs.parent_reports` in `backend/`: every student seen for at least a minute gets `students2/{sid}/reports/{session}`, and the live view says how many reports exist.
 
-Without an edge node or Firebase project, `backend/tests/test_edge_contract.py` runs the same scenario on the fake database.
+Without an edge node or Firebase project, `backend/tests/test_edge_contract.py` runs the same scenario on the fake database. For a demo in the browser, `backend/tests/demo_server.py` runs the backend on that database with the real edge runtime and simulated poses (a 3×4 class where one student keeps the head down, one leaves the seat, two talk and one turns back, starting when the session starts), two earlier sessions (one interrupted) and the report job; start the frontend with `npm run dev` and open `http://localhost:5173/api/demo-login`.

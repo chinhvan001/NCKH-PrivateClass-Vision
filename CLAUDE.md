@@ -73,6 +73,11 @@ camera-ai/venv/Scripts/python -m pytest backend/tests -q
 # Parent report job (from backend/, real Firebase config): one pass; schedule every 10 min or add --every 600
 cd backend; python -m jobs.parent_reports
 
+# Offline demo (no Firebase, camera or model): backend on the fake database + the real EdgeRuntime with simulated
+# poses + the report job; writes a stub frontend/src/firebase.js if missing. Then `npm run dev` in frontend/ and
+# open http://localhost:5173/api/demo-login; /api/demo/db/<path> shows the stored documents.
+camera-ai/venv/Scripts/python backend/tests/demo_server.py
+
 # Frontend build (needs frontend/src/firebase.js); `npm run lint` still fails on errors in the existing code,
 # keep new code clean. Import paths must match file names exactly: CI builds on case-sensitive Linux.
 cd frontend; npm ci; npm run build
