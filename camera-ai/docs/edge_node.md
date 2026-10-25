@@ -24,7 +24,7 @@ How each config section is used:
 | Section | Effect |
 |---|---|
 | `camera` | `class_id` selects the sessions to follow and the seat plan to load; `camera_id` names the heartbeat document and is written into results. The camera source is read from the environment variable named in `source_env`. `angle_type` enables back-turn detection for `frontal` cameras only. |
-| `seating` | Image position of the four corner seats; every seat's position is derived from them (`config/README.md`). |
+| `seating` | Image position of the four corner seats, from which every seat's position is derived, or `null` when the seats are drawn on the web admin (`seat_regions/{camera_id}`, which take precedence; `config/README.md`). |
 | `sampling` | Capture FPS. Pose inference runs on every n-th frame; the other frames are wiped without processing. |
 | `thresholds` | Pose detector settings, side-conversation and back-turn detectors. |
 | `schedule` | The camera opens only inside these local-time windows, even while a session is running. |
@@ -48,7 +48,7 @@ The edge node reads only `class_id` and `status`; `started_at` and `ended_at` ar
 
 - Keep at most one `running` or `paused` session per class. If there are several, the edge node takes the one with the smallest ID.
 - Session IDs must match `[A-Za-z0-9_-]{1,64}`. Firestore auto-IDs do.
-- The seat plan is loaded when the session starts and fixed for the whole session: only `row_count`/`column_count` from `classes2/{class_id}` (a field projection: the class's `seat_map`, which maps seats to students, is never read). Seats are numbered `S01`, `S02`, ... row by row, the same keys the web admin writes in `seat_map`. If the plan cannot be loaded (missing class, more than 50 rows or columns, corner seats not forming a convex quadrilateral, Firestore unreachable), the heartbeat reports `unavailable` and the edge node retries every 10 s.
+- The seat plan is loaded when the session starts and fixed for the whole session: only `row_count`/`column_count` from `classes2/{class_id}` (a field projection: the class's `seat_map`, which maps seats to students, is never read). Seats are numbered `S01`, `S02`, ... row by row, the same keys the web admin writes in `seat_map`. Seat positions come from `seat_regions/{camera_id}` when an admin drew them for this class on the web admin's camera page (rectangles in pixels of a snapshot, scaled to the stream's resolution; a person counts for a seat only inside its rectangle, and seats without one are not tracked), otherwise from the corner seats. If the plan cannot be loaded (missing class, more than 50 rows or columns, corner seats not forming a convex quadrilateral, no usable drawn seat and no corner seats, Firestore unreachable), the heartbeat reports `unavailable` and the edge node retries every 10 s.
 
 ## Live seat states: `session_results/{session_id}`
 

@@ -11,7 +11,7 @@ Then start the edge node with `python -m src.main --config config/local_pipeline
 Sections (`schema_version` 2):
 
 - `camera`: `camera_id` (for example `Camera 201`, also the name of the heartbeat document `edge_nodes/{camera_id}`), `class_id` (the `classes` document of the class taught in this room), resolution, the **name** of the environment variable holding the camera source, and `angle_type` (`frontal` or `top_down`; back-turn detection runs only for `frontal`).
-- `seating.corner_seats`: pixel position, in the camera image, of the centre of the four corner seats (see below).
+- `seating.corner_seats`: pixel position, in the camera image, of the centre of the four corner seats, or `null` when an admin draws the seats on the web admin's camera page (see below).
 - `sampling`: capture FPS, and run pose inference on every n-th frame.
 - `thresholds`: pose and alert thresholds.
 - `schedule`: an IANA timezone and the weekday/time windows in which the camera may be opened. Outside them the edge node keeps the camera closed even if a session is running. The timezone is validated at load; on Windows this needs the `tzdata` package from `requirements.txt`.
@@ -19,9 +19,18 @@ Sections (`schema_version` 2):
 
 The schema rejects unknown keys such as `rtsp_url`, `student_id`, `name`, face models or embeddings, so that data cannot slip into the config by accident.
 
+## Seat positions
+
+Firestore only knows how many rows and columns the class has (`row_count`, `column_count` on `classes2/{class_id}`). Where each seat appears in the image depends on how the camera is mounted. When a session starts, the edge node takes the seat positions from:
+
+1. **Seats drawn on the web admin** (`seat_regions/{camera_id}`), when an admin drew them for this config's `camera.class_id`. On the camera page, "Xác định chỗ ngồi" lets an admin drag one rectangle per seat over a snapshot of the camera. The snapshot is opened from the admin's own computer and stays in the browser: only the rectangles are saved, in pixels of the snapshot together with its size. The edge node scales them if its frames have another resolution, and counts a person for a seat only when their shoulder midpoint is inside that seat's rectangle. Seats without a rectangle are not tracked. The web camera's name must be this config's `camera.camera_id`.
+2. **The four corner seats** below, otherwise.
+
+Take the snapshot when the classroom is empty, from the same stream and angle the edge node uses (for example VLC: open the RTSP stream, then Video → Take Snapshot), and draw each rectangle around where a seated student's shoulders and upper body appear. Redraw whenever the camera moves.
+
 ## Corner seats
 
-Firestore only knows how many rows and columns the class has (`row_count`, `column_count` on `classes2/{class_id}`). Where a seat appears in the image depends on how the camera is mounted, so it stays on the edge node: give the image position of the four corner seats, at shoulder height of a seated student, keyed by their row and column labels in the class seating plan:
+Without drawn seats, give the image position of the four corner seats, at shoulder height of a seated student, keyed by their row and column labels in the class seating plan:
 
 | Key | Seat |
 |---|---|

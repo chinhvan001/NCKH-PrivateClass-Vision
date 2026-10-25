@@ -1,6 +1,6 @@
 # Firestore Access Review: Edge Node
 
-Prepared 2026-10-04 for the review with the Firebase owner, updated 2026-10-17 for the team's Firestore schema and 2026-10-23 for the web admin's `classes2` seat plan. It covers how the camera-ai edge node authenticates to Firestore, and the Security Rules draft for the paths camera-ai uses (`config/firestore.rules`). Decisions from the review update `cloud_data_compliance_checklist.md` §3.7.
+Prepared 2026-10-04 for the review with the Firebase owner, updated 2026-10-17 for the team's Firestore schema 2026-10-23 for the web admin's `classes2` seat plan and 2026-10-25 for seats drawn on the web (`seat_regions`). It covers how the camera-ai edge node authenticates to Firestore, and the Security Rules draft for the paths camera-ai uses (`config/firestore.rules`). Decisions from the review update `cloud_data_compliance_checklist.md` §3.7.
 
 ## 1. Current setup
 
@@ -16,6 +16,7 @@ Prepared 2026-10-04 for the review with the Firebase owner, updated 2026-10-17 f
 | `session_evaluations/{s}_{seat}` | overwrite | `SeatEvaluation` |
 | `sessions/{s}/alerts/{id}` | create | `AlertEvent` |
 | `edge_nodes/{camera_id}` | overwrite | `EdgeHeartbeat`. Device status only. |
+| `seat_regions/{camera_id}` | read `class_id`, `image_width`, `image_height`, `seats` | Seat rectangles an admin drew on the web admin's camera page. Coordinates only; the edge node does not ask for `updated_by`. |
 
 These paths live in the same database as the team's personal data: `students` (full name, birthday, gender), `parents` (name, email), `teachers` (email, phone) and `admins`.
 
@@ -51,6 +52,7 @@ Recommendation (changed on 2026-10-17 from A): **B**. With personal data and ses
 | `session_evaluations/{e}` | read | read for own sessions | none | write for own class's sessions: ID `{session_id}_{seat_id}`, field allowlist |
 | `sessions/{s}/alerts/{id}` | read | read for own sessions; set only `status` (`acknowledged` or `dismissed`), `handled_by` (own UID) and `handled_at` | none | create for own class's sessions: field and type allowlists |
 | `edge_nodes/{camera_id}` | read | read | none | write own `camera_id` with own `class_id`, field allowlist |
+| `seat_regions/{camera_id}` | read; write with a field allowlist; delete | none | none | read own `camera_id` |
 | `students2/{sid}` | read | read | read own children (`parent_id`), through a query on `parent_id` | none |
 | `students2/{sid}/reports/{s}` | read | none | read own child (`students2/{sid}.parent_id`) | none |
 
