@@ -52,3 +52,46 @@ def test_missing_class_bad_counts_and_read_failures_raise_class_layout_error():
     with pytest.raises(ClassLayoutError) as error:
         load_class_seat_grid(Offline(), "c1", CORNERS)
     assert "student-1" not in str(error.value)
+
+
+def _regions(client, **changes):
+    data = {
+        "class_id": "c1",
+        "image_width": 1280,
+        "image_height": 720,
+        "seats": {"S01": [100, 100, 300, 300], "S03": [700, 100, 900, 300]},
+        "updated_by": "admin-uid",
+    }
+    client.document("seat_regions/cam-1").set({**data, **changes})
+
+
+def test_regions_drawn_on_the_web_replace_corner_seats():
+    client = FakeFirestore()
+    client.document("classes2/c1").set({"row_count": 2, "column_count": 3})
+    _regions(client)
+
+    grid = load_class_seat_grid(client, "c1", None, "cam-1")
+
+    # Chi ghe da ve duoc theo doi; toa do theo anh luc ve, edge doi ve khung hinh bang fit_to
+    assert [(seat.seat_id, seat.center_x, seat.region) for seat in grid.seats] == [
+        ("S01", 200.0, (100.0, 100.0, 300.0, 300.0)),
+        ("S03", 800.0, (700.0, 100.0, 900.0, 300.0)),
+    ]
+    assert grid.image_size == (1280, 720)
+    assert all("updated_by" not in data for data in client.reads)
+
+
+def test_regions_for_another_class_fall_back_to_corners_and_bad_boxes_are_skipped():
+    client = FakeFirestore()
+    client.document("classes2/c1").set({"row_count": 2, "column_count": 3})
+    _regions(client, class_id="c2")
+    assert len(load_class_seat_grid(client, "c1", CORNERS, "cam-1").seats) == 6  # camera da doi sang lop khac
+    with pytest.raises(ClassLayoutError, match="ve o ghe"):
+        load_class_seat_grid(client, "c1", None, "cam-1")
+
+    # S99 khong co trong so do 2x3, S03 nam ngoai anh: bo qua tung o, khong bo ca so do
+    _regions(client, seats={"S01": [100, 100, 300, 300], "S99": [0, 0, 10, 10], "S03": [700, 100, 1300, 300]})
+    assert [seat.seat_id for seat in load_class_seat_grid(client, "c1", None, "cam-1").seats] == ["S01"]
+    _regions(client, seats={"S01": [300, 100, 100, 300]})
+    with pytest.raises(ClassLayoutError, match="khong co o ghe hop le"):
+        load_class_seat_grid(client, "c1", CORNERS, "cam-1")

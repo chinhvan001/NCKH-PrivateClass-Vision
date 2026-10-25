@@ -45,6 +45,7 @@ EVALUATION_INTERVAL_SEC = 300.0
 @dataclass
 class _Session:
     session_id: str
+    grid: SeatGrid
     engine: EngagementEngine
     alerts: AlertManager
     resumed: bool  # phien da co ket qua tu lan chay truoc -> so lieu chi la mot phan
@@ -201,7 +202,7 @@ class EdgeRuntime:
             ),
         )
         resumed = self._sink.result_exists(session_id)
-        self._session = _Session(session_id, engine, AlertManager(session_id), resumed)
+        self._session = _Session(session_id, grid, engine, AlertManager(session_id), resumed)
         self._publish_result(self._session, "running")
         logger.info("Bat dau phien %s%s.", session_id, " (tiep tuc sau gian doan)" if resumed else "")
 
@@ -272,6 +273,8 @@ class EdgeRuntime:
         if session.last_frame_ts is not None:
             session.clock_sec += min(max(frame.timestamp - session.last_frame_ts, 0.0), MAX_FRAME_GAP_SEC)
         session.last_frame_ts = frame.timestamp
+        height, width = frame.image.shape[:2]
+        session.grid.fit_to(width, height)  # o ghe ve tren anh chup co the khac do phan giai luong camera
         process_frame(
             frame,
             session.clock_sec,

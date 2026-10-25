@@ -122,6 +122,16 @@ service cloud.firestore {
         && request.resource.data.keys().hasOnly(['class_id', 'online', 'status', 'session_id', 'fps', 'camera_ok', 'last_frame_at', 'updated_at']);
     }
 
+    // Seat regions an admin draws on a camera snapshot in the web admin's camera page (the snapshot
+    // stays in the browser): one pixel box per seat_id, no student data. The camera's edge node reads
+    // them when a session starts.
+    match /seat_regions/{cameraId} {
+      allow read: if isAdmin() || (signedIn() && claim('role') == 'edge' && claim('camera_id') == cameraId);
+      allow create, update: if isAdmin()
+        && request.resource.data.keys().hasOnly(['class_id', 'image_width', 'image_height', 'seats', 'updated_at', 'updated_by']);
+      allow delete: if isAdmin();
+    }
+
     // Students, written by the web backend. A parent finds their children with a query on parent_id;
     // staff read every student for the live seat view. Never readable by edge nodes.
     match /students2/{studentId} {

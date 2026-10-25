@@ -36,6 +36,7 @@ const HEARTBEAT = {
   last_frame_at: NOW,
   updated_at: NOW,
 };
+const REGIONS = { class_id: 'c1', image_width: 1280, image_height: 720, seats: { S01: [100, 100, 300, 300] } };
 
 let env;
 const db = {
@@ -82,6 +83,7 @@ beforeEach(async () => {
       'session_evaluations/s1_S1': { ...EVALUATION, seat_id: 'S1' },
       'sessions/s1/alerts/a1': ALERT,
       'edge_nodes/cam-1': HEARTBEAT,
+      'seat_regions/cam-1': REGIONS,
       'students2/st1/reports/s1': { session_id: 's1', avg_concentration: 80, partial: false },
       'students2/st2/reports/s1': { session_id: 's1', avg_concentration: 60, partial: false },
     };
@@ -193,6 +195,19 @@ describe('edge output', () => {
     await assertFails(setDoc(doc(db.teacher(), 'edge_nodes/cam-1'), HEARTBEAT));
     await assertSucceeds(getDoc(doc(db.teacher(), 'edge_nodes/cam-1')));
     await assertFails(getDoc(doc(db.parent(), 'edge_nodes/cam-1')));
+  });
+});
+
+describe('seat_regions/{camera_id}', () => {
+  test('admins draw seat regions, only that camera\'s edge node reads them, extra fields are rejected', async () => {
+    await assertSucceeds(setDoc(doc(db.admin(), 'seat_regions/cam-2'), { ...REGIONS, updated_by: 'admin1' }));
+    await assertFails(setDoc(doc(db.admin(), 'seat_regions/cam-2'), { ...REGIONS, student_id: 'st1' }));
+    await assertSucceeds(getDoc(doc(db.edge(), 'seat_regions/cam-1')));
+    await assertFails(getDoc(doc(db.edge(), 'seat_regions/cam-2')));
+    await assertFails(getDoc(doc(db.teacher(), 'seat_regions/cam-1')));
+    await assertFails(setDoc(doc(db.edge(), 'seat_regions/cam-1'), REGIONS));
+    await assertFails(deleteDoc(doc(db.teacher(), 'seat_regions/cam-1')));
+    await assertSucceeds(deleteDoc(doc(db.admin(), 'seat_regions/cam-1')));
   });
 });
 

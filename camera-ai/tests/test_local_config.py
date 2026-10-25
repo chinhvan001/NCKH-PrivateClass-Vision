@@ -112,3 +112,9 @@ def test_rejects_unknown_timezone():
     data["schedule"]["timezone"] = "Asia/Hanoi_Typo"
     with pytest.raises(LocalConfigError, match="timezone"):
         LocalPipelineConfig.from_dict(data)
+
+
+def test_corner_seats_can_be_null_when_seats_are_drawn_on_the_web():
+    data = valid_config()
+    data["seating"]["corner_seats"] = None
+    assert LocalPipelineConfig.from_dict(data).seating.corner_seats is None

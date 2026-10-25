@@ -88,3 +88,20 @@ def test_round_trip_to_json_and_back(tmp_path):
     a1 = next(s for s in loaded.seats if s.seat_id == "A1")
     assert a1.center_x == 10
     assert a1.center_y == 20
+
+
+def test_seat_with_region_only_takes_points_inside_it():
+    # O ve tren web: nguoi dung giua 2 o (giao vien di lai) khong thuoc ghe nao
+    grid = SeatGrid(seats=[Seat("S01", 100, 100, (50, 50, 150, 150)), Seat("S02", 300, 100, (250, 50, 350, 150))])
+    assert grid.find_nearest_seat(140, 60).seat_id == "S01"
+    assert grid.find_nearest_seat(200, 100) is None
+
+
+def test_fit_to_scales_regions_drawn_on_a_different_resolution():
+    grid = SeatGrid(seats=[Seat("S01", 100, 50, (0, 0, 200, 100))], image_size=(1920, 1080))
+    grid.fit_to(960, 540)
+    assert (grid.seats[0].center_x, grid.seats[0].center_y, grid.seats[0].region) == (50, 25, (0, 0, 100, 50))
+    assert grid.image_size == (960, 540)
+    plain = SeatGrid(seats=[Seat("A1", 10, 20)])
+    plain.fit_to(960, 540)  # toa do da theo khung hinh pipeline: giu nguyen
+    assert (plain.seats[0].center_x, plain.seats[0].center_y) == (10, 20)

@@ -63,7 +63,7 @@ class CameraLocalConfig:
 
 @dataclass(frozen=True)
 class SeatingConfig:
-    corner_seats: CornerSeats
+    corner_seats: Optional[CornerSeats]  # None: chi dung o ghe ve tren web (Firestore seat_regions)
 
 
 @dataclass(frozen=True)
@@ -206,6 +206,8 @@ def _parse_camera(value: Any) -> CameraLocalConfig:
 
 def _parse_seating(value: Any) -> SeatingConfig:
     data = _object(value, "seating", {"corner_seats"})
+    if data["corner_seats"] is None:
+        return SeatingConfig(None)
     corners = _object(data["corner_seats"], "seating.corner_seats", set(_CORNER_KEYS))
     points = {}
     for key in _CORNER_KEYS:

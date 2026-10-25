@@ -24,7 +24,7 @@ Trước khi dùng, cần một file JSON mô tả toạ độ trung tâm từng
 }
 ```
 
-Cách tạo file này ở giai đoạn hiện tại (chưa có UI admin-web — đó là việc của Danh, xem ghi chú trong `reorganized-tasks-post-pivot.md`):
+Edge node không dùng file này: vị trí ghế lấy từ ô chữ nhật admin vẽ ở trang Quản lý camera của web (`seat_regions/{camera_id}`, đọc bởi `config/class_layout.py`; `Seat.region` chỉ nhận người có trung điểm vai nằm trong ô) hoặc từ 4 ghế góc trong config (`config/README.md`). File JSON chỉ dùng cho demo `tests/demo_camera_ai.py`, tạo như sau:
 
 1. Chụp một khung hình tĩnh từ camera lớp học thật.
 2. Mở ảnh đó bằng công cụ xem ảnh có toạ độ pixel (hoặc viết script nhỏ dùng `cv2.imshow` + bắt sự kiện click chuột) để xác định toạ độ (x, y) trung tâm từng ghế.
@@ -75,7 +75,6 @@ Giá trị này cần **lớn hơn** mức nhiễu bình thường của detecti
 
 - Chưa xử lý trường hợp bố cục lớp thay đổi giữa buổi học (đúng theo Assumption "Fixed Seating Arrangement" của Proposal — học sinh ngồi cố định trong một buổi học).
 - `continuity_threshold` và `max_missing_frames` là hằng số cấu hình thủ công, chưa có cơ chế tự động tinh chỉnh theo mật độ lớp học hoặc chất lượng detection thực tế.
-- Chưa tích hợp với module `config/` (Sprint 7) để nhận file calibration từ xa qua admin-web — hiện tại chỉ đọc từ file JSON cục bộ.
 
 ## Chạy unit test
 

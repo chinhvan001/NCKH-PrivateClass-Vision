@@ -160,7 +160,7 @@ class SeatTracker:
 
         if best_seat_id is not None and best_distance_to_prev <= self._continuity_threshold:
             seat = self._grid.get_seat(best_seat_id)
-            if seat is not None:
+            if seat is not None and seat.contains(x, y):  # ra khoi o cua ghe thi khong giu nua
                 return best_seat_id, self._grid.distance_to(seat, x, y)
 
         nearest = self._grid.find_nearest_seat(x, y)

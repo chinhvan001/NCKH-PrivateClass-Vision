@@ -58,7 +58,7 @@ def main(argv: list[str] | None = None) -> int:
     runtime = EdgeRuntime(
         config,
         detector,
-        lambda: load_class_seat_grid(client, camera.class_id, config.seating.corner_seats),
+        lambda: load_class_seat_grid(client, camera.class_id, config.seating.corner_seats, camera.camera_id),
         sink,
         lambda: CaptureWorker(capture_config, buffer_size=config.privacy.frame_buffer_size),
     )
