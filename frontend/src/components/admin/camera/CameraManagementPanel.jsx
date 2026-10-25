@@ -10,6 +10,7 @@ import {
 } from "../../../services/CameraService";
 
 import AddCameraForm from "./AddCameraForm";
+import SeatRegionModal from "./SeatRegionModal";
 
 // Trạng thái trong heartbeat của camera AI (edge_nodes/{camera_id})
 const EDGE_STATUS = {
@@ -36,6 +37,7 @@ const CameraManagementPanel = () => {
   const [statusFilter, setStatusFilter] = useState("all");
 
   const [showAddCamera, setShowAddCamera] = useState(false);
+  const [seatCamera, setSeatCamera] = useState(null);
 
   const [deletingCameraId, setDeletingCameraId] = useState(null);
   const [confirmModal, setConfirmModal] = useState({
@@ -415,6 +417,16 @@ const CameraManagementPanel = () => {
 
                     <td>
                       <div className="camera-row-actions">
+                        {camera.camera_name && (
+                          <button
+                            type="button"
+                            className="configure-camera-button"
+                            onClick={() => setSeatCamera(camera)}
+                          >
+                            Xác định chỗ ngồi
+                          </button>
+                        )}
+
                         {camera.room_id && (
                           <button
                             type="button"
@@ -483,6 +495,10 @@ const CameraManagementPanel = () => {
             }
           }}
         />
+      )}
+
+      {seatCamera && (
+        <SeatRegionModal camera={seatCamera} onClose={() => setSeatCamera(null)} />
       )}
 
       {confirmModal.open && (

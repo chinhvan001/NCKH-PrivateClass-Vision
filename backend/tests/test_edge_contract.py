@@ -55,7 +55,7 @@ def edge(db, monkeypatch):
     runtime = EdgeRuntime(
         config,
         Classroom(),
-        lambda: load_class_seat_grid(db, "CLASS-1", config.seating.corner_seats),
+        lambda: load_class_seat_grid(db, "CLASS-1", config.seating.corner_seats, "CAM-1"),
         sink,
         Camera,
         now=lambda: NOW,
@@ -134,3 +134,24 @@ def test_admin_starts_and_ends_a_session_that_the_edge_node_monitors(client, db,
     edge(1)
     assert [path for path in db.docs if any(part == "s1" or part.startswith("s1_") for part in path.split("/"))] == []
     assert db.docs["edge_nodes/CAM-1"]["status"] == "idle"
+
+
+def test_seat_regions_drawn_on_the_camera_page_decide_who_sits_where(client, db, admin, edge):
+    db.document("classes2/CLASS-1").set({"class_name": "11B2", "row_count": 2, "column_count": 2})
+    db.document("sessions/s1").set({"class_id": "CLASS-1", "subject": "Toán", "status": "scheduled"})
+    # Ảnh chụp 1280x960, gấp 4 khung hình 320x240 của camera. Ô S01 vẽ quanh Bình (x=230), S02 quanh An
+    # (x=90): ngược với 4 ghế góc trong cấu hình, nên kết quả chỉ đúng khi edge node dùng ô vẽ trên web.
+    regions = {
+        "class_id": "CLASS-1",
+        "image_width": 1280,
+        "image_height": 960,
+        "seats": {"S01": [800, 280, 1040, 520], "S02": [240, 280, 480, 520]},
+    }
+    saved = client.put("/api/admin/seat-regions/CAM-1", json=regions, headers=admin)
+    assert saved.status_code == 200, saved.get_json()
+
+    edge(1)
+    assert client.put("/api/admin/schedules/s1/status", json={"status": "running"}, headers=admin).status_code == 200
+    edge(90)
+    result = db.docs["session_results/s1"]["result_map"]
+    assert (set(result), result["S01"]["status"], result["S02"]["status"]) == ({"S01", "S02"}, "focused", "drowsy")

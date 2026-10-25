@@ -6,7 +6,7 @@ from utils.auth import (
 )
 from firebase_admin import firestore
 from firebase_config import db
-from routes.test_helpers import json_value
+from routes.test_helpers import json_value, require_admin, server_timestamp
 from services import monitoring_service
 
 
@@ -269,3 +269,31 @@ def delete_camera(camera_id):
             "success": False,
             "message": str(e),
         }), 500
+
+
+# Xác định chỗ ngồi: ô chữ nhật của từng ghế trên ảnh chụp từ camera. Ảnh chỉ hiển thị trong trình duyệt
+# của admin, server chỉ nhận tọa độ. camera_name là camera_id của camera AI.
+@camera_bp.route("/api/admin/seat-regions/<camera_name>", methods=["GET"])
+def get_seat_regions(camera_name):
+    uid, auth_error = require_admin()
+    if auth_error:
+        return auth_error
+    doc = db.collection("seat_regions").document(camera_name).get()
+    data = json_value(doc.to_dict() or {}) if doc.exists else None
+    return jsonify({"success": True, "seat_regions": data}), 200
+
+
+@camera_bp.route("/api/admin/seat-regions/<camera_name>", methods=["PUT"])
+def save_seat_regions(camera_name):
+    uid, auth_error = require_admin()
+    if auth_error:
+        return auth_error
+    ref = db.collection("seat_regions").document(camera_name)
+    data, problem = monitoring_service.clean_seat_regions(request.get_json(silent=True) or {})
+    if problem:
+        return jsonify({"success": False, "message": problem}), 400
+    if not data["seats"]:  # xóa hết ô: camera AI quay về 4 ghế góc trong cấu hình của nó
+        ref.delete()
+        return jsonify({"success": True, "seat_regions": None}), 200
+    ref.set({**data, "updated_at": server_timestamp(), "updated_by": uid})
+    return jsonify({"success": True, "seat_regions": json_value(ref.get().to_dict() or {})}), 200

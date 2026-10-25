@@ -2,7 +2,8 @@
 
 Edge node nghe sessions có class_id của lớp và ghi session_results/{s}, session_evaluations/{s}_{seat},
 sessions/{s}/alerts/{id} và edge_nodes/{camera_id}. Web chỉ đọc các document đó; riêng cảnh báo,
-web ghi thêm status, handled_by, handled_at khi xử lý, và xóa chúng khi xóa tiết.
+web ghi thêm status, handled_by, handled_at khi xử lý, và xóa chúng khi xóa tiết. Edge node đọc
+seat_regions/{camera_id} (ô ghế admin vẽ trên trang Quản lý camera) lúc bắt đầu tiết.
 """
 
 from datetime import datetime, timezone
@@ -13,6 +14,7 @@ from routes.test_helpers import commit_writes, db, json_document, json_value, se
 
 EDGE_STALE_SEC = 30  # edge node gửi heartbeat 10 s/lần
 MAX_GRID_SIDE = 50  # edge node từ chối sơ đồ lớn hơn
+MAX_IMAGE_SIDE = 10000  # ảnh chụp từ camera để vẽ ô ghế
 LIVE_STATUSES = ("running", "paused")  # edge node coi cả hai là tiết đang giám sát
 ALERT_TYPES = ("head_drop", "back_turn", "side_conversation")
 ALERT_STATUSES = {"acknowledged", "dismissed"}
@@ -233,6 +235,39 @@ def delete_session(session_id):
     # các document đó có expire_at nên TTL của Firestore dọn được
     session_ref.delete()  # xóa sau cùng: lỗi giữa chừng thì tiết vẫn còn để xóa lại
     return None
+
+
+def clean_seat_regions(data):
+    """Ô ghế admin vẽ trên ảnh chụp từ camera, lưu ở seat_regions/{camera_id}; edge node đọc lại lúc bắt đầu
+    tiết (camera-ai/src/config/class_layout.py). seats: {seat_id: [x1, y1, x2, y2]} theo pixel của ảnh.
+    Trả (document để lưu, None) hoặc (None, thông báo lỗi)."""
+    class_id = data.get("class_id")
+    class_doc = db.collection("classes2").document(class_id).get() if isinstance(class_id, str) and class_id else None
+    size = grid_size(class_doc.to_dict() or {}) if class_doc is not None and class_doc.exists else None
+    if size is None:
+        return None, START_PROBLEMS["no_seat_plan"]
+    width, height = data.get("image_width"), data.get("image_height")
+    if not all(isinstance(v, int) and not isinstance(v, bool) and 1 <= v <= MAX_IMAGE_SIDE for v in (width, height)):
+        return None, "Kích thước ảnh không hợp lệ."
+    seats = data.get("seats")
+    if not isinstance(seats, dict):
+        return None, "Danh sách ô ghế không hợp lệ."
+    rows, columns = size
+    seat_ids = {seat_id(row, column, columns) for row in range(1, rows + 1) for column in range(1, columns + 1)}
+    cleaned = {}
+    for seat, box in seats.items():
+        if seat not in seat_ids:
+            return None, f"Ghế {seat} không có trong sơ đồ lớp."
+        if not (
+            isinstance(box, list)
+            and len(box) == 4
+            and all(isinstance(v, (int, float)) and not isinstance(v, bool) for v in box)
+            and 0 <= box[0] < box[2] <= width
+            and 0 <= box[1] < box[3] <= height
+        ):
+            return None, f"Ô của ghế {seat} không hợp lệ hoặc nằm ngoài ảnh."
+        cleaned[seat] = [round(float(v), 1) for v in box]
+    return {"class_id": class_id, "image_width": width, "image_height": height, "seats": cleaned}, None
 
 
 def handle_alert(session_id, alert_id, status, uid):

@@ -87,3 +87,38 @@ def test_classroom_routes_drop_rtsp_urls(client, db, admin):
     assert updated.status_code == 200
     assert "rtsp_url" not in updated.get_json()["classroom"]
     assert "rtsp_url" not in db.docs["classrooms/p302"]
+
+
+def test_admin_draws_seat_regions_for_a_camera(client, db, admin):
+    db.document("classes2/c1").set({"class_name": "11B2", "row_count": 2, "column_count": 3})
+    body = {
+        "class_id": "c1",
+        "image_width": 1280,
+        "image_height": 720,
+        "seats": {"S01": [10, 20, 110.04, 220], "S06": [900, 400, 1000, 600]},
+    }
+    assert client.get("/api/admin/seat-regions/CAM-1", headers=admin).get_json()["seat_regions"] is None
+    saved = client.put("/api/admin/seat-regions/CAM-1", json=body, headers=admin)
+    assert saved.status_code == 200, saved.get_json()
+    stored = db.docs["seat_regions/CAM-1"]
+    assert stored["seats"] == {"S01": [10.0, 20.0, 110.0, 220.0], "S06": [900.0, 400.0, 1000.0, 600.0]}
+    assert (stored["class_id"], stored["image_width"], stored["updated_by"]) == ("c1", 1280, "admin-1")
+    assert client.get("/api/admin/seat-regions/CAM-1", headers=admin).get_json()["seat_regions"]["seats"] == stored[
+        "seats"
+    ]
+
+    for bad in (
+        {**body, "seats": {"S07": [0, 0, 10, 10]}},  # lớp 2x3 không có S07
+        {**body, "seats": {"S01": [110, 20, 10, 220]}},  # x1 > x2
+        {**body, "seats": {"S01": [0, 0, 1300, 10]}},  # ra ngoài ảnh
+        {**body, "seats": {"S01": [0, 0, True, 10]}},
+        {**body, "image_width": 0},
+        {**body, "class_id": "missing"},
+    ):
+        assert client.put("/api/admin/seat-regions/CAM-1", json=bad, headers=admin).status_code == 400
+    assert db.docs["seat_regions/CAM-1"]["seats"] == stored["seats"]
+
+    # Xóa hết ô: camera AI quay về 4 ghế góc trong cấu hình của nó
+    assert client.put("/api/admin/seat-regions/CAM-1", json={**body, "seats": {}}, headers=admin).status_code == 200
+    assert "seat_regions/CAM-1" not in db.docs
+    assert client.get("/api/admin/seat-regions/CAM-1").status_code == 401

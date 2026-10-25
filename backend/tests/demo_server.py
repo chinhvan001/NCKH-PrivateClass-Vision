@@ -15,6 +15,7 @@ import time
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
+import cv2
 import numpy as np
 
 import conftest  # thay firebase_admin bằng FakeFirestore, thêm backend và camera-ai vào sys.path
@@ -139,6 +140,16 @@ def seed():
     )
     DB.document("classrooms/p202").set(
         {"classroom_name": "P202", "camera_name": "CAM-2", "ip_address": "192.168.1.104", "rtsp_port": "554"}
+    )
+    # Ô ghế như admin đã vẽ ở "Xác định chỗ ngồi" (ảnh /api/demo/snapshot.png), quanh vai học sinh giả lập
+    DB.document("seat_regions/CAM-1").set(
+        {
+            "class_id": "CLASS-1",
+            "image_width": 1280,
+            "image_height": 720,
+            "seats": {seat: [x - 90, y - 80, x + 90, y + 80] for seat, (x, y) in SEAT_XY.items()},
+            "updated_by": "admin-1",
+        }
     )
     scores = [45, 82, 78, 91, 88, 70, 85, 93, 76, 89]
     past_session("h1", 2, dict(zip(STUDENTS, scores)), "completed")
@@ -279,7 +290,7 @@ def edge_loop():
     runtime = EdgeRuntime(
         config,
         Classroom(),
-        lambda: load_class_seat_grid(DB, "CLASS-1", config.seating.corner_seats),
+        lambda: load_class_seat_grid(DB, "CLASS-1", config.seating.corner_seats, "CAM-1"),
         sink,
         Camera,
         poll_sec=0.0,
@@ -313,7 +324,7 @@ def main():
     threading.Thread(target=report_loop, daemon=True).start()
     threading.Thread(target=edge_loop, daemon=True).start()
 
-    from flask import abort, jsonify
+    from flask import Response, abort, jsonify
 
     from app import app
     from routes.test_helpers import json_document
@@ -342,8 +353,21 @@ def main():
             abort(400)
         return jsonify(json_document(doc)) if doc.exists else abort(404)
 
+    @app.get("/api/demo/snapshot.png")
+    def demo_snapshot():
+        """Ảnh lớp trống vẽ bằng OpenCV (không phải ảnh camera), cùng góc với pose giả lập: tải về rồi chọn
+        trong "Xác định chỗ ngồi" để thử vẽ ô."""
+        image = np.full((720, 1280, 3), (226, 230, 233), np.uint8)
+        cv2.rectangle(image, (440, 20), (840, 70), (70, 100, 70), -1)  # bảng
+        for x, y in SEAT_XY.values():
+            x, y = int(x), int(y)
+            cv2.rectangle(image, (x - 75, y + 25), (x + 75, y + 65), (80, 120, 160), -1)  # bàn
+            cv2.rectangle(image, (x - 25, y - 40), (x + 25, y + 20), (110, 110, 110), 3)  # lưng ghế
+        return Response(cv2.imencode(".png", image)[1].tobytes(), mimetype="image/png")
+
     print("Frontend: cd frontend; npm run dev  ->  http://localhost:5173/api/demo-login", flush=True)
     print("Dữ liệu: http://localhost:5173/api/demo/db/session_results (hoặc sessions/s1/alerts, ...)", flush=True)
+    print("Ảnh lớp trống để vẽ ô ghế: http://localhost:5173/api/demo/snapshot.png", flush=True)
     app.run(host="127.0.0.1", port=5000, threaded=True, use_reloader=False, load_dotenv=False)
 
 
