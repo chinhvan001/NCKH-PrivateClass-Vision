@@ -1,8 +1,8 @@
-# PrivateClass Vision
+# EduTrack
 
 ## 1. Tổng quan
 
-PrivateClass Vision là hệ thống cổng quản trị phục vụ quản lý lớp học, giáo viên, camera giám sát và các phiên học. Hệ thống được định hướng mở rộng thành nền tảng hỗ trợ giám sát lớp học bằng camera và các mô hình thị giác máy tính, trong đó quản trị viên có thể cấu hình dữ liệu vận hành từ một giao diện tập trung.
+EduTrack là hệ thống cổng quản trị phục vụ quản lý lớp học, giáo viên, camera giám sát và các phiên học. Hệ thống được định hướng mở rộng thành nền tảng hỗ trợ giám sát lớp học bằng camera và các mô hình thị giác máy tính, trong đó quản trị viên có thể cấu hình dữ liệu vận hành từ một giao diện tập trung.
 
 > Trạng thái hiện tại: phần giao diện quản trị đã được xây dựng tương đối đầy đủ; xác thực, quản lý giáo viên và quản lý camera đã có kết nối backend/Firebase. Một số dữ liệu lớp học, phiên học, dashboard giám sát và cảnh báo hiện vẫn là dữ liệu mẫu hoặc chưa có API hoàn chỉnh.
 

@@ -30,7 +30,7 @@ app.register_blueprint(dashboard_bp)
 def home():
     return jsonify({
         "success": True,
-        "message": "PrivateClass Vision API is running"
+        "message": "EduTrack API is running"
     }), 200
 
 

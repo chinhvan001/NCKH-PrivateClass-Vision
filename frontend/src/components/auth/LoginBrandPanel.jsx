@@ -10,12 +10,12 @@ const LoginBrandPanel = () => {
         <div className="brand-logo">
           <img
             src={logo}
-            alt="PrivateClass Vision"
+            alt="EduTrack"
             className="brand-logo-image"
           />
 
           <div className="brand-logo-text">
-            <h1>PrivateClass Vision</h1>
+            <h1>EduTrack</h1>
             <span>CỔNG QUẢN TRỊ</span>
           </div>
         </div>

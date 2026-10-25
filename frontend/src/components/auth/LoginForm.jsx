@@ -6,7 +6,7 @@ const LoginForm = ({ onLogin }) => {
       <div className="login-card">
         <div className="login-heading">
           <h2>Chào mừng trở lại</h2>
-          <p>Đăng nhập vào cổng quản trị PrivateClass Vision</p>
+          <p>Đăng nhập vào cổng quản trị EduTrack</p>
         </div>
 
         <GoogleLoginForm onLogin={onLogin} />

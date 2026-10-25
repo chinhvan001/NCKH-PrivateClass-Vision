@@ -31,7 +31,7 @@ const Login = ({ onForgotPassword }) => {
                         <a href="#">Điều khoản sử dụng</a>
                     </div>
 
-                    <p>2026 PrivateClass Vision. Bảo lưu mọi quyền.</p>
+                    <p>2026 EduTrack. Bảo lưu mọi quyền.</p>
                 </footer>
             </section>
         </main>

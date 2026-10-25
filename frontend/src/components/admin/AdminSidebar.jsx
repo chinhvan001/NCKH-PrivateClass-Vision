@@ -84,10 +84,10 @@ const AdminSidebar = ({ onLogout }) => {
   return (
     <aside className="admin-sidebar">
       <div className="admin-brand">
-        <img src={logo} alt="PrivateClass Vision" />
+        <img src={logo} alt="EduTrack" />
 
         <div>
-          <strong>PrivateClass Vision</strong>
+          <strong>EduTrack</strong>
           <span>CỔNG QUẢN TRỊ</span>
         </div>
       </div>
@@ -141,7 +141,7 @@ const AdminSidebar = ({ onLogout }) => {
       </div>
 
       <p className="admin-sidebar-footer">
-        © 2026 PrivateClass Vision.
+        © 2026 EduTrack.
         <br />
         Bảo lưu mọi quyền.
       </p>
