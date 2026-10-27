@@ -6,7 +6,7 @@ import 'package:flutter_privateclass_vision/features/teacher/seating_manager/scr
 import 'package:flutter_privateclass_vision/features/teacher/seating_manager/screens/student_picker_sheet.dart';
 
 import '../../../../../core/constants/app_colors.dart';
-import '../../../../../core/models/student_model.dart';
+import 'seat_models.dart';
 import '../widgets/seating_components.dart';
 import 'seating_manager_repository.dart';
 
@@ -32,13 +32,11 @@ class SeatingManagerScreen extends StatefulWidget {
 
 class _SeatingManagerScreenState extends State<SeatingManagerScreen> {
   String? _targetClassId;
-  // trước: late final Stream<ClassInfo> _classInfoStream;
-  Stream<ClassInfo>? _classInfoStream;
-  // trước: late final Stream<List<StudentModel>> _studentsStream;
-  Stream<List<StudentModel>>? _studentsStream;
+  // Một stream duy nhất từ classes2: thông tin lớp + seat_map + roster.
+  Stream<ClassSeatData>? _classSeatStream;
   late final Future<void> _resolveFuture;
 
-  // Kích thước ma trận phòng học - lấy động từ classrooms.row_number/column_number,
+  // Kích thước ma trận phòng học - lấy động từ classes2.row_count/column_count,
   // giá trị dưới đây chỉ là mặc định tạm dùng trước khi dữ liệu về.
   int _rows = ClassInfo.fallback.rows;
   int _cols = ClassInfo.fallback.cols;
@@ -49,6 +47,9 @@ class _SeatingManagerScreenState extends State<SeatingManagerScreen> {
   bool _isSaving = false;
   String? _lastRosterSignature;
   late final String? _teacherId;
+
+  Set<int> _lockedCells = {};
+  Set<String> _rosterIds = {};
 
   late List<String?> _savedSeats;
   late List<String?> _draftSeats;
@@ -70,16 +71,15 @@ class _SeatingManagerScreenState extends State<SeatingManagerScreen> {
         widget.classId ?? await _repository.findClassIdByTeacher(teacherId);
 
     _targetClassId = classId;
-    _classInfoStream = _repository.classInfoStream(
+    _classSeatStream = _repository.classSeatStream(
       classId,
       teacherId: teacherId,
     );
-    _studentsStream = _repository.studentsStream(classId);
   }
 
-  // Cập nhật lại kích thước ma trận khi classrooms.row_number/column_number
+  // Cập nhật lại kích thước ma trận khi classes2.row_count/column_count
   // thay đổi (hoặc lần đầu tải xong). Khi kích thước đổi, làm mới toàn bộ
-  // mảng ghế và buộc khởi tạo lại sơ đồ từ enrollments.
+  // mảng ghế và buộc khởi tạo lại sơ đồ từ classes2.seat_map.
   void _updateMatrixDimensions(int newRows, int newCols) {
     if (_rows == newRows && _cols == newCols) return;
     _rows = newRows;
@@ -89,32 +89,25 @@ class _SeatingManagerScreenState extends State<SeatingManagerScreen> {
     _lastRosterSignature = null;
   }
 
-  // Khởi tạo sơ đồ từ tọa độ row/column lấy về từ enrollments (chỉ chạy 1 lần
-  // cho mỗi kích thước ma trận - xem _isInitialized/_updateMatrixDimensions).
-  void _syncSeatsFromRoster(List<StudentModel> roster) {
+  // Dựng lại sơ đồ từ classes2.seat_map khi dữ liệu thật sự đổi.
+  void _syncSeats(ClassSeatData data) {
     if (_mode == ManagerMode.edit) return; // đang sửa thì không ghi đè
-    final signature = SeatingLayoutBuilder.signature(roster);
+    final signature = SeatingLayoutBuilder.signature(data.entries);
     if (signature == _lastRosterSignature) return; // dữ liệu chưa đổi
     _lastRosterSignature = signature;
 
-    final layout = SeatingLayoutBuilder.fromRoster(
-      roster,
+    final layout = SeatingLayoutBuilder.fromEntries(
+      data.entries,
       rows: _rows,
       cols: _cols,
     );
-    debugPrint(
-      '[Seating] đã xếp ${layout.placedCount}/${roster.length} | '
-      'ngoài ma trận: ${layout.outOfRangeIds.length} | '
-      'trùng ô: ${layout.conflictIds.length}',
-    );
-
     _savedSeats = List.of(layout.seats);
     _draftSeats = List.of(layout.seats);
   }
 
   int get _assignedCount =>
       (_mode == ManagerMode.edit ? _draftSeats : _savedSeats)
-          .where((s) => s != null)
+          .where((s) => s != null && _rosterIds.contains(s))
           .length;
 
   String _accessErrorMessage(Object? error) {
@@ -130,12 +123,12 @@ class _SeatingManagerScreenState extends State<SeatingManagerScreen> {
   return 'Không tải được thông tin lớp học: $error';
 }
 
-  List<StudentModel> _unassignedStudents(List<StudentModel> allStudents) {
+  List<SeatStudent> _unassignedStudents(List<SeatStudent> allStudents) {
     final usedIds = _draftSeats.where((s) => s != null).toSet();
     return allStudents.where((s) => !usedIds.contains(s.id)).toList();
   }
 
-  void _onTapCell(int index, List<StudentModel> roster) {
+  void _onTapCell(int index, List<SeatStudent> roster) {
     if (_mode != ManagerMode.edit || _draftSeats[index] != null) return;
     showStudentPickerSheet(
       context,
@@ -152,11 +145,43 @@ class _SeatingManagerScreenState extends State<SeatingManagerScreen> {
     });
   }
 
+  // Xóa toàn bộ học sinh khỏi bản NHÁP để xếp lại từ đầu. Chưa ghi Firestore:
+  // chỉ khi bấm "Lưu sơ đồ" (và đã xếp đủ học sinh) dữ liệu mới thay đổi,
+  // còn nút quay lại sẽ trả về sơ đồ đã lưu.
+  Future<void> _confirmClearAll() async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Xóa toàn bộ sơ đồ?'),
+        content: const Text(
+          'Bạn có chắc muốn xóa toàn bộ học sinh khỏi sơ đồ không? '
+          'Bạn cần xếp lại tất cả học sinh trước khi có thể lưu.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Hủy'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text(
+              'Xóa toàn bộ',
+              style: TextStyle(color: Colors.red),
+            ),
+          ),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+    setState(() => _draftSeats = List.filled(_rows * _cols, null));
+  }
+
   // Lưu sơ đồ: toàn bộ logic Firestore nằm trong SeatingManagerRepository.
-  Future<void> _save(List<StudentModel> roster) async {
+  Future<void> _save(List<SeatStudent> roster) async {
     final check = SeatingSaveValidator.validate(
       draftSeats: _draftSeats,
       roster: roster,
+      lockedCount: _lockedCells.length,
     );
     if (!check.canSave) {
       ScaffoldMessenger.of(context)
@@ -170,10 +195,14 @@ class _SeatingManagerScreenState extends State<SeatingManagerScreen> {
         draftSeats: _draftSeats,
         cols: _cols,
         requiredStudentIds: roster.map((s) => s.id),
+        lockedCells: _lockedCells,
       );
       if (!mounted) return;
       setState(() {
         _savedSeats = List.from(_draftSeats);
+        // Báo trước chữ ký sau khi lưu để snapshot cũ không ghi đè sơ đồ.
+        _lastRosterSignature =
+            SeatingLayoutBuilder.signatureAfterSave(_draftSeats, _cols);
         _mode = ManagerMode.view;
         _isSaving = false;
       });
@@ -222,19 +251,15 @@ class _SeatingManagerScreenState extends State<SeatingManagerScreen> {
   Widget _buildScreen(BuildContext context) {
     return Scaffold(
       backgroundColor: AppColors.appBg,
-      body: StreamBuilder<ClassInfo>(
-        stream: _classInfoStream,
-        builder: (context, classSnapshot) {
-          if (classSnapshot.connectionState == ConnectionState.waiting) {
-            return const Center(child: CircularProgressIndicator());
-          }
-
-          if (classSnapshot.hasError) {
+      body: StreamBuilder<ClassSeatData>(
+        stream: _classSeatStream,
+        builder: (context, snapshot) {
+          if (snapshot.hasError) {
             return Center(
               child: Padding(
                 padding: const EdgeInsets.all(24),
                 child: Text(
-                  _accessErrorMessage(classSnapshot.error),
+                  _accessErrorMessage(snapshot.error),
                   textAlign: TextAlign.center,
                   style: const TextStyle(color: Colors.red),
                 ),
@@ -242,67 +267,40 @@ class _SeatingManagerScreenState extends State<SeatingManagerScreen> {
             );
           }
 
-          final classInfo = classSnapshot.data ?? ClassInfo.fallback;
+          final data = snapshot.data;
+          if (data == null) {
+            return const Center(child: CircularProgressIndicator());
+          }
+
+          final classInfo = data.info;
+          final roster = data.roster;
+          _rosterIds = roster.map((s) => s.id).toSet();
+          _lockedCells = data.lockedCells;
           _updateMatrixDimensions(classInfo.rows, classInfo.cols);
+          _syncSeats(data);
 
-          return StreamBuilder<List<StudentModel>>(
-            stream: _studentsStream,
-            builder: (context, studentSnapshot) {
-              if (studentSnapshot.connectionState == ConnectionState.waiting &&
-                  _lastRosterSignature == null) {
-                return Column(
-                  children: [
-                    _buildHeader(classInfo),
-                    const Expanded(
-                      child: Center(child: CircularProgressIndicator()),
-                    ),
-                  ],
-                );
-              }
-
-              if (studentSnapshot.hasError) {
-                return Column(
-                  children: [
-                    _buildHeader(classInfo),
-                    Expanded(
-                      child: Center(
-                        child: Text(
-                          'Lỗi tải dữ liệu: ${studentSnapshot.error}',
-                          style: const TextStyle(color: Colors.red),
-                        ),
+          return Column(
+            children: [
+              _buildHeader(classInfo),
+              Expanded(
+                child: Transform.translate(
+                  offset: const Offset(0, -16),
+                  child: Container(
+                    width: double.infinity,
+                    decoration: const BoxDecoration(
+                      color: AppColors.appBg,
+                      borderRadius: BorderRadius.only(
+                        topLeft: Radius.circular(24),
+                        topRight: Radius.circular(24),
                       ),
                     ),
-                  ],
-                );
-              }
-
-              final roster = studentSnapshot.data ?? [];
-              _syncSeatsFromRoster(roster);
-
-              return Column(
-                children: [
-                  _buildHeader(classInfo),
-                  Expanded(
-                    child: Transform.translate(
-                      offset: const Offset(0, -16),
-                      child: Container(
-                        width: double.infinity,
-                        decoration: const BoxDecoration(
-                          color: AppColors.appBg,
-                          borderRadius: BorderRadius.only(
-                            topLeft: Radius.circular(24),
-                            topRight: Radius.circular(24),
-                          ),
-                        ),
-                        child: _mode == ManagerMode.edit
-                            ? _buildEditMode(roster)
-                            : _buildViewMode(roster, classInfo),
-                      ),
-                    ),
+                    child: _mode == ManagerMode.edit
+                        ? _buildEditMode(roster)
+                        : _buildViewMode(roster, classInfo),
                   ),
-                ],
-              );
-            },
+                ),
+              ),
+            ],
           );
         },
       ),
@@ -339,7 +337,7 @@ class _SeatingManagerScreenState extends State<SeatingManagerScreen> {
                 width: 36,
                 height: 36,
                 decoration: BoxDecoration(
-                  color: Colors.white.withOpacity(0.1),
+                  color: Colors.white.withValues(alpha: 0.1),
                   shape: BoxShape.circle,
                 ),
                 child: const Icon(
@@ -368,7 +366,7 @@ class _SeatingManagerScreenState extends State<SeatingManagerScreen> {
                   style: TextStyle(
                     fontSize: 13,
                     fontWeight: FontWeight.w500,
-                    color: Colors.white.withOpacity(0.7),
+                    color: Colors.white.withValues(alpha: 0.7),
                   ),
                 ),
               ],
@@ -379,10 +377,11 @@ class _SeatingManagerScreenState extends State<SeatingManagerScreen> {
     );
   }
 
-  Widget _buildEditMode(List<StudentModel> roster) {
+  Widget _buildEditMode(List<SeatStudent> roster) {
     final validation = SeatingSaveValidator.validate(
       draftSeats: _draftSeats,
       roster: roster,
+      lockedCount: _lockedCells.length,
     );
     return Column(
       children: [
@@ -414,6 +413,24 @@ class _SeatingManagerScreenState extends State<SeatingManagerScreen> {
                     height: 1.6,
                   ),
                 ),
+                const SizedBox(height: 12),
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: OutlinedButton.icon(
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: Colors.red,
+                      side: const BorderSide(color: Colors.red),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                    ),
+                    onPressed: (_isSaving || _assignedCount == 0)
+                        ? null
+                        : _confirmClearAll,
+                    icon: const Icon(Icons.delete_outline, size: 18),
+                    label: const Text('Xóa toàn bộ'),
+                  ),
+                ),
                 const SizedBox(height: 16),
                 SeatingGrid(
                   rows: _rows,
@@ -421,6 +438,7 @@ class _SeatingManagerScreenState extends State<SeatingManagerScreen> {
                   seats: _draftSeats,
                   homeroomRoster: roster,
                   isEdit: true,
+                  lockedCells: _lockedCells,
                   onTapCell: (index) => _onTapCell(index, roster),
                   onSwapSeats: _onSwapSeats,
                 ),
@@ -438,7 +456,7 @@ class _SeatingManagerScreenState extends State<SeatingManagerScreen> {
     );
   }
 
-  Widget _buildViewMode(List<StudentModel> roster, ClassInfo classInfo) {
+  Widget _buildViewMode(List<SeatStudent> roster, ClassInfo classInfo) {
     final homeroomInfo = <String, Object>{
       'id': classInfo.className,
       'name': classInfo.className,
@@ -461,7 +479,7 @@ class _SeatingManagerScreenState extends State<SeatingManagerScreen> {
     );
   }
 
-  List<Widget> _buildAssignedView(List<StudentModel> roster) {
+  List<Widget> _buildAssignedView(List<SeatStudent> roster) {
     return [
       CountCard(
         assignedCount: _assignedCount,
@@ -474,6 +492,7 @@ class _SeatingManagerScreenState extends State<SeatingManagerScreen> {
         seats: _savedSeats,
         homeroomRoster: roster,
         isEdit: false,
+        lockedCells: _lockedCells,
         onTapCell: (_) {},
         onSwapSeats: (_, __) {},
       ),
@@ -507,7 +526,7 @@ class _SeatingManagerScreenState extends State<SeatingManagerScreen> {
     ];
   }
 
-  List<Widget> _buildEmptyView(List<StudentModel> roster) {
+  List<Widget> _buildEmptyView(List<SeatStudent> roster) {
     return [
       Card(
         elevation: 0,

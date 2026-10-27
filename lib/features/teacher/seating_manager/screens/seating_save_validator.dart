@@ -1,4 +1,4 @@
-import '../../../../../core/models/student_model.dart';
+import 'seat_models.dart';
 
 /// Ném ra khi cố lưu sơ đồ nhưng vẫn còn học sinh chưa có chỗ ngồi.
 /// Dùng ở tầng repository như lớp chặn cuối (UI đã vô hiệu hóa nút Lưu,
@@ -32,7 +32,7 @@ class SeatingValidationResult {
   final String message;
 
   /// Các học sinh chưa có chỗ (dùng để tô nổi hoặc liệt kê trên UI).
-  final List<StudentModel> missingStudents;
+  final List<SeatStudent> missingStudents;
 
   final int totalStudents;
   final int assignedCount;
@@ -50,7 +50,8 @@ class SeatingSaveValidator {
   /// so với [roster] (toàn bộ học sinh có enrollment của lớp).
   static SeatingValidationResult validate({
     required List<String?> draftSeats,
-    required List<StudentModel> roster,
+    required List<SeatStudent> roster,
+    int lockedCount = 0,
   }) {
     if (roster.isEmpty) {
       return const SeatingValidationResult(
@@ -63,10 +64,11 @@ class SeatingSaveValidator {
     }
 
     // Số ghế không đủ cho cả lớp -> không thể xếp hết, báo rõ nguyên nhân.
-    if (draftSeats.length < roster.length) {
+    final usableSeats = draftSeats.length - lockedCount;
+    if (usableSeats < roster.length) {
       return SeatingValidationResult(
         canSave: false,
-        message: 'Phòng chỉ có ${draftSeats.length} chỗ nhưng lớp có '
+        message: 'Phòng chỉ có $usableSeats chỗ dùng được nhưng lớp có '
             '${roster.length} học sinh. Không đủ chỗ để xếp hết.',
         missingStudents: const [],
         totalStudents: roster.length,
@@ -105,7 +107,7 @@ class SeatingSaveValidator {
   }
 
   /// Kiểm tra theo danh sách id bắt buộc (dùng trong repository, nơi chỉ có
-  /// các student_id của enrollments mà không có StudentModel).
+  /// các student_id của classes2.seat_map mà không có SeatStudent).
   /// Ném [IncompleteSeatingException] nếu còn id chưa có chỗ.
   static void ensureAllAssigned({
     required List<String?> draftSeats,

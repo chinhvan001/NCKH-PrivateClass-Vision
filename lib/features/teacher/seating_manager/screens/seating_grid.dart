@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../../../../core/constants/app_colors.dart';
-import '../../../../../core/models/student_model.dart';
+import 'seat_models.dart';
 
 /// Lưới sơ đồ chỗ ngồi: bục giảng + các ô ghế.
 /// Khi [isEdit] = true: tap ô trống để thêm học sinh, nhấn giữ + kéo để đổi chỗ.
@@ -16,17 +16,21 @@ class SeatingGrid extends StatelessWidget {
     required this.isEdit,
     required this.onTapCell,
     required this.onSwapSeats,
+    this.lockedCells = const {},
   });
 
   final int rows;
   final int cols;
   final List<String?> seats;
-  final List<StudentModel> homeroomRoster;
+  final List<SeatStudent> homeroomRoster;
   final bool isEdit;
   final void Function(int index) onTapCell;
   final void Function(int fromIndex, int toIndex) onSwapSeats;
 
-  StudentModel? _studentFor(String? id) {
+  /// Các ô ghế bị khóa (không xếp được, không kéo thả vào).
+  final Set<int> lockedCells;
+
+  SeatStudent? _studentFor(String? id) {
     if (id == null) return null;
     try {
       return homeroomRoster.firstWhere((s) => s.id == id);
@@ -78,12 +82,27 @@ class SeatingGrid extends StatelessWidget {
     );
   }
 
-  Widget _buildSeatContent(String? studentId, StudentModel? student) {
+  Widget _buildLockedCell() {
     return Container(
       decoration: BoxDecoration(
-        color: studentId != null ? const Color(0xFFE9F8EF) : AppColors.appBg,
+        color: AppColors.hair.withValues(alpha: 0.5),
+        border: Border.all(color: AppColors.hair),
+        borderRadius: BorderRadius.circular(6),
+      ),
+      child: const Icon(Icons.lock_outline, size: 14, color: AppColors.muted),
+    );
+  }
+
+  Widget _buildSeatContent(String? studentId, SeatStudent? student) {
+    return Container(
+      decoration: BoxDecoration(
+        color: studentId != null
+            ? const Color(0xFFE9F8EF)
+            : const Color(0xFFEEF0F3), // ô trống: xám
         border: Border.all(
-          color: studentId != null ? const Color(0xFFBFE6CF) : AppColors.hair,
+          color: studentId != null
+              ? const Color(0xFFBFE6CF)
+              : const Color(0xFFDDE1E6),
         ),
         borderRadius: BorderRadius.circular(6),
       ),
@@ -108,14 +127,19 @@ class SeatingGrid extends StatelessWidget {
   }
 
   Widget _buildCell(BuildContext context, int index) {
-    final studentId = seats[index];
-    final student = _studentFor(studentId);
+    if (lockedCells.contains(index)) return _buildLockedCell();
+
+    // Ô chỉ được coi là có người khi id khớp một học sinh trong roster;
+    // id lạ (không có trong roster) hiển thị như ô trống.
+    final rawId = seats[index];
+    final student = _studentFor(rawId);
+    final studentId = student == null ? null : rawId;
     final cellContent = _buildSeatContent(studentId, student);
 
     if (!isEdit) return cellContent;
 
     return DragTarget<int>(
-      onAccept: (draggedIndex) => onSwapSeats(draggedIndex, index),
+      onAcceptWithDetails: (d) => onSwapSeats(d.data, index),
       builder: (context, candidateData, rejectedData) {
         if (candidateData.isNotEmpty) {
           return Container(
@@ -151,7 +175,7 @@ class SeatingGrid extends StatelessWidget {
     );
   }
 
-  Widget _buildDragFeedback(BuildContext context, StudentModel? student) {
+  Widget _buildDragFeedback(BuildContext context, SeatStudent? student) {
     final size = MediaQuery.of(context).size.width / cols - 4;
     return Material(
       color: Colors.transparent,
@@ -167,7 +191,7 @@ class SeatingGrid extends StatelessWidget {
               borderRadius: BorderRadius.circular(6),
               boxShadow: [
                 BoxShadow(
-                  color: Colors.black.withOpacity(0.2),
+                  color: Colors.black.withValues(alpha: 0.2),
                   blurRadius: 10,
                   offset: const Offset(0, 5),
                 ),

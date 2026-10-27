@@ -1,19 +1,19 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 
-/// Lấy các lớp mà giáo viên có buổi dạy (monitoring_sessions) trong một tháng.
+/// Lấy các lớp mà giáo viên có buổi dạy (sessions) trong một tháng.
 ///
 /// Cách làm:
-/// 1. Truy vấn `monitoring_sessions` theo giáo viên đăng nhập.
+/// 1. Truy vấn `sessions` theo giáo viên đăng nhập.
 /// 2. Lọc các buổi có thời gian bắt đầu nằm trong tháng (lọc ở phía app nên
 ///    không cần tạo composite index trên Firestore).
-/// 3. Gom các class_id (loại trùng) rồi đọc các document tương ứng trong `classes`.
+/// 3. Gom các class_id (loại trùng) rồi đọc các document tương ứng trong `classes2`.
 class TeacherMonthClassesService {
   TeacherMonthClassesService({FirebaseFirestore? firestore})
       : _db = firestore ?? FirebaseFirestore.instance;
 
   final FirebaseFirestore _db;
 
-  // ---- Tên field trong collection `monitoring_sessions` ----
+  // ---- Tên field trong collection `sessions` ----
   // Đối chiếu với Firestore Console và sửa tại đây nếu tên thật khác.
   static const String teacherField = 'teacher_id';
   static const String startField = 'start_time';
@@ -24,7 +24,7 @@ class TeacherMonthClassesService {
 
   /// Stream danh sách lớp (đã sắp theo tên) có buổi dạy của [teacherId]
   /// trong tháng của [month] (mặc định là tháng hiện tại).
-  /// Tự cập nhật khi `monitoring_sessions` thay đổi.
+  /// Tự cập nhật khi `sessions` thay đổi.
   Stream<List<QueryDocumentSnapshot<Map<String, dynamic>>>> classesOfMonthStream(
     String teacherId, {
     DateTime? month,
@@ -34,7 +34,7 @@ class TeacherMonthClassesService {
     final nextMonthStart = DateTime(base.year, base.month + 1);
 
     return _db
-        .collection('monitoring_sessions')
+        .collection('sessions')
         .where(teacherField, isEqualTo: teacherId)
         .snapshots()
         .asyncMap((snap) async {
@@ -77,7 +77,7 @@ class TeacherMonthClassesService {
     final results = await Future.wait(
       chunks.map(
         (chunk) => _db
-            .collection('classes')
+            .collection('classes2')
             .where(FieldPath.documentId, whereIn: chunk)
             .get(),
       ),

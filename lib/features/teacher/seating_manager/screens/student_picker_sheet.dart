@@ -1,14 +1,14 @@
 import 'package:flutter/material.dart';
 
 import '../../../../../core/constants/app_colors.dart';
-import '../../../../../core/models/student_model.dart';
+import 'seat_models.dart';
 
 /// Mở bottom sheet để chọn một học sinh gán vào ô ghế trống.
 /// Gọi [onSelect] với học sinh được chọn rồi tự đóng sheet.
 Future<void> showStudentPickerSheet(
   BuildContext context, {
-  required List<StudentModel> unassignedStudents,
-  required void Function(StudentModel student) onSelect,
+  required List<SeatStudent> unassignedStudents,
+  required void Function(SeatStudent student) onSelect,
 }) {
   return showModalBottomSheet(
     context: context,
@@ -27,8 +27,8 @@ class _StudentPickerSheet extends StatefulWidget {
     required this.onSelect,
   });
 
-  final List<StudentModel> unassignedStudents;
-  final void Function(StudentModel student) onSelect;
+  final List<SeatStudent> unassignedStudents;
+  final void Function(SeatStudent student) onSelect;
 
   @override
   State<_StudentPickerSheet> createState() => _StudentPickerSheetState();
@@ -113,7 +113,7 @@ class _StudentPickerSheetState extends State<_StudentPickerSheet> {
     );
   }
 
-  Widget _buildList(List<StudentModel> list) {
+  Widget _buildList(List<SeatStudent> list) {
     if (list.isEmpty) {
       return const Center(
         child: Text(

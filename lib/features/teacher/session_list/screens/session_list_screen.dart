@@ -63,63 +63,104 @@ class _SessionListScreenState extends State<SessionListScreen> {
     }
   }
 
-  Stream<List<ScheduleItem>> _fetchSchedulesStream() {
-    final currentUser = FirebaseAuth.instance.currentUser;
-    final currentUserId = currentUser?.uid ?? 'TCtETv0Db6Nu5fjfVdzGfA0eZJ92';
+  // Tên lớp theo class_id (classes2.class_name) - cache để không đọc lại
+  // Firestore ở mỗi lần snapshot.
+  final Map<String, String> _classNameCache = {};
+  Stream<List<ScheduleItem>>? _schedulesStream;
 
+  @override
+  void initState() {
+    super.initState();
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid != null) _schedulesStream = _fetchSchedulesStream(uid);
+  }
+
+  Stream<List<ScheduleItem>> _fetchSchedulesStream(String teacherId) {
     return FirebaseFirestore.instance
-        .collection('monitoring_sessions')
-        .where('teacher_id', isEqualTo: currentUserId)
+        .collection('sessions')
+        .where('teacher_id', isEqualTo: teacherId)
         .snapshots()
         .asyncMap((snapshot) async {
-      List<ScheduleItem> items = [];
+      // Bỏ qua phiên thiếu giờ bắt đầu/kết thúc.
+      final docs = snapshot.docs.where((d) {
+        final data = d.data();
+        return data['start_time'] is Timestamp &&
+            data['end_time'] is Timestamp;
+      }).toList();
 
-      for (var doc in snapshot.docs) {
-        final data = doc.data();
-        final classId = data['class_id'] ?? '';
-        final classroomId = data['classroom_id'] ?? '';
+      await _loadClassNames({
+        for (final d in docs)
+          if ((d.data()['class_id'] ?? '').toString().isNotEmpty)
+            d.data()['class_id'].toString(),
+      });
 
-        String className = 'Lớp chưa xác định';
-        if (classId.isNotEmpty) {
-          final classDoc = await FirebaseFirestore.instance
-              .collection('classes')
-              .doc(classId)
-              .get();
-          if (classDoc.exists && classDoc.data() != null) {
-            className = classDoc.data()!['class_name'] ?? 'Lớp $classId';
-          }
-        }
-
-        String roomName = classroomId;
-        if (classroomId.isNotEmpty) {
-          final roomDoc = await FirebaseFirestore.instance
-              .collection('classrooms')
-              .doc(classroomId)
-              .get();
-          if (roomDoc.exists && roomDoc.data() != null) {
-            roomName = roomDoc.data()!['classroom_name'] ?? classroomId;
-          }
-        }
-
-        items.add(
-          ScheduleItem.fromFirestore(
-            doc,
-            className: className,
-            roomName: roomName,
-          ),
+      final items = docs.map((doc) {
+        final classId = (doc.data()['class_id'] ?? '').toString();
+        return ScheduleItem.fromFirestore(
+          doc,
+          className: classId.isEmpty
+              ? 'Lớp chưa xác định'
+              : (_classNameCache[classId] ?? 'Lớp $classId'),
         );
-      }
+      }).toList();
 
       items.sort((a, b) => a.startTime.compareTo(b.startTime));
       return items;
     });
   }
 
+  Future<void> _loadClassNames(Set<String> ids) async {
+    final missing = ids.where((id) => !_classNameCache.containsKey(id)).toList();
+    // whereIn tối đa 30 giá trị mỗi truy vấn.
+    for (var i = 0; i < missing.length; i += 30) {
+      final end = i + 30 > missing.length ? missing.length : i + 30;
+      final chunk = missing.sublist(i, end);
+      final snap = await FirebaseFirestore.instance
+          .collection('classes2')
+          .where(FieldPath.documentId, whereIn: chunk)
+          .get();
+      for (final d in snap.docs) {
+        _classNameCache[d.id] = (d.data()['class_name'] ?? 'Lớp ${d.id}').toString();
+      }
+      for (final id in chunk) {
+        _classNameCache.putIfAbsent(id, () => 'Lớp $id'); // lớp không tồn tại
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
+    if (_schedulesStream == null) {
+      return const Scaffold(
+        backgroundColor: AppColors.appBg,
+        body: Center(
+          child: Text(
+            'Vui lòng đăng nhập để xem danh sách phiên.',
+            style: TextStyle(fontSize: 14, color: AppColors.muted),
+          ),
+        ),
+      );
+    }
+
     return StreamBuilder<List<ScheduleItem>>(
-      stream: _fetchSchedulesStream(),
+      stream: _schedulesStream,
       builder: (context, snapshot) {
+        if (snapshot.hasError) {
+          return Scaffold(
+            backgroundColor: AppColors.appBg,
+            body: Center(
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: Text(
+                  'Không tải được danh sách phiên: ${snapshot.error}',
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(color: Colors.red),
+                ),
+              ),
+            ),
+          );
+        }
+
         if (snapshot.connectionState == ConnectionState.waiting) {
           return const Scaffold(
             backgroundColor: AppColors.appBg,
@@ -233,7 +274,7 @@ class _SessionListScreenState extends State<SessionListScreen> {
                                     date: _formatDate(item.startTime),
                                     start: _formatTime(item.startTime),
                                     end: _formatTime(item.endTime),
-                                    size: 40,
+                                    size: item.studentCount,
                                     status: item.status,
                                   ),
                                   onTap: () {
