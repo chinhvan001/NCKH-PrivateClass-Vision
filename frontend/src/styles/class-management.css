@@ -346,12 +346,13 @@
   white-space: nowrap;
 }
 
-.class-table th:nth-child(1) { width: 22%; padding-left: 16px; }
-.class-table th:nth-child(2) { width: 13%; }
-.class-table th:nth-child(3) { width: 22%; }
-.class-table th:nth-child(4) { width: 13%; }
-.class-table th:nth-child(5) { width: 14%; }
-.class-table th:nth-child(6) { width: 16%; padding-right: 24px; }
+.class-table th:nth-child(1) { width: 60px; text-align: center; } /* STT */
+.class-table th:nth-child(2) { width: 14%; }                      /* TÊN LỚP */
+.class-table th:nth-child(3) { width: 12%; }                      /* SĨ SỐ */
+.class-table th:nth-child(4) { width: 25%; text-align: left; }     /* GIÁO VIÊN CHỦ NHIỆM */
+.class-table th:nth-child(5) { width: 14%; text-align: left; }     /* NĂM HỌC */
+.class-table th:nth-child(6) { width: 15%; }                      /* TRẠNG THÁI */
+.class-table th:nth-child(7) { width: 140px; text-align: center; }
 
 .class-table td {
   height: 60px;
