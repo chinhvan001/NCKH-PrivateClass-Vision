@@ -6,10 +6,12 @@ import CustomScrollBar from "../../common/CustomScrollbar";
 import {
   getCameras,
   createCamera,
+  updateCamera,
   deleteCamera,
 } from "../../../services/CameraService";
 
 import AddCameraForm from "./AddCameraForm";
+import CameraSnapshotModal from "./CameraSnapshotModal";
 import SeatRegionModal from "./SeatRegionModal";
 
 // Trạng thái trong heartbeat của camera AI (edge_nodes/{camera_id})
@@ -19,6 +21,7 @@ const EDGE_STATUS = {
   paused: "Tạm dừng",
   unavailable: "Tạm thời không khả dụng",
   outside_schedule: "Ngoài khung giờ giám sát",
+  unconfigured: "Chờ thêm camera trên web",
 };
 
 const edgeLabel = (edge) => {
@@ -36,8 +39,11 @@ const CameraManagementPanel = () => {
   const [roomFilter, setRoomFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
 
-  const [showAddCamera, setShowAddCamera] = useState(false);
+  const [addCameraName, setAddCameraName] = useState(null); // null: form đóng
+  const [editCamera, setEditCamera] = useState(null);
   const [seatCamera, setSeatCamera] = useState(null);
+  const [snapshotCamera, setSnapshotCamera] = useState(null);
+  const [menu, setMenu] = useState(null); // menu chuột phải: { camera, x, y }
 
   const [deletingCameraId, setDeletingCameraId] = useState(null);
   const [confirmModal, setConfirmModal] = useState({
@@ -70,12 +76,27 @@ const CameraManagementPanel = () => {
     loadCameras();
   }, []);
 
+  // Đóng menu khi bấm ra ngoài, cuộn, Esc. contextmenu bắt ở pha capture: chuột phải sang dòng khác
+  // thì đóng menu cũ trước, rồi dòng đó mở menu mới.
+  useEffect(() => {
+    if (!menu) return undefined;
+
+    const close = (event) => {
+      if (event.type !== "keydown" || event.key === "Escape") setMenu(null);
+    };
+    const events = [["click", false], ["contextmenu", true], ["scroll", true], ["resize", false], ["keydown", false]];
+
+    events.forEach(([name, capture]) => window.addEventListener(name, close, capture));
+
+    return () => events.forEach(([name, capture]) => window.removeEventListener(name, close, capture));
+  }, [menu]);
+
   const rooms = useMemo(() => {
     const roomSet = new Set();
 
     cameras.forEach((camera) => {
-      if (camera.room_id) {
-        roomSet.add(camera.room_id);
+      if (camera.room_name) {
+        roomSet.add(camera.room_name);
       }
     });
 
@@ -104,11 +125,11 @@ const CameraManagementPanel = () => {
         !keyword ||
         (camera.name || "").toLowerCase().includes(keyword) ||
         (camera.camera_id || "").toLowerCase().includes(keyword) ||
-        (camera.classroom_name || "").toLowerCase().includes(keyword) ||
+        (camera.room_name || "").toLowerCase().includes(keyword) ||
         (camera.edge?.class_name || "").toLowerCase().includes(keyword) ||
         (camera.ip_address || "").toLowerCase().includes(keyword);
 
-      const matchRoom = roomFilter === "all" || camera.room_id === roomFilter;
+      const matchRoom = roomFilter === "all" || camera.room_name === roomFilter;
 
       const matchStatus =
         statusFilter === "all" || camera.status === statusFilter;
@@ -125,7 +146,7 @@ const CameraManagementPanel = () => {
     setConfirmModal({
       open: true,
       title: "Xóa camera",
-      message: `Bạn có chắc chắn muốn xóa camera "${camera.name}" khỏi phòng "${camera.classroom_name || camera.room_id}"?`,
+      message: `Bạn có chắc chắn muốn xóa camera "${camera.name}" khỏi phòng "${camera.room_name}"?`,
       confirmText: "Xóa",
       cancelText: "Hủy",
       onConfirm: async () => {
@@ -247,7 +268,7 @@ const CameraManagementPanel = () => {
           <button
             type="button"
             className="camera-add-button"
-            onClick={() => setShowAddCamera(true)}
+            onClick={() => setAddCameraName("")}
           >
             <Icon name="plus" size={17} />
 
@@ -321,6 +342,7 @@ const CameraManagementPanel = () => {
                 <th>Phòng</th>
                 <th>Địa chỉ IP</th>
                 <th>RTSP Port</th>
+                <th>Lớp theo dõi</th>
                 <th>Trạng thái</th>
                 <th>Camera AI</th>
                 <th>Thao tác</th>
@@ -330,7 +352,7 @@ const CameraManagementPanel = () => {
             <tbody>
               {error ? (
                 <tr>
-                  <td colSpan="7" className="camera-table-empty">
+                  <td colSpan="8" className="camera-table-empty">
                     <div className="camera-error-state">
                       <Icon name="alertCircle" size={22} />
 
@@ -344,13 +366,19 @@ const CameraManagementPanel = () => {
                 </tr>
               ) : filteredCameras.length === 0 ? (
                 <tr>
-                  <td colSpan="7" className="camera-table-empty">
+                  <td colSpan="8" className="camera-table-empty">
                     Không tìm thấy camera phù hợp.
                   </td>
                 </tr>
               ) : (
                 filteredCameras.map((camera) => (
-                  <tr key={camera.id}>
+                  <tr
+                    key={camera.id}
+                    onContextMenu={(event) => {
+                      event.preventDefault();
+                      setMenu({ camera, x: event.clientX, y: event.clientY });
+                    }}
+                  >
                     <td>
                       <div className="camera-cell">
                         <div className="camera-table-icon">
@@ -360,14 +388,14 @@ const CameraManagementPanel = () => {
                         <div>
                           <strong>{camera.name || "Chưa đặt tên"}</strong>
 
-                          <span>{camera.room_id || "Chưa khai báo phòng"}</span>
+                          <span>{camera.declared ? camera.camera_id : "Chưa thêm trên web"}</span>
                         </div>
                       </div>
                     </td>
 
                     <td>
                       <span className="camera-room">
-                        {camera.classroom_name || camera.room_id || "--"}
+                        {camera.room_name || "--"}
                       </span>
                     </td>
 
@@ -380,6 +408,12 @@ const CameraManagementPanel = () => {
                     <td>
                       <span className="camera-port">
                         {camera.rtsp_port || "--"}
+                      </span>
+                    </td>
+
+                    <td>
+                      <span className="camera-room">
+                        {camera.configured ? camera.class_name || camera.class_id : "--"}
                       </span>
                     </td>
 
@@ -417,6 +451,36 @@ const CameraManagementPanel = () => {
 
                     <td>
                       <div className="camera-row-actions">
+                        {!camera.declared && (
+                          <button
+                            type="button"
+                            className="configure-camera-button"
+                            onClick={() => setAddCameraName(camera.camera_name)}
+                          >
+                            Thêm
+                          </button>
+                        )}
+
+                        {camera.declared && (
+                          <button
+                            type="button"
+                            className="configure-camera-button"
+                            onClick={() => setEditCamera(camera)}
+                          >
+                            Sửa
+                          </button>
+                        )}
+
+                        {camera.snapshot && (
+                          <button
+                            type="button"
+                            className="configure-camera-button"
+                            onClick={() => setSnapshotCamera(camera)}
+                          >
+                            Xem hình
+                          </button>
+                        )}
+
                         {camera.camera_name && (
                           <button
                             type="button"
@@ -427,7 +491,7 @@ const CameraManagementPanel = () => {
                           </button>
                         )}
 
-                        {camera.room_id && (
+                        {camera.declared && (
                           <button
                             type="button"
                             className="delete-camera-button"
@@ -476,29 +540,90 @@ const CameraManagementPanel = () => {
         </div>
       </section>
 
-      {showAddCamera && (
+      {addCameraName !== null && (
         <AddCameraForm
-          onClose={() => setShowAddCamera(false)}
+          edgeNames={cameras.filter((camera) => !camera.declared).map((camera) => camera.camera_name)}
+          defaultCameraName={addCameraName}
+          onClose={() => setAddCameraName(null)}
           onSubmit={async (cameraData) => {
-            try {
-              setError("");
+            await createCamera(cameraData); // lỗi hiện trong form
 
-              await createCamera(cameraData);
+            setAddCameraName(null);
 
-              setShowAddCamera(false);
+            await loadCameras();
+          }}
+        />
+      )}
 
-              await loadCameras();
-            } catch (error) {
-              console.error("Create camera error:", error);
+      {editCamera && (
+        <AddCameraForm
+          camera={editCamera}
+          onClose={() => setEditCamera(null)}
+          onSubmit={async (cameraData) => {
+            await updateCamera(editCamera.camera_id, cameraData); // lỗi hiện trong form
 
-              setError(error.message || "Không thể thêm camera.");
-            }
+            setEditCamera(null);
+
+            await loadCameras();
           }}
         />
       )}
 
       {seatCamera && (
         <SeatRegionModal camera={seatCamera} onClose={() => setSeatCamera(null)} />
+      )}
+
+      {snapshotCamera && (
+        <CameraSnapshotModal camera={snapshotCamera} onClose={() => setSnapshotCamera(null)} />
+      )}
+
+      {menu && (
+        <div
+          className="camera-context-menu"
+          role="menu"
+          style={{
+            left: Math.min(menu.x, window.innerWidth - 220),
+            top: Math.min(menu.y, window.innerHeight - 190),
+          }}
+        >
+          {menu.camera.declared ? (
+            <button type="button" role="menuitem" onClick={() => setEditCamera(menu.camera)}>
+              <Icon name="edit" size={16} />
+              <span>Chỉnh sửa thông tin</span>
+            </button>
+          ) : (
+            <button type="button" role="menuitem" onClick={() => setAddCameraName(menu.camera.camera_name)}>
+              <Icon name="plus" size={16} />
+              <span>Thêm camera</span>
+            </button>
+          )}
+
+          {menu.camera.snapshot && (
+            <button type="button" role="menuitem" onClick={() => setSnapshotCamera(menu.camera)}>
+              <Icon name="eye" size={16} />
+              <span>Xem hình camera</span>
+            </button>
+          )}
+
+          {menu.camera.camera_name && (
+            <button type="button" role="menuitem" onClick={() => setSeatCamera(menu.camera)}>
+              <Icon name="seatGrid" size={16} />
+              <span>Xác định chỗ ngồi</span>
+            </button>
+          )}
+
+          {menu.camera.declared && (
+            <button
+              type="button"
+              role="menuitem"
+              className="danger"
+              onClick={() => handleDeleteCamera(menu.camera)}
+            >
+              <Icon name="trash" size={16} />
+              <span>Xóa camera</span>
+            </button>
+          )}
+        </div>
       )}
 
       {confirmModal.open && (

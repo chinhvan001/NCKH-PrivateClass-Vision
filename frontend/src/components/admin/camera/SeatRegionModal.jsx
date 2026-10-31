@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
-import { ImagePlus, Trash2, X } from "lucide-react";
+import { Camera, ImagePlus, Trash2, X } from "lucide-react";
 
+import { getCameraSnapshot } from "../../../services/CameraService";
 import { getAuthHeaders } from "../../../utils/AuthSession";
 
 // Xác định chỗ ngồi: admin kéo chuột vẽ ô chữ nhật cho từng ghế trên ảnh chụp từ camera. Ảnh chỉ hiển thị
@@ -31,7 +32,7 @@ const boxStyle = ([x1, y1, x2, y2]) => ({
 
 export default function SeatRegionModal({ camera, onClose }) {
   const cameraId = camera.camera_name;
-  const defaultClassId = camera.edge?.class_id || "";
+  const defaultClassId = camera.class_id || camera.edge?.class_id || "";
   const [classes, setClasses] = useState([]);
   const [classId, setClassId] = useState("");
   const [saved, setSaved] = useState(null);
@@ -88,11 +89,7 @@ export default function SeatRegionModal({ camera, onClose }) {
     setCurrent("");
   };
 
-  const chooseImage = (event) => {
-    const file = event.target.files?.[0];
-    event.target.value = "";
-    if (!file) return;
-    const url = URL.createObjectURL(file);
+  const loadImage = (url) => {
     const probe = new Image();
     probe.onload = () => setImage({ url, width: probe.naturalWidth, height: probe.naturalHeight });
     probe.onerror = () => {
@@ -100,6 +97,25 @@ export default function SeatRegionModal({ camera, onClose }) {
       setError("Không đọc được ảnh này.");
     };
     probe.src = url;
+  };
+
+  const chooseImage = (event) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (file) loadImage(URL.createObjectURL(file));
+  };
+
+  // Chỉ khi backend bật CAMERA_SNAPSHOT: ảnh lấy qua API, vẫn chỉ nằm trong trình duyệt như ảnh chọn từ máy
+  const takeSnapshot = async () => {
+    setBusy(true);
+    setError("");
+    try {
+      loadImage(await getCameraSnapshot(camera.camera_id));
+    } catch (snapshotError) {
+      setError(snapshotError.message);
+    } finally {
+      setBusy(false);
+    }
   };
 
   const point = (event) => {
@@ -197,6 +213,12 @@ export default function SeatRegionModal({ camera, onClose }) {
               Chọn ảnh chụp từ camera
               <input type="file" accept="image/*" hidden onChange={chooseImage} />
             </label>
+            {camera.snapshot && (
+              <button type="button" className="session-secondary-btn seat-region-file" onClick={takeSnapshot} disabled={busy}>
+                <Camera size={16} />
+                {busy ? "Đang lấy ảnh..." : "Lấy ảnh từ camera"}
+              </button>
+            )}
           </div>
           <p className="monitor-muted">
             Chụp một ảnh từ camera khi lớp trống, đúng góc camera AI đang dùng (ví dụ VLC: mở luồng RTSP rồi Video →

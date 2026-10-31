@@ -1,8 +1,8 @@
 """Báo cáo cho phụ huynh (UC03): students2/{student_id}/reports/{session_id}.
 
 Job jobs/parent_reports.py gọi build_pending_reports() định kỳ: mỗi tiết kết thúc trong LOOKBACK_DAYS
-ngày gần nhất được tạo báo cáo một lần, khi camera AI đã chốt kết quả, rồi đánh dấu reports_at trong
-session_rosters/{s}. Không ghi vào sessions/{s}: edge node nhận toàn bộ document đó qua listener.
+ngày gần nhất được tạo báo cáo một lần, khi camera AI đã chốt kết quả, rồi đánh dấu reports_at và
+report_count trong sessions/{s} (edge node nhận lại document tiết qua listener, chỉ thêm 1 lần đọc).
 Một báo cáo chỉ có thông tin tiết học và kết quả của chính học sinh đó, không có seat_id hay học sinh khác.
 """
 
@@ -30,11 +30,10 @@ def build_session_reports(session_id, force=False):
     class_id = session.get("class_id")
     class_doc = db.collection("classes2").document(class_id).get() if class_id else None
     class_data = (class_doc.to_dict() or {}) if class_doc and class_doc.exists else {}
-    roster = monitoring_service.roster_data(session_id) or {
-        "class_id": class_id,
-        "seats": monitoring_service.seat_assignments(class_data),
-        "created_at": server_timestamp(),
-    }
+    seats = monitoring_service.roster_data(session_id)
+    if seats is None:  # tiết bắt đầu trước khi có bản chốt: chốt sơ đồ hiện tại để báo cáo tạo lại vẫn như cũ
+        monitoring_service.freeze_roster(session_id, class_data)
+        seats = monitoring_service.seat_assignments(class_data)
     evaluations = {}
     for doc in db.collection("session_evaluations").where("session_id", "==", session_id).stream():
         evaluation = doc.to_dict() or {}
@@ -45,7 +44,7 @@ def build_session_reports(session_id, force=False):
         alerts[(alert.get("seat_id"), alert.get("type"))] += 1
 
     writes = []
-    for seat, student_id in (roster.get("seats") or {}).items():
+    for seat, student_id in seats.items():
         evaluation = evaluations.get(seat)
         if evaluation is None or not usable(evaluation):
             continue  # vắng, ngoài khung hình hoặc chỉ đi ngang qua: không có báo cáo
@@ -67,8 +66,8 @@ def build_session_reports(session_id, force=False):
         report_ref = db.collection("students2").document(student_id).collection("reports").document(session_id)
         writes.append((report_ref, report))
 
-    roster_ref = db.collection("session_rosters").document(session_id)
-    commit_writes(writes + [(roster_ref, {**roster, "reports_at": server_timestamp(), "report_count": len(writes)})])
+    commit_writes(writes)
+    db.collection("sessions").document(session_id).update({"reports_at": server_timestamp(), "report_count": len(writes)})
     return len(writes)
 
 
@@ -77,7 +76,7 @@ def build_pending_reports():
     since = monitoring_service.utc_now() - timedelta(days=LOOKBACK_DAYS)
     built = {}
     for doc in db.collection("sessions").where("ended_at", ">=", since).stream():
-        if "reports_at" in (monitoring_service.roster_data(doc.id) or {}):
+        if "reports_at" in (doc.to_dict() or {}):
             continue
         count = build_session_reports(doc.id)
         if count is not None:

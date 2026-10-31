@@ -61,7 +61,6 @@ class SessionRepository:
             "teacher_id": data.get("teacher_id"),
             "subject": data.get("subject"),
             "session_date": data.get("session_date"),
-            "day_of_week": data.get("day_of_week"),
             "session_type": data.get("morning_or_afternoon", "morning"),
             "period": data.get("period", 1),
             "start_time": data.get("start_time"),

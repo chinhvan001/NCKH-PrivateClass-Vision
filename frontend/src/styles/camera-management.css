@@ -1020,6 +1020,7 @@ background: rgba(20, 31, 52, 0.38);
 .camera-modal {
 width: min(680px, 100%);
 max-height: calc(100vh - 48px);
+overflow-y: auto;
 background: #ffffff;
 border: 1px solid #e4ebf4;
 border-radius: 14px;
@@ -1124,7 +1125,8 @@ margin-left: 3px;
 color: #dd4b5f;
 }
 
-.camera-form-field input {
+.camera-form-field input,
+.camera-form-field select {
 width: 100%;
 height: 40px;
 
@@ -1154,7 +1156,8 @@ transition:
 color: #a2aec0;
 }
 
-.camera-form-field input:focus {
+.camera-form-field input:focus,
+.camera-form-field select:focus {
 border-color: #7da2ef;
 
 box-shadow:
@@ -1171,6 +1174,12 @@ font-size: 10px;
 line-height: 1.4;
 
 
+}
+
+.camera-form-error {
+margin: 14px 0 0;
+color: #dd4b5f;
+font-size: 12px;
 }
 
 .camera-form-note {
@@ -1550,4 +1559,72 @@ background-color: #a0acbd;
     border-color: #2563eb;
     box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.2);
     color: #1d4ed8;
+}
+
+/* Menu chuột phải trên dòng camera */
+.camera-context-menu {
+    position: fixed;
+    z-index: 1100;
+    min-width: 200px;
+    padding: 6px;
+    display: flex;
+    flex-direction: column;
+    border: 1px solid #e2e8f0;
+    border-radius: 10px;
+    background: #ffffff;
+    box-shadow: 0 12px 32px rgba(20, 31, 52, 0.16);
+}
+
+.camera-context-menu button {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 9px 12px;
+    border: 0;
+    border-radius: 7px;
+    background: none;
+    color: #1e293b;
+    font-family: inherit;
+    font-size: 13px;
+    font-weight: 600;
+    text-align: left;
+    cursor: pointer;
+}
+
+.camera-context-menu button:hover,
+.camera-context-menu button:focus-visible {
+    background: #eef4ff;
+    color: #2864ea;
+}
+
+.camera-context-menu button.danger {
+    color: #d64545;
+}
+
+.camera-context-menu button.danger:hover,
+.camera-context-menu button.danger:focus-visible {
+    background: #fff5f5;
+    color: #c43838;
+}
+
+/* Xem hình camera để test */
+.camera-snapshot-modal {
+    width: min(960px, 100%);
+}
+
+.camera-snapshot-body {
+    padding: 22px 24px 24px;
+}
+
+.camera-snapshot-body img {
+    display: block;
+    width: 100%;
+    border-radius: 10px;
+    background: #0f172a;
+}
+
+.camera-snapshot-loading {
+    margin: 12px 0 0;
+    color: #8a98af;
+    font-size: 13px;
 }

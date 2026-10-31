@@ -6,7 +6,7 @@ web ghi thêm status, handled_by, handled_at khi xử lý, và xóa chúng khi x
 seat_regions/{camera_id} (ô ghế admin vẽ trên trang Quản lý camera) lúc bắt đầu tiết.
 """
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from firebase_admin import firestore
 
@@ -16,12 +16,19 @@ EDGE_STALE_SEC = 30  # edge node gửi heartbeat 10 s/lần
 MAX_GRID_SIDE = 50  # edge node từ chối sơ đồ lớn hơn
 MAX_IMAGE_SIDE = 10000  # ảnh chụp từ camera để vẽ ô ghế
 LIVE_STATUSES = ("running", "paused")  # edge node coi cả hai là tiết đang giám sát
+# monitored_student của sơ đồ đã chốt: subcollection của tiết (không phải map trong document tiết), vì edge
+# node nghe document tiết và không được thấy mã học sinh (camera-ai/docs/backend_scoring_and_schema_proposal.md)
+MONITORED_STUDENTS = "monitored_students"
 ALERT_TYPES = ("head_drop", "back_turn", "side_conversation")
 ALERT_STATUSES = {"acknowledged", "dismissed"}
 ALERT_LIMIT = 20
 EMPTY_STUDENT_IDS = (None, "", "None", "null", "undefined")
 # Edge node mất mạng lúc kết thúc tiết thì chốt kết quả muộn: chờ tối đa chừng này rồi coi là gián đoạn.
 FINALIZE_WAIT_SEC = 1800
+# Giáo viên quên bấm Kết thúc: job tự kết thúc tiết sau giờ kết thúc theo thời khóa biểu chừng này, để camera
+# không quay lớp học sau giờ học. Giờ trong thời khóa biểu là giờ Việt Nam (UTC+7, không đổi theo mùa).
+FORGOTTEN_AFTER_SEC = 1800
+SCHOOL_TZ = timezone(timedelta(hours=7))
 
 START_PROBLEMS = {
     "class_busy": "Lớp đang có một tiết khác được giám sát. Hãy kết thúc tiết đó trước.",
@@ -56,16 +63,20 @@ def seat_assignments(class_data):
     }
 
 
+def monitored_students(session_id):
+    return db.collection("sessions").document(session_id).collection(MONITORED_STUDENTS)
+
+
 def roster_data(session_id):
-    """Document session_rosters/{s} (bản chốt ghế -> học sinh, trạng thái báo cáo phụ huynh), hoặc None."""
-    doc = db.collection("session_rosters").document(session_id).get()
-    return (doc.to_dict() or {}) if doc.exists else None
+    """Ghế -> học sinh chốt lúc tiết bắt đầu (sessions/{s}/monitored_students/{ghế}), None nếu chưa chốt."""
+    seats = {doc.id: (doc.to_dict() or {}).get("student_id") for doc in monitored_students(session_id).stream()}
+    return {seat: student_id for seat, student_id in seats.items() if student_id} or None
 
 
 def roster(session_id, class_data):
     """Ghế -> học sinh của tiết: bản chốt lúc bắt đầu, nếu không có thì seat_map hiện tại của lớp."""
-    data = roster_data(session_id)
-    return (data.get("seats") or {}) if data is not None else seat_assignments(class_data)
+    seats = roster_data(session_id)
+    return seats if seats is not None else seat_assignments(class_data)
 
 
 def result_status(session_id):
@@ -134,11 +145,36 @@ def check_start(session_id, session, force=False):
     return class_data, None
 
 
-def freeze_roster(session_id, class_id, class_data):
-    """Chốt ghế -> học sinh lúc bắt đầu, để báo cáo của tiết không đổi khi sơ đồ lớp đổi sau đó."""
-    db.collection("session_rosters").document(session_id).set(
-        {"class_id": class_id, "seats": seat_assignments(class_data), "created_at": server_timestamp()}
-    )
+def close_forgotten_sessions():
+    """Kết thúc các tiết còn running/paused quá FORGOTTEN_AFTER_SEC sau end_time của ngày session_date: camera AI
+    tắt camera và chốt kết quả như khi bấm Kết thúc. Tiết thiếu session_date/end_time dạng chuỗi thì bỏ qua.
+    Trả danh sách ID tiết đã kết thúc."""
+    closed = []
+    for status in LIVE_STATUSES:
+        for doc in db.collection("sessions").where("status", "==", status).stream():
+            session = doc.to_dict() or {}
+            try:
+                end = datetime.fromisoformat(f"{session['session_date']}T{session['end_time']}").replace(tzinfo=SCHOOL_TZ)
+            except (KeyError, TypeError, ValueError):
+                continue
+            if (utc_now() - end).total_seconds() > FORGOTTEN_AFTER_SEC:
+                db.collection("sessions").document(doc.id).update({"status": "completed", "ended_at": server_timestamp()})
+                closed.append(doc.id)
+    return closed
+
+
+def freeze_roster(session_id, class_data):
+    """Chốt ghế -> học sinh lúc bắt đầu, để báo cáo của tiết không đổi khi sơ đồ lớp đổi sau đó. Worker tính
+    điểm (gói A) ghi thêm is_present, attention_score, is_attention vào cùng document khi tiết kết thúc."""
+    seat_map = class_data.get("seat_map") or {}
+    students = monitored_students(session_id)
+    commit_writes([
+        (
+            students.document(seat),
+            {"student_id": student_id, "row": seat_map[seat].get("row"), "column": seat_map[seat].get("column")},
+        )
+        for seat, student_id in seat_assignments(class_data).items()
+    ])
 
 
 def recent_alerts(session_id, limit=ALERT_LIMIT):
@@ -172,16 +208,15 @@ def seat_plan(session_id):
     session_doc = db.collection("sessions").document(session_id).get()
     if not session_doc.exists:
         return None
-    class_id = (session_doc.to_dict() or {}).get("class_id")
+    session = session_doc.to_dict() or {}
+    class_id = session.get("class_id")
     class_doc = db.collection("classes2").document(class_id).get() if class_id else None
     class_data = (class_doc.to_dict() or {}) if class_doc and class_doc.exists else {}
     size = grid_size(class_data)
     if size is None:
         return {"row_count": 0, "column_count": 0, "seats": []}
     rows, columns = size
-    frozen = roster_data(session_id)
-    seats = (frozen.get("seats") or {}) if frozen is not None else seat_assignments(class_data)
-    frozen = frozen or {}
+    seats = roster(session_id, class_data)
     names = {}
     for student_id in set(seats.values()):
         doc = db.collection("students2").document(student_id).get(field_paths=["full_name"])
@@ -203,32 +238,34 @@ def seat_plan(session_id):
         "row_count": rows,
         "column_count": columns,
         "seats": plan,
-        # Job báo cáo phụ huynh ghi 2 field này sau khi tiết kết thúc (services/report_service.py)
-        "report_count": frozen.get("report_count"),
-        "reports_at": json_value(frozen.get("reports_at")),
+        # Job báo cáo phụ huynh ghi 2 field này vào tiết sau khi tiết kết thúc (services/report_service.py)
+        "report_count": session.get("report_count"),
+        "reports_at": json_value(session.get("reports_at")),
     }
 
 
 def delete_session(session_id):
-    """Xóa tiết cùng dữ liệu của nó: cảnh báo, kết quả và đánh giá của camera AI, bản chốt ghế, báo cáo
-    phụ huynh. Trả "not_found", "live" (đang giám sát, phải kết thúc trước) hoặc None khi đã xóa."""
+    """Xóa tiết cùng dữ liệu của nó: cảnh báo, kết quả, đánh giá và window 10 s của camera AI, bản chốt ghế,
+    báo cáo phụ huynh. Trả "not_found", "live" (đang giám sát, phải kết thúc trước) hoặc None khi đã xóa."""
     session_ref = db.collection("sessions").document(session_id)
     session_doc = session_ref.get()
     if not session_doc.exists:
         return "not_found"
     if (session_doc.to_dict() or {}).get("status") in LIVE_STATUSES:
         return "live"
-    students = set(((roster_data(session_id) or {}).get("seats") or {}).values())
-    alerts = session_ref.collection("alerts")
-    evaluations = db.collection("session_evaluations")
-    writes = [(alerts.document(doc.id), None) for doc in alerts.stream()]
-    writes += [
-        (evaluations.document(doc.id), None) for doc in evaluations.where("session_id", "==", session_id).stream()
-    ]
+    students = set((roster_data(session_id) or {}).values())
+    writes = []
+    for name in ("alerts", MONITORED_STUDENTS):
+        collection = session_ref.collection(name)
+        writes += [(collection.document(doc.id), None) for doc in collection.stream()]
+    for name in ("session_evaluations", "session_windows"):
+        collection = db.collection(name)
+        writes += [(collection.document(doc.id), None) for doc in collection.where("session_id", "==", session_id).stream()]
     writes += [
         (db.collection("students2").document(student_id).collection("reports").document(session_id), None)
         for student_id in students
     ]
+    # session_rosters: bản chốt ghế kiểu cũ (trước monitored_students), xóa nếu còn
     writes += [(db.collection(name).document(session_id), None) for name in ("session_results", "session_rosters")]
     commit_writes(writes)
     # ponytail: edge node mất mạng mà vẫn tưởng tiết đang chạy sẽ ghi lại kết quả khi có mạng;

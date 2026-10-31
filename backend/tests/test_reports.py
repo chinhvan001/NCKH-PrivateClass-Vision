@@ -30,7 +30,10 @@ def finished_session(db, session_id, *, monitoring_status="completed", ended_ago
         "ended_at": NOW - ended_ago,
         **extra,
     })
-    db.document(f"session_rosters/{session_id}").set({"class_id": "c1", "seats": {"S01": "an", "S02": "binh"}})
+    for seat, student_id, column in (("S01", "an", 1), ("S02", "binh", 2)):  # bản chốt lúc tiết bắt đầu
+        db.document(f"sessions/{session_id}/monitored_students/{seat}").set(
+            {"student_id": student_id, "row": 1, "column": column}
+        )
     if monitoring_status is None:
         return  # camera AI không giám sát tiết này
     db.document(f"session_results/{session_id}").set(
@@ -81,13 +84,31 @@ def test_the_job_writes_one_report_per_student_with_data_and_only_once(school, c
     }
     assert "seat_id" not in report and "binh" not in str(report)
     assert "students2/binh/reports/s1" not in school.docs  # quan sát 40 s: không đủ để báo cáo
-    roster = school.docs["session_rosters/s1"]
-    assert roster["report_count"] == 1 and isinstance(roster["reports_at"], datetime)
-    assert roster["seats"] == {"S01": "an", "S02": "binh"}
+    session = school.docs["sessions/s1"]
+    assert session["report_count"] == 1 and isinstance(session["reports_at"], datetime)
+    assert school.docs["sessions/s1/monitored_students/S02"]["student_id"] == "binh"
 
     school.document("session_evaluations/s1_S01").update({"avg_concentration": 10})
     assert report_service.build_pending_reports() == {}  # đã có báo cáo: không tạo lại
     assert school.docs["students2/an/reports/s1"]["avg_concentration"] == 90
+
+
+def test_the_job_ends_sessions_left_running_30_minutes_past_their_timetable_end(school, capsys):
+    # NOW là 09:00 giờ Việt Nam ngày 2026-10-05
+    for session_id, date, end, status in (
+        ("forgot", "2026-10-05", "08:25", "running"),  # quá 35 phút: camera đang quay lớp sau giờ học
+        ("yesterday", "2026-10-04", "16:30", "paused"),
+        ("grace", "2026-10-05", "08:40", "running"),  # mới quá 20 phút
+        ("undated", None, "07:45", "running"),  # thiếu ngày: không đoán
+    ):
+        school.document(f"sessions/{session_id}").set(
+            {"class_id": "c1", "status": status, "end_time": end, **({"session_date": date} if date else {})}
+        )
+    parent_reports.main([])
+    assert "Đã tự kết thúc 2 tiết" in capsys.readouterr().out
+    statuses = {sid: school.docs[f"sessions/{sid}"]["status"] for sid in ("forgot", "yesterday", "grace", "undated")}
+    assert statuses == {"forgot": "completed", "yesterday": "completed", "grace": "running", "undated": "running"}
+    assert isinstance(school.docs["sessions/forgot"]["ended_at"], datetime)
 
 
 def test_interrupted_sessions_are_marked_partial_and_unfinished_results_are_waited_for(school):
@@ -101,7 +122,7 @@ def test_interrupted_sessions_are_marked_partial_and_unfinished_results_are_wait
     assert school.docs["students2/an/reports/cut"]["partial"] is True
     assert school.docs["students2/an/reports/dead"]["partial"] is True
     assert "students2/an/reports/waiting" not in school.docs
-    assert "reports_at" not in school.docs["session_rosters/waiting"]
+    assert "reports_at" not in school.docs["sessions/waiting"]
 
     assert report_service.build_session_reports("waiting", force=True) == 1  # --session: không chờ nữa
     assert school.docs["students2/an/reports/waiting"]["partial"] is True
@@ -111,11 +132,13 @@ def test_interrupted_sessions_are_marked_partial_and_unfinished_results_are_wait
 
 def test_a_session_without_a_frozen_roster_uses_the_class_seat_map(school):
     finished_session(school, "s1")
-    school.document("session_rosters/s1").delete()
+    for seat in ("S01", "S02"):
+        school.document(f"sessions/s1/monitored_students/{seat}").delete()
     school.document("classes2/c1").update({"seat_map": {"S01": {"row": 1, "column": 1, "student_id": "binh"}}})
     assert report_service.build_session_reports("s1") == 1
     assert school.docs["students2/binh/reports/s1"]["avg_concentration"] == 90
-    assert school.docs["session_rosters/s1"]["seats"] == {"S01": "binh"}
+    # Chốt sơ đồ dùng cho báo cáo, để tạo lại báo cáo sau này vẫn như cũ
+    assert school.docs["sessions/s1/monitored_students/S01"] == {"student_id": "binh", "row": 1, "column": 1}
 
 
 def test_class_report_lists_each_session_with_its_data_status(client, school, admin):
@@ -148,8 +171,8 @@ def test_deleting_a_session_removes_everything_it_owns(client, school, admin):
     finished_session(school, "s2")
     report_service.build_pending_reports()
     school.document("sessions/live").set({"class_id": "c1", "status": "paused"})
-    # tiết, 2 cảnh báo, kết quả, 3 đánh giá, roster, báo cáo của An
-    assert len([path for path in school.docs if owned(path, "s1")]) == 9
+    # tiết, 2 cảnh báo, kết quả, 3 đánh giá, 2 ghế trong monitored_students, báo cáo của An
+    assert len([path for path in school.docs if owned(path, "s1")]) == 10
     keep = {path for path in school.docs if not owned(path, "s1")}
 
     assert client.delete("/api/admin/schedules/live", headers=admin).status_code == 409

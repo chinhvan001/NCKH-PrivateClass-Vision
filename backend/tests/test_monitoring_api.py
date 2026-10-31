@@ -21,6 +21,7 @@ def seed(db, *, edge_age_sec=5):
     """Lớp 2x2 có An ngồi S01, tiết s1 đã lên lịch, edge node của lớp gửi heartbeat edge_age_sec giây trước."""
     db.document("classes2/c1").set({
         "class_name": "11B2",
+        "camera_id": "CAM-1",
         "row_count": 2,
         "column_count": 2,
         "seat_map": {
@@ -79,8 +80,11 @@ def test_start_freezes_the_seat_plan_and_completion_keeps_the_timetable(client, 
     assert response.status_code == 200, response.get_json()
     session = db.docs["sessions/s1"]
     assert session["status"] == "running" and isinstance(session["started_at"], datetime)
-    assert db.docs["session_rosters/s1"]["class_id"] == "c1"
-    assert db.docs["session_rosters/s1"]["seats"] == {"S01": "st1"}
+    assert session["camera_id"] == "CAM-1"  # camera của lớp lúc bắt đầu, theo sơ đồ đã chốt
+    # monitored_student của sơ đồ đã chốt: subcollection, để edge node nghe document tiết không thấy mã học sinh
+    assert db.docs["sessions/s1/monitored_students/S01"] == {"student_id": "st1", "row": 1, "column": 1}
+    assert [path for path in db.docs if "/monitored_students/" in path] == ["sessions/s1/monitored_students/S01"]
+    assert "student" not in str(session)
 
     # Đổi chỗ sau khi tiết bắt đầu: sơ đồ của tiết vẫn theo bản chốt
     seat_map = db.docs["classes2/c1"]["seat_map"]
@@ -120,7 +124,7 @@ def test_start_is_refused_with_a_reason(client, db, admin, change, code):
     assert response.status_code == 409
     assert response.get_json()["code"] == code
     assert db.docs["sessions/s1"]["status"] == "scheduled"
-    assert "session_rosters/s1" not in db.docs
+    assert not any("/monitored_students/" in path for path in db.docs)
 
 
 def test_force_starts_without_an_online_edge_node_but_never_without_a_seat_plan(client, db, admin):
@@ -183,9 +187,10 @@ def test_reports_weight_by_observed_time_and_follow_each_sessions_roster(client,
     db.document("students2/st2").set({"full_name": "Trần Thị Bình"})
     # s1: An ở S01. s2: chốt khi Bình ngồi S01 và An chuyển sang S02.
     db.document("sessions/s1").update({"status": "completed"})
-    db.document("session_rosters/s1").set({"class_id": "c1", "seats": {"S01": "st1"}})
+    db.document("sessions/s1/monitored_students/S01").set({"student_id": "st1", "row": 1, "column": 1})
     db.document("sessions/s2").set({"class_id": "c1", "subject": "Toán", "status": "completed"})
-    db.document("session_rosters/s2").set({"class_id": "c1", "seats": {"S01": "st2", "S02": "st1"}})
+    db.document("sessions/s2/monitored_students/S01").set({"student_id": "st2", "row": 1, "column": 1})
+    db.document("sessions/s2/monitored_students/S02").set({"student_id": "st1", "row": 1, "column": 2})
 
     def evaluation(session_id, seat_id, score, observed_sec):
         db.document(f"session_evaluations/{session_id}_{seat_id}").set({

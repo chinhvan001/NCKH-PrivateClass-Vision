@@ -417,7 +417,13 @@ export default function StudentManagementPanel() {
                 paginatedStudents.map((student, index) => {
                   const stt = (currentPage - 1) * pageSize + index + 1;
                   return (
-                    <tr key={student.id || index}>
+                    <tr
+                      key={student.id || index}
+                      title="Nhấn đúp để xem thông tin"
+                      onDoubleClick={(e) => {
+                        if (!e.target.closest('button')) handleOpenDetail(student); // nhấn đúp vào nút thì nút xử lý
+                      }}
+                    >
                       <td style={{ textAlign: 'center', fontWeight: 600, color: '#64748b' }}>{stt}</td>
                       <td>
                         <span 

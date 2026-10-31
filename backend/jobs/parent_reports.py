@@ -1,4 +1,5 @@
-"""Job tạo báo cáo phụ huynh (UC03) sau mỗi tiết học. Chạy từ thư mục backend/:
+"""Job tạo báo cáo phụ huynh (UC03) sau mỗi tiết học, và tự kết thúc tiết giáo viên quên bấm Kết thúc
+(quá 30 phút sau giờ kết thúc). Chạy từ thư mục backend/:
 
     python -m jobs.parent_reports               # 1 lượt; đặt lịch 10 phút/lần (Task Scheduler, cron)
     python -m jobs.parent_reports --every 600   # tự lặp 10 phút/lần
@@ -10,7 +11,7 @@ Cần cùng cấu hình Firebase với backend (serviceAccountKey.json hoặc FI
 import argparse
 import time
 
-from services import report_service
+from services import monitoring_service, report_service
 
 
 def main(argv=None):
@@ -24,6 +25,9 @@ def main(argv=None):
         print(f"Tiết {args.session}: " + ("chưa kết thúc." if count is None else f"{count} báo cáo."))
         return
     while True:
+        closed = monitoring_service.close_forgotten_sessions()
+        if closed:
+            print(f"Đã tự kết thúc {len(closed)} tiết quên bấm Kết thúc: {', '.join(closed)}.", flush=True)
         built = report_service.build_pending_reports()
         print(f"Đã tạo báo cáo cho {len(built)} tiết ({sum(built.values())} học sinh).", flush=True)
         if args.every <= 0:

@@ -6,13 +6,20 @@ với camera và pose giả lập, job báo cáo phụ huynh chạy 15 s/lần. 
     camera-ai/venv/Scripts/python backend/tests/demo_server.py
     cd frontend; npm run dev        # rồi mở http://localhost:5173/api/demo-login
 
+--video lop.mp4: YOLO thật nhận diện trên video thay cho pose giả lập (cần camera-ai/models/yolov8n-pose.pt).
+CAM-1 phát video đó: vẽ ô ghế trên ảnh lấy từ video trước khi bắt đầu tiết 11B2.
+
 Script, không phải test (pytest chỉ chạy test_*.py).
 """
 
+import argparse
 import json
+import os
 import threading
 import time
 from datetime import datetime, timedelta, timezone
+from functools import partial
+from pathlib import Path
 from zoneinfo import ZoneInfo
 
 import cv2
@@ -20,9 +27,10 @@ import numpy as np
 
 import conftest  # thay firebase_admin bằng FakeFirestore, thêm backend và camera-ai vào sys.path
 import fake_firestore
-from src.capture import Frame
+from src.capture import CaptureConfig, CaptureWorker, Frame
 from src.config import LocalPipelineConfig, load_class_seat_grid
 from src.detection.pose_detector import COCO_KEYPOINT_NAMES, PersonPose
+from src.main import pose_detector
 from src.pipeline import EdgeRuntime
 from src.privacy.alert_event import make_alert_event
 from src.privacy.session_output import SeatEvaluation, SeatResult, SessionResult
@@ -30,6 +38,7 @@ from src.sync import FirestoreSink
 from test_local_config import valid_config
 
 DB, TOKENS = conftest.DB, conftest.TOKENS
+MODEL = conftest.ROOT / "camera-ai" / "models" / "yolov8n-pose.pt"
 VN = ZoneInfo("Asia/Ho_Chi_Minh")
 ROWS, COLUMNS = 3, 4
 CYCLE_SEC = 180
@@ -74,7 +83,7 @@ for cls, name in [
     setattr(cls, name, locked(getattr(cls, name)))
 
 
-def seed():
+def seed(video=None):
     today = datetime.now(VN).date().isoformat()
     DB.document("admins/admin-1").set({"email": "admin@example.com", "full_name": "Admin", "is_active": True})
     TOKENS["admin-token"] = {"uid": "admin-1"}
@@ -128,30 +137,38 @@ def seed():
                 "status": "scheduled",
             }
         )
-    # P201 còn rtsp_url kiểu cũ (có mật khẩu): mở trang Quản lý camera là backend xóa nó đi
-    DB.document("classrooms/p201").set(
+    # CAM-1 còn rtsp_url kiểu cũ (có mật khẩu): mở trang Quản lý camera là backend xóa nó đi
+    DB.document("cameras/CAM-1").set(
         {
-            "classroom_name": "P201",
             "camera_name": "CAM-1",
+            "room_name": "P201",
             "ip_address": "192.168.1.103",
             "rtsp_port": "554",
             "rtsp_url": "rtsp://admin:matkhau@192.168.1.103:554/stream",
         }
     )
-    DB.document("classrooms/p202").set(
-        {"classroom_name": "P202", "camera_name": "CAM-2", "ip_address": "192.168.1.104", "rtsp_port": "554"}
+    DB.document("cameras/CAM-2").set(
+        {"camera_name": "CAM-2", "room_name": "P202", "ip_address": "192.168.1.104", "rtsp_port": "554"}
     )
-    # Ô ghế như admin đã vẽ ở "Xác định chỗ ngồi" (ảnh /api/demo/snapshot.png), quanh vai học sinh giả lập
-    DB.document("seat_regions/CAM-1").set(
-        {
-            "class_id": "CLASS-1",
-            "image_width": 1280,
-            "image_height": 720,
-            "seats": {seat: [x - 90, y - 80, x + 90, y + 80] for seat, (x, y) in SEAT_XY.items()},
-            "updated_by": "admin-1",
-        }
+    # Như admin đã thêm CAM-1 ở "Thêm camera": lớp 11B2 nhận camera_id, URL RTSP chỉ nằm ở camera_configs
+    # (trang camera không bao giờ trả URL)
+    DB.document("classes2/CLASS-1").update({"camera_id": "CAM-1"})
+    DB.document("camera_configs/CAM-1").set(
+        {"source": str(video) if video else "rtsp://admin:matkhau@192.168.1.103:554/stream", "updated_by": "admin-1"}
     )
-    scores = [45, 82, 78, 91, 88, 70, 85, 93, 76, 89]
+    # Ô ghế như admin đã vẽ ở "Xác định chỗ ngồi" (ảnh /api/demo/snapshot.png), quanh vai học sinh giả lập.
+    # Với --video thì không khớp người trong video: admin vẽ lại trên ảnh lấy từ video.
+    if not video:
+        DB.document("seat_regions/CAM-1").set(
+            {
+                "class_id": "CLASS-1",
+                "image_width": 1280,
+                "image_height": 720,
+                "seats": {seat: [x - 90, y - 80, x + 90, y + 80] for seat, (x, y) in SEAT_XY.items()},
+                "updated_by": "admin-1",
+            }
+        )
+    scores =[45, 82, 78, 91, 88, 70, 85, 93, 76, 89]
     past_session("h1", 2, dict(zip(STUDENTS, scores)), "completed")
     past_session("h2", 1, dict(zip(STUDENTS, [score - 8 for score in scores])), "incomplete")
 
@@ -177,13 +194,11 @@ def past_session(session_id, days_ago, scores, monitoring_status):
             "ended_at": ended,
         }
     )
-    DB.document(f"session_rosters/{session_id}").set(
-        {
-            "class_id": "CLASS-1",
-            "seats": {seat: student[0] for seat, student in STUDENTS.items()},
-            "created_at": started,
-        }
-    )
+    for seat, student in STUDENTS.items():  # bản chốt ghế lúc tiết bắt đầu
+        row, column = divmod(int(seat[1:]) - 1, COLUMNS)
+        DB.document(f"sessions/{session_id}/monitored_students/{seat}").set(
+            {"student_id": student[0], "row": row + 1, "column": column + 1}
+        )
     seats = tuple(SeatResult(seat, score, 0, "focused" if score >= 60 else "drowsy") for seat, score in scores.items())
     DB.document(f"session_results/{session_id}").set(
         SessionResult(session_id, "CAM-1", ended, monitoring_status, seats).to_dict()
@@ -272,33 +287,41 @@ class Camera:
         return Frame(np.full((720, 1280, 3), 128, np.uint8), time.time(), self.index)
 
 
-def edge_loop():
+def edge_loop(video=None):
     data = valid_config()
     data["sampling"]["inference_every_n_frames"] = 1
     data["schedule"]["windows"] = [
         {"days": ["mon", "tue", "wed", "thu", "fri", "sat", "sun"], "start": "00:00", "end": "23:59"}
     ]
     last = f"S{ROWS * COLUMNS:02d}"
-    data["seating"]["corner_seats"] = {
+    corners = {
         "first_row_first_column": list(SEAT_XY["S01"]),
         "first_row_last_column": list(SEAT_XY[f"S{COLUMNS:02d}"]),
         "last_row_last_column": list(SEAT_XY[last]),
         "last_row_first_column": list(SEAT_XY[f"S{(ROWS - 1) * COLUMNS + 1:02d}"]),
     }
+    data["seating"]["corner_seats"] = None if video else corners  # video: chỉ dùng ô ghế admin vẽ
     config = LocalPipelineConfig.from_dict(data)
-    sink = FirestoreSink(DB, "CLASS-1", "CAM-1", retention_days=30)
+    provider, capture = Classroom(), Camera
+    if video:
+        provider = pose_detector(str(MODEL), config.thresholds)
+        provider.open()
+        capture = partial(
+            CaptureWorker, CaptureConfig(str(video), target_fps=config.sampling.capture_fps, live_video=True)
+        )
+    sink = FirestoreSink(DB, "CAM-1", retention_days=30)
     runtime = EdgeRuntime(
         config,
-        Classroom(),
-        lambda: load_class_seat_grid(DB, "CLASS-1", config.seating.corner_seats, "CAM-1"),
+        provider,
+        lambda class_id: load_class_seat_grid(DB, class_id, config.seating.corner_seats, "CAM-1"),
         sink,
-        Camera,
+        capture,
         poll_sec=0.0,
     )
-    sink.watch_sessions(runtime.on_sessions)
+    sink.watch_sessions("CLASS-1", runtime.on_sessions)
     while True:
+        runtime.step()  # ngoài LOCK: YOLO (--video) chạy lâu, web không phải chờ; lệnh FakeFirestore tự khóa
         with LOCK:
-            runtime.step()
             DB.reads.clear()  # FakeFirestore ghi lại mọi lần đọc/ghi cho test; demo chạy lâu thì đầy RAM
             DB.commits.clear()
         sink.flush()
@@ -316,13 +339,27 @@ export const googleProvider = new GoogleAuthProvider();
 
 
 def main():
-    seed()
+    parser = argparse.ArgumentParser(description="Demo web admin + camera AI, không cần Firebase hay camera.")
+    parser.add_argument("--video", type=Path, help="Video lớp học thay cho camera và pose giả lập (YOLO thật).")
+    video = parser.parse_args().video
+    if video:
+        if not video.is_file():
+            raise SystemExit(f"Không tìm thấy video: {video}")
+        video = video.resolve()
+        os.environ["CAMERA_SNAPSHOT"] = "1"  # "Lấy ảnh từ camera" trả một khung của video để vẽ ô ghế
+    seed(video)
     firebase_js = conftest.ROOT / "frontend" / "src" / "firebase.js"
     if not firebase_js.exists():  # file bị gitignore; frontend cần nó để chạy
         firebase_js.write_text(FIREBASE_STUB, encoding="utf-8")
         print(f"Đã tạo {firebase_js} giả cho demo (đăng nhập Google sẽ không chạy).")
     threading.Thread(target=report_loop, daemon=True).start()
-    threading.Thread(target=edge_loop, daemon=True).start()
+    threading.Thread(target=edge_loop, args=(video,), daemon=True).start()
+    if video:
+        print(
+            f"Camera AI dùng video {video} thay cho CAM-1. Trước khi bắt đầu tiết 11B2: Quản lý camera -> CAM-1 ->"
+            " Xác định chỗ ngồi -> Lấy ảnh từ camera, vẽ ô cho từng chỗ ngồi rồi lưu.",
+            flush=True,
+        )
 
     from flask import Response, abort, jsonify
 

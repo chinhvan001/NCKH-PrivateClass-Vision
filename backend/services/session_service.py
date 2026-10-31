@@ -51,8 +51,10 @@ class SessionService:
             if problem:
                 message = monitoring_service.START_PROBLEMS[problem]
                 return {"success": False, "code": problem, "message": message, "status": 409}
-            monitoring_service.freeze_roster(session_id, session["class_id"], class_data)
+            monitoring_service.freeze_roster(session_id, class_data)
             update_data["started_at"] = server_timestamp()
+            if class_data.get("camera_id"):  # camera của tiết theo sơ đồ đã chốt: camera của lớp lúc bắt đầu
+                update_data["camera_id"] = class_data["camera_id"]
         elif new_status == "completed":
             # end_time là giờ kết thúc theo thời khóa biểu, giữ nguyên
             update_data["ended_at"] = server_timestamp()

@@ -42,6 +42,7 @@ const EDGE_STATUS = {
   paused: "Tạm dừng",
   unavailable: "Tạm thời không khả dụng",
   outside_schedule: "Ngoài khung giờ giám sát",
+  unconfigured: "Chờ thêm camera trên web",
 };
 
 const ALERT_TYPES = {
