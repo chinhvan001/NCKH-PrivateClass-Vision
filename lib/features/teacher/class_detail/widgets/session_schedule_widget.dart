@@ -4,6 +4,9 @@ import '../../../../core/constants/app_colors.dart';
 import '../../../../core/models/session_model.dart';
 import '../controllers/class_detail_controller.dart';
 
+import '../../session_detail/screens/session_detail_screen.dart';
+import '../../shared/widgets/shared_session_card.dart';
+
 class SessionScheduleWidget extends StatelessWidget {
   final ClassDetailController controller;
   const SessionScheduleWidget({super.key, required this.controller});
@@ -44,125 +47,36 @@ class SessionScheduleWidget extends StatelessWidget {
       padding: const EdgeInsets.only(bottom: 24),
       itemCount: sessions.length,
       separatorBuilder: (context, index) => const SizedBox(height: 10),
-      itemBuilder: (context, index) => _sessionCard(sessions[index]),
-    );
-  }
-
-  Widget _sessionCard(SessionModel session) {
-    final bool isFinished = session.status == 'Đã kết thúc';
-    final bool isLive = session.status == 'Đang diễn ra';
-
-    final Color badgeBg = isLive
-        ? const Color(0xFFDCFCE7)
-        : isFinished
-        ? AppColors.appBg
-        : const Color(0xFFFEF3C7);
-
-    final Color badgeColor = isLive
-        ? const Color(0xFF16A34A)
-        : isFinished
-        ? AppColors.muted
-        : const Color(0xFFD97706);
-
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: AppColors.hair),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                decoration: BoxDecoration(
-                  color: AppColors.lightBlue,
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Text(
-                  session.date,
-                  style: const TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w700,
-                    color: AppColors.brand,
-                  ),
-                ),
-              ),
-              const SizedBox(width: 8),
-              Text(
-                '${session.start} - ${session.end}',
-                style: const TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w600,
-                  color: AppColors.navy,
-                ),
-              ),
-              const Spacer(),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                decoration: BoxDecoration(
-                  color: badgeBg,
-                  borderRadius: BorderRadius.circular(6),
-                ),
-                child: Text(
-                  session.status,
-                  style: TextStyle(
-                    fontSize: 11,
-                    fontWeight: FontWeight.w700,
-                    color: badgeColor,
-                  ),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          Row(
-            children: [
-              _metric(
-                Icons.people_outline,
-                'Có mặt: ${session.presentStudent}/${session.size}',
-              ),
-              const SizedBox(width: 16),
-              _metric(
-                Icons.insights_outlined,
-                'Tập trung: ${session.avgAttentionScore > 0 ? session.avgAttentionScore : "--"}',
-              ),
-            ],
-          ),
-          if (session.note.isNotEmpty) ...[
-            const SizedBox(height: 8),
-            Text(
-              'Ghi chú: ${session.note}',
-              style: const TextStyle(
-                fontSize: 12,
-                fontStyle: FontStyle.italic,
-                color: AppColors.muted,
-              ),
-            ),
-          ],
-        ],
+      itemBuilder: (context, index) => SharedSessionCard(
+        session: sessions[index],
+        onTap: () => _navigateToSessionDetail(context, sessions[index]),
+        showClassInfo: false,
       ),
     );
   }
 
-  Widget _metric(IconData icon, String text) {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Icon(icon, size: 14, color: AppColors.muted),
-        const SizedBox(width: 4),
-        Text(
-          text,
-          style: const TextStyle(
-            fontSize: 12,
-            fontWeight: FontWeight.w500,
-            color: AppColors.navy,
-          ),
+  void _navigateToSessionDetail(
+    BuildContext context,
+    SessionModel session,
+  ) {
+    final className = controller.classDetail?.name ?? session.className;
+    final room = controller.classroomName;
+
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => SessionDetailScreen(
+          sessionId: session.id,
+          classId: session.classId,
+          className: className,
+          room: room,
+          start: session.start,
+          end: session.end,
+          date: session.date,
+          status: session.status,
         ),
-      ],
+      ),
     );
   }
 }
+

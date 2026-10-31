@@ -84,7 +84,7 @@ class _ClassDetailScreenState extends State<ClassDetailScreen> {
   Widget _buildHeader(BuildContext context) {
     final title = _controller.classDetail?.name ?? 'Chi tiết lớp học';
     final room = _controller.classroomName;
-    final size = _controller.classDetail?.students ?? _controller.totalEnrolled;
+    final size = _controller.totalEnrolled;
     final topPadding = MediaQuery.of(context).padding.top;
 
     return Container(

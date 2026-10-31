@@ -1,15 +1,15 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 
+import '../constants/firestore_constants.dart';
+
 Future<void> resetStudentsStatus(String docId) async {
   final FirebaseFirestore firestore = FirebaseFirestore.instance;
 
   try {
-    DocumentReference docRef = firestore
-        .collection('monitoring_sessions')
-        .doc(docId);
+    DocumentReference docRef =
+        firestore.collection(FirestoreConstants.sessions).doc(docId);
 
-    // 1. Lấy dữ liệu document hiện tại
     DocumentSnapshot snapshot = await docRef.get();
 
     if (!snapshot.exists) {
@@ -18,28 +18,52 @@ Future<void> resetStudentsStatus(String docId) async {
     }
 
     Map<String, dynamic> data = snapshot.data() as Map<String, dynamic>;
-    List<dynamic> rawStudents = data['students'] ?? [];
 
-    // 2. Duyệt qua từng phần tử trong mảng students và cập nhật giá trị mới
+    // Handle Map structure (mnoitored_student / monitored_student)
+    final rawMonitored = data['mnoitored_student'] ?? data['monitored_student'];
+    if (rawMonitored is Map) {
+      final String mapKey = data.containsKey('mnoitored_student')
+          ? 'mnoitored_student'
+          : 'monitored_student';
+
+      final Map<String, dynamic> updatePayload = {
+        'avg_attention_score': 0,
+        'present_student': 0,
+      };
+
+      rawMonitored.forEach((seatKey, seatVal) {
+        if (seatVal is Map) {
+          updatePayload['$mapKey.$seatKey.attention_score'] = 0;
+          updatePayload['$mapKey.$seatKey.is_attention'] = false;
+          updatePayload['$mapKey.$seatKey.is_present'] = false;
+        }
+      });
+
+      await docRef.update(updatePayload);
+      debugPrint(
+        'Đã reset trạng thái Map cho tất cả học sinh trong doc [$docId]!',
+      );
+      return;
+    }
+
+    // Handle Legacy List structure
+    List<dynamic> rawStudents = data['students'] ?? [];
     List<Map<String, dynamic>> updatedStudents = rawStudents.map((item) {
       Map<String, dynamic> studentMap = Map<String, dynamic>.from(item as Map);
-
       studentMap['attention_score'] = 0;
       studentMap['is_attention'] = false;
       studentMap['is_present'] = false;
-
       return studentMap;
     }).toList();
 
-    // 3. Cập nhật lại mảng students và các chỉ số tổng quan (nếu cần)
     await docRef.update({
       'students': updatedStudents,
-      'avg_attention_score': 0, // Cập nhật tổng quan về 0
-      'present_student': 0, // Cập nhật số học sinh có mặt về 0
+      'avg_attention_score': 0,
+      'present_student': 0,
     });
 
     debugPrint(
-      'Đã cập nhật trạng thái cho tất cả học sinh trong doc [$docId]!',
+      'Đã reset trạng thái List cho tất cả học sinh trong doc [$docId]!',
     );
   } catch (e) {
     debugPrint('Lỗi khi cập nhật document: $e');

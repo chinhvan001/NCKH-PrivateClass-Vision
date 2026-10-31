@@ -5,6 +5,8 @@ import '../../../../core/models/session_student_model.dart';
 import '../controllers/session_detail_controller.dart';
 import 'student_list_screen.dart';
 
+
+
 // ==========================================
 // 1. MODEL CHO SEAT INFO
 // ==========================================
@@ -17,7 +19,6 @@ class SeatInfo {
   bool present;
   bool distracted;
   int? attention;
-  final List<int>? recentAttention;
   String note;
 
   SeatInfo({
@@ -29,7 +30,6 @@ class SeatInfo {
     required this.present,
     required this.distracted,
     this.attention,
-    this.recentAttention,
     this.note = '',
   });
 
@@ -48,7 +48,6 @@ class SeatInfo {
       present: present ?? this.present,
       distracted: distracted ?? this.distracted,
       attention: attention ?? this.attention,
-      recentAttention: recentAttention,
       note: note ?? this.note,
     );
   }
@@ -117,11 +116,9 @@ class _SessionDetailScreenState extends State<SessionDetailScreen> {
     }
 
     return List.generate(rows * cols, (index) {
-      final r0 = index ~/ cols;
-      final c0 = index % cols;
-      final r1 = r0 + 1;
-      final c1 = c0 + 1;
-      final sData = posMap['$r1,$c1'] ?? posMap['$r0,$c0'];
+      final r1 = index ~/ cols + 1;
+      final c1 = index % cols + 1;
+      final sData = posMap['$r1,$c1'];
 
       if (sData == null) {
         return SeatInfo(
@@ -139,8 +136,7 @@ class _SessionDetailScreenState extends State<SessionDetailScreen> {
       final studentModel = _controller.getStudentInfo(studentId);
       final isPresent = sData.isPresent;
       final isAttention = sData.isAttention;
-      final attentionScore =
-          sData.attentionScore?.toInt() ?? (isPresent ? 85 : null);
+      final attentionScore = sData.attentionScore?.toInt();
       final note = sData.note;
 
       return SeatInfo(
@@ -158,7 +154,6 @@ class _SessionDetailScreenState extends State<SessionDetailScreen> {
         present: isPresent,
         distracted: isPresent && !isAttention,
         attention: attentionScore,
-        recentAttention: isPresent ? [85, 90] : null,
         note: note,
       );
     });
@@ -235,7 +230,9 @@ class _SessionDetailScreenState extends State<SessionDetailScreen> {
                         absent,
                         distracted,
                       ),
-                      const SizedBox(height: 20),
+                      const SizedBox(height: 16),
+                      _buildBulkAttendanceButtons(),
+                      const SizedBox(height: 16),
                       _buildSeatingChart(),
                       const SizedBox(height: 16),
                       _buildActionButtons(),
@@ -643,6 +640,96 @@ class _SessionDetailScreenState extends State<SessionDetailScreen> {
     );
   }
 
+  // --- NÚT ĐIỂM DANH / VẮNG TẤT CẢ ---
+  Widget _buildBulkAttendanceButtons() {
+    final bool canInteract = !_controller.isSaving;
+    return Row(
+      children: [
+        Expanded(
+          child: SizedBox(
+            height: 44,
+            child: OutlinedButton.icon(
+              style: OutlinedButton.styleFrom(
+                side: BorderSide(
+                  color: canInteract
+                      ? const Color(0xFF16A34A)
+                      : AppColors.hair,
+                ),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                backgroundColor: canInteract
+                    ? const Color(0xFFDCFCE7)
+                    : Colors.white,
+              ),
+              onPressed: canInteract
+                  ? () => _controller.markAllPresent()
+                  : null,
+              icon: Icon(
+                Icons.check_circle_outline,
+                size: 18,
+                color: canInteract
+                    ? const Color(0xFF16A34A)
+                    : AppColors.muted,
+              ),
+              label: Text(
+                'Điểm danh tất cả',
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                  color: canInteract
+                      ? const Color(0xFF16A34A)
+                      : AppColors.muted,
+                ),
+              ),
+            ),
+          ),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: SizedBox(
+            height: 44,
+            child: OutlinedButton.icon(
+              style: OutlinedButton.styleFrom(
+                side: BorderSide(
+                  color: canInteract
+                      ? const Color(0xFFDC2626)
+                      : AppColors.hair,
+                ),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                backgroundColor: canInteract
+                    ? const Color(0xFFFEE2E2)
+                    : Colors.white,
+              ),
+              onPressed: canInteract
+                  ? () => _controller.markAllAbsent()
+                  : null,
+              icon: Icon(
+                Icons.cancel_outlined,
+                size: 18,
+                color: canInteract
+                    ? const Color(0xFFDC2626)
+                    : AppColors.muted,
+              ),
+              label: Text(
+                'Vắng tất cả',
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                  color: canInteract
+                      ? const Color(0xFFDC2626)
+                      : AppColors.muted,
+                ),
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
   // --- 2 NÚT LƯU VÀ HỦY ---
   Widget _buildActionButtons() {
     return Row(
@@ -756,8 +843,19 @@ class _SessionDetailScreenState extends State<SessionDetailScreen> {
           await Navigator.push(
             context,
             MaterialPageRoute(
-              builder: (context) =>
-                  StudentListScreen(seats: seats, status: widget.status),
+              builder: (context) => StudentListScreen(
+                seats: seats,
+                status: widget.status,
+                classId: widget.classId,
+                onStudentUpdated: (studentId, isPresent, isAttention, note) {
+                  _controller.updateStudentSessionData(
+                    studentId,
+                    isPresent: isPresent,
+                    isAttention: isAttention,
+                    note: note,
+                  );
+                },
+              ),
             ),
           );
         },
@@ -1115,36 +1213,6 @@ class _SessionDetailScreenState extends State<SessionDetailScreen> {
                           ),
                         ),
                       ),
-                      const SizedBox(height: 20),
-
-                      if (student.recentAttention != null) ...[
-                        const Text(
-                          'Lịch sử tập trung (2 ngày gần nhất)',
-                          style: TextStyle(
-                            fontSize: 13,
-                            fontWeight: FontWeight.w600,
-                            color: AppColors.navy,
-                          ),
-                        ),
-                        const SizedBox(height: 12),
-                        Row(
-                          children: [
-                            Expanded(
-                              child: _buildRecentScoreCard(
-                                'Hôm qua',
-                                student.recentAttention![0],
-                              ),
-                            ),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: _buildRecentScoreCard(
-                                'Hôm kia',
-                                student.recentAttention![1],
-                              ),
-                            ),
-                          ],
-                        ),
-                      ],
                       const SizedBox(height: 24),
                     ] else if (widget.status != 'Sắp diễn ra') ...[
                       Container(
@@ -1243,50 +1311,6 @@ class _SessionDetailScreenState extends State<SessionDetailScreen> {
           },
         );
       },
-    );
-  }
-
-  Widget _buildRecentScoreCard(String label, int score) {
-    Color color = score < 50 ? const Color(0xFFD9822B) : AppColors.brand;
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        border: Border.all(color: AppColors.hair),
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            label,
-            style: const TextStyle(fontSize: 12, color: AppColors.muted),
-          ),
-          const SizedBox(height: 4),
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              Text(
-                '$score',
-                style: TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
-                  color: color,
-                  height: 1.0,
-                ),
-              ),
-              const SizedBox(width: 2),
-              Text(
-                '%',
-                style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.bold,
-                  color: color,
-                ),
-              ),
-            ],
-          ),
-        ],
-      ),
     );
   }
 }

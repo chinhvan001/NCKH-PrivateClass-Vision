@@ -3,6 +3,8 @@ import 'package:flutter/material.dart';
 import '../../../../../core/constants/app_colors.dart';
 // Import file session_detail_screen để lấy model SeatInfo
 import 'session_detail_screen.dart';
+import '../../shared/widgets/student_detail_bottom_sheet.dart';
+
 
 // ==========================================
 // 1. MÀN HÌNH DANH SÁCH HỌC SINH (LIST VIEW)
@@ -10,11 +12,16 @@ import 'session_detail_screen.dart';
 class StudentListScreen extends StatefulWidget {
   final List<SeatInfo> seats;
   final String status;
+  final String classId;
+  final Function(String studentId, bool isPresent, bool isAttention, String note)?
+      onStudentUpdated;
 
   const StudentListScreen({
     super.key,
     required this.seats,
     required this.status,
+    this.classId = '',
+    this.onStudentUpdated,
   });
 
   @override
@@ -82,17 +89,22 @@ class _StudentListScreenState extends State<StudentListScreen> {
       child: InkWell(
         borderRadius: BorderRadius.circular(16),
         onTap: () async {
-          // Mở màn hình Chi tiết Cá nhân và chờ khi quay lại để cập nhật State
-          await Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (context) => StudentDetailScreen(
-                student: student,
-                sessionStatus: widget.status,
-              ),
-            ),
+          await StudentDetailBottomSheet.show(
+            context: context,
+            studentId: student.id,
+            classId: widget.classId,
+            seatInfo: student,
+            sessionStatus: widget.status,
+            onSessionUpdated: (isPresent, isAttention, note) {
+              widget.onStudentUpdated?.call(
+                student.id,
+                isPresent,
+                isAttention,
+                note,
+              );
+            },
           );
-          setState(() {}); // Cập nhật lại danh sách nếu có thay đổi điểm danh
+          setState(() {});
         },
         child: Padding(
           padding: const EdgeInsets.all(16),
@@ -102,7 +114,7 @@ class _StudentListScreenState extends State<StudentListScreen> {
                 radius: 20,
                 backgroundColor: AppColors.lightBlue,
                 child: Text(
-                  student.name.substring(0, 1),
+                  student.name.isNotEmpty ? student.name.substring(0, 1) : 'H',
                   style: const TextStyle(
                     fontWeight: FontWeight.bold,
                     color: AppColors.brand,
@@ -415,37 +427,6 @@ class _StudentDetailScreenState extends State<StudentDetailScreen> {
                         ),
                       ),
                     ),
-                    if (s.recentAttention != null) ...[
-                      const SizedBox(height: 24),
-                      const Align(
-                        alignment: Alignment.centerLeft,
-                        child: Text(
-                          'Lịch sử 2 ngày trước',
-                          style: TextStyle(
-                            fontSize: 13,
-                            color: AppColors.muted,
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: _buildRecentBox(
-                              'Hôm qua',
-                              s.recentAttention![0],
-                            ),
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: _buildRecentBox(
-                              'Hôm kia',
-                              s.recentAttention![1],
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
                   ],
                 ),
               ),
@@ -534,33 +515,6 @@ class _StudentDetailScreenState extends State<StudentDetailScreen> {
           ),
         ),
       ],
-    );
-  }
-
-  Widget _buildRecentBox(String label, int score) {
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        border: Border.all(color: AppColors.hair),
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Column(
-        children: [
-          Text(
-            label,
-            style: const TextStyle(fontSize: 12, color: AppColors.muted),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            '$score%',
-            style: const TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.bold,
-              color: AppColors.navy,
-            ),
-          ),
-        ],
-      ),
     );
   }
 }

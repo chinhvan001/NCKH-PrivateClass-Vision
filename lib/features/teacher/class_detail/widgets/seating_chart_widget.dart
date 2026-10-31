@@ -11,9 +11,17 @@ class SeatingChartWidget extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final int rows = controller.classroomRows;
-    final int cols = controller.classroomColumns;
+    int rows = controller.classroomRows;
+    int cols = controller.classroomColumns;
     final List<StudentModel> roster = controller.students;
+
+    // Tự động mở rộng grid nếu có học sinh ngồi ngoài phạm vi mặc định
+    for (final student in roster) {
+      final r = student.row ?? 0;
+      final c = student.column ?? 0;
+      if (r > rows) rows = r;
+      if (c > cols) cols = c;
+    }
 
     final List<StudentModel?> seats = List.filled(rows * cols, null);
     int assignedCount = 0;
@@ -22,11 +30,15 @@ class SeatingChartWidget extends StatelessWidget {
       final r = student.row ?? 0;
       final c = student.column ?? 0;
 
-      if (r > 0 && c > 0 && r <= rows && c <= cols) {
+      if (r > 0 && c > 0) {
         final index = (r - 1) * cols + (c - 1);
         if (index >= 0 && index < seats.length) {
+          // Nếu chỗ này chưa có ai ngồi thì mới tăng biến đếm (tránh đếm trùng nếu 2 HS cùng toạ độ)
+          if (seats[index] == null) {
+            assignedCount++;
+          }
+          // Học sinh được load sau sẽ ghi đè lên học sinh trước nếu trùng toạ độ
           seats[index] = student;
-          assignedCount++;
         }
       }
     }

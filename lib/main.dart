@@ -1,8 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
-import 'package:flutter_privateclass_vision/features/teacher/main/screens/main_screen.dart';
-
 import 'app.dart';
+
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();

@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../../../../core/constants/app_colors.dart';
-import '../widgets/session_list_card.dart';
+import '../../shared/widgets/shared_session_card.dart';
 import '../../session_detail/screens/session_detail_screen.dart';
 import '../controllers/session_list_controller.dart';
 
@@ -149,15 +149,17 @@ class _SessionListScreenState extends State<SessionListScreen> {
                             ),
                           ),
                         )
-                      : ListView.builder(
-                          padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
-                          itemCount: visibleDates.length,
-                          itemBuilder: (context, index) {
-                            final date = visibleDates[index];
-                            final dateStr = _formatDate(date);
-                            final dayLabel = _weekdayLabels[date.weekday] ?? '';
-                            final dayItems = _controller.sessions
-                                .where((h) => h.date == dateStr)
+                      : RefreshIndicator(
+                          onRefresh: _fetchData,
+                          child: ListView.builder(
+                            padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+                            itemCount: visibleDates.length,
+                            itemBuilder: (context, index) {
+                              final date = visibleDates[index];
+                              final dateStr = _formatDate(date);
+                              final dayLabel = _weekdayLabels[date.weekday] ?? '';
+                              final dayItems = _controller.sessions
+                                  .where((h) => h.date == dateStr)
                                 .toList();
 
                             if (_viewMode == ViewPeriodMode.week &&
@@ -211,32 +213,37 @@ class _SessionListScreenState extends State<SessionListScreen> {
                                 ),
                                 const SizedBox(height: 8),
                                 ...dayItems.map(
-                                  (item) => SessionListCard(
-                                    item: item,
-                                    onTap: () {
-                                      Navigator.push(
-                                        context,
-                                        MaterialPageRoute(
-                                          builder: (context) =>
-                                              SessionDetailScreen(
-                                                sessionId: item.id,
-                                                classId: item.classId,
-                                                className: item.className,
-                                                room: item.room,
-                                                start: item.start,
-                                                end: item.end,
-                                                date: item.date,
-                                                status: item.status,
-                                              ),
-                                        ),
-                                      );
-                                    },
+                                  (item) => Padding(
+                                    padding: const EdgeInsets.only(bottom: 10),
+                                    child: SharedSessionCard(
+                                      session: item,
+                                      showClassInfo: true,
+                                      onTap: () {
+                                        Navigator.push(
+                                          context,
+                                          MaterialPageRoute(
+                                            builder: (context) =>
+                                                SessionDetailScreen(
+                                                  sessionId: item.id,
+                                                  classId: item.classId,
+                                                  className: item.className,
+                                                  room: item.room,
+                                                  start: item.start,
+                                                  end: item.end,
+                                                  date: item.date,
+                                                  status: item.status,
+                                                ),
+                                          ),
+                                        );
+                                      },
+                                    ),
                                   ),
                                 ),
                               ],
                             );
                           },
-                        )),
+                        ),
+                      )),
           ),
         ],
       ),
