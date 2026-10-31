@@ -115,7 +115,7 @@ def test_camera_form_rejects_injected_urls_and_a_second_camera_per_name_class_or
         assert client.post("/api/admin/cameras", json={**CAMERA, **duplicate}, headers=admin).status_code == 409
 
 
-def test_editing_a_camera_keeps_its_stream_path_and_account_unless_retyped(client, db, admin):
+def test_editing_a_camera_keeps_its_stream_path_and_account_unless_retyped_or_moved(client, db, admin):
     for class_id, name in (("c1", "11B2"), ("c2", "11B3"), ("c3", "12A1")):
         db.document(f"classes2/{class_id}").set({"class_name": name})
     assert client.post("/api/admin/cameras", json=CAMERA, headers=admin).status_code == 201
@@ -123,23 +123,29 @@ def test_editing_a_camera_keeps_its_stream_path_and_account_unless_retyped(clien
     assert client.post("/api/admin/cameras", json=other, headers=admin).status_code == 201
     url = URL
 
-    edit = {"class_id": "c2", "ip_address": "192.168.1.120", "rtsp_port": "8554", "username": "", "password": ""}
+    edit = {"class_id": "c2", "ip_address": "192.168.1.103", "rtsp_port": "554", "username": "", "password": ""}
     edited = client.put(url, json={**edit, "stream_path": ""}, headers=admin)
     assert edited.status_code == 200, edited.get_json()
     assert "khau" not in edited.get_data(as_text=True)
-    config = db.docs["camera_configs/Camera 201"]
-    assert config["source"] == "rtsp://admin:m%40t%3Akhau%2F%231@192.168.1.120:8554/Streaming/Channels/101"
+    kept = "rtsp://admin:m%40t%3Akhau%2F%231@192.168.1.103:554/Streaming/Channels/101"
+    assert db.docs["camera_configs/Camera 201"]["source"] == kept
     # Lớp cũ bỏ camera, lớp mới nhận camera: mỗi camera theo dõi đúng một lớp
     assert ("camera_id" not in db.docs["classes2/c1"], db.docs["classes2/c2"]["camera_id"]) == (True, "Camera 201")
-    camera = db.docs["cameras/Camera 201"]
-    assert (camera["room_name"], camera["ip_address"], camera["rtsp_port"]) == ("P201", "192.168.1.120", "8554")
+
+    # Đổi IP hoặc cổng mà để trống tài khoản: tài khoản đã lưu không được gửi tới máy khác
+    for moved in ({"ip_address": "192.168.1.120"}, {"rtsp_port": "8554"}):
+        assert client.put(url, json={**edit, **moved}, headers=admin).status_code == 400, moved
+    assert db.docs["camera_configs/Camera 201"]["source"] == kept
 
     # Nhập tài khoản hoặc mật khẩu: thay cả hai; đường dẫn có ?query (Dahua) được giữ khi để trống lần sau
+    edit = {**edit, "ip_address": "192.168.1.120", "rtsp_port": "8554"}
     retyped = {**edit, "stream_path": "/cam/realmonitor?channel=1&subtype=0", "username": "xem", "password": "p@ss"}
     assert client.put(url, json=retyped, headers=admin).status_code == 200
-    assert client.put(url, json={**edit, "ip_address": "192.168.1.121"}, headers=admin).status_code == 200
-    expected = "rtsp://xem:p%40ss@192.168.1.121:8554/cam/realmonitor?channel=1&subtype=0"
+    assert client.put(url, json=edit, headers=admin).status_code == 200
+    expected = "rtsp://xem:p%40ss@192.168.1.120:8554/cam/realmonitor?channel=1&subtype=0"
     assert db.docs["camera_configs/Camera 201"]["source"] == expected
+    camera = db.docs["cameras/Camera 201"]
+    assert (camera["room_name"], camera["ip_address"], camera["rtsp_port"]) == ("P201", "192.168.1.120", "8554")
 
     for bad, status in (
         ({"class_id": "c3"}, 409),  # lớp của Camera 202

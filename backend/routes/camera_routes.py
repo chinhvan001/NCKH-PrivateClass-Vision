@@ -50,7 +50,8 @@ def grab_jpeg(source):
 def rtsp_source(data, current=""):
     """(URL RTSP camera AI dùng, None) hoặc (None, lỗi). Tài khoản, mật khẩu được mã hóa %, nên
     @ : / # trong mật khẩu không làm hỏng URL hay lọt vào log của camera AI. current: URL đang lưu (sửa
-    camera): đường dẫn để trống thì giữ đường dẫn cũ, tài khoản và mật khẩu cùng để trống thì giữ cả hai."""
+    camera): đường dẫn để trống thì giữ đường dẫn cũ, tài khoản và mật khẩu cùng để trống thì giữ cả hai, chỉ
+    khi IP và cổng không đổi: không thì ai sửa được camera trỏ nó sang máy khác là lấy được mật khẩu."""
     host = str(data.get("ip_address") or "").strip()
     if not HOST.fullmatch(host):
         return None, "Địa chỉ IP không hợp lệ."
@@ -67,6 +68,8 @@ def rtsp_source(data, current=""):
         auth = f"{quote(username, safe='')}:{quote(password, safe='')}@"
     else:
         userinfo = old.netloc.rpartition("@")[0]  # đã mã hóa %: @ cuối cùng tách tài khoản khỏi host
+        if userinfo and (old.hostname, old.port) != (host.lower(), int(port)):
+            return None, "Đổi địa chỉ IP hoặc cổng thì nhập lại tài khoản và mật khẩu camera."
         auth = f"{userinfo}@" if userinfo else ""
     return f"rtsp://{auth}{host}:{int(port)}/{path.lstrip('/')}", None
 
