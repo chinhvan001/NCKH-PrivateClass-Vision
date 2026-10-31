@@ -6,6 +6,8 @@
 *firebase-adminsdk*.json
 *service-account*.json
 *service_account*.json
+# Local instructions for Claude Code: never committed
+/CLAUDE.md
 # Edge node configs are per installation (camera-ai/config/README.md)
 camera-ai/config/*.json
 !camera-ai/config/local_pipeline.example.json
@@ -37,7 +39,7 @@ node_modules/
 Thumbs.db
 .DS_Store
 
-# Model weights (download instead of committing, see CLAUDE.md)
+# Model weights (Ultralytics downloads them on first load; never commit them)
 *.pt
 *.onnx
 *.engine

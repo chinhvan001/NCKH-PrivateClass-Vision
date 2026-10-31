@@ -6,7 +6,7 @@ Requirement sources:
 
 - *C1SE31 Architecture Design v1.0*: §2.2.2 (no raw video stored or transmitted, no facial recognition), QA02 (100% of frames purged from RAM, TLS 1.3 in transit, AES-256 at rest, RBAC), UC01, UC02, UC03, UC04, UC07, UC09 and UC11.
 - The team's Firestore schema diagram (2026-10), with camera-ai's proposed changes in `docs/team_notes_firestore_schema.md`.
-- Privacy invariants in the repository `CLAUDE.md`.
+- The privacy invariants that `tests/test_privacy_guards.py` enforces.
 
 **Rule:** cloud sync (Firestore, FCM) must not be enabled until every item in §3 marked *Blocker* is closed.
 
