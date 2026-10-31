@@ -5,6 +5,8 @@ Edge ghi (layout day du o ``src/sync/README.md``):
 - ``session_results/{session_id}``: trang thai hien tai moi ghe, ghi de (``set_result``).
 - ``session_evaluations/{session_id}_{seat_id}``: tong hop tung ghe, ghi de (``set_evaluations``).
 - ``sessions/{session_id}/alerts/{id}``: canh bao, chi them moi (``add_alert``).
+- ``session_windows/{session_id}_{run}_{seq}``: thoi gian moi ghe o tung trang thai tu the
+  trong ~10 s, chi them moi (``add_window``); backend web tinh diem tu day.
 - ``edge_nodes/{camera_id}``: heartbeat thiet bi, ghi de (``set_heartbeat``).
 
 va nghe ``sessions`` co ``class_id`` cua lop (``watch_sessions``).
@@ -17,8 +19,8 @@ ban moi nhat cho moi duong dan nen mat mang lau khong lam hang doi phinh ra.
 Sink song suot tien trinh, khong theo phien, de du lieu cua phien da ket thuc
 van duoc gui khi co mang.
 
-Doc ID alert sinh 1 lan luc xep hang: commit lai sau loi mo ho (server da ghi
-nhung client timeout) chi ghi de document cu, khong tao ban trung. Moi document
+Doc ID alert sinh 1 lan luc xep hang, doc ID window co dinh theo run/seq: commit lai
+sau loi mo ho (server da ghi nhung client timeout) chi ghi de document cu, khong tao ban trung. Moi document
 cua phien co ``expire_at`` = luc xep hang + ``retention_days`` de TTL cua
 Firestore tu xoa (docs/cloud_data_compliance_checklist.md muc 3.6).
 """
@@ -36,7 +38,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Callable, Iterable
 
-from src.privacy import AlertEvent, SeatEvaluation, SessionResult, check_session_id
+from src.privacy import AlertEvent, SeatEvaluation, SessionResult, SessionWindow, check_session_id
 
 logger = logging.getLogger("camera_ai.sync")
 
@@ -46,7 +48,8 @@ _COMMIT_TIMEOUT_SEC = 10.0
 # idle: khong co phien. monitoring: dang nhan frame. paused: giao vien tam dung.
 # unavailable: phien dang chay nhung camera khong cho frame (UC02: tam khong kha dung).
 # outside_schedule: phien dang chay ngoai cua so lich trong config, camera khong bat.
-EDGE_STATUSES = frozenset({"idle", "monitoring", "paused", "unavailable", "outside_schedule"})
+# unconfigured: config de lop cho web admin chon nhung camera chua duoc them tren trang Quan ly camera.
+EDGE_STATUSES = frozenset({"idle", "monitoring", "paused", "unavailable", "outside_schedule", "unconfigured"})
 
 # ``status`` web admin ghi (scheduled -> running <-> paused -> completed, hoac cancelled) ->
 # trang thai EdgeRuntime dung. Gia tri khac giu nguyen: ``paused`` van chay duoc;
@@ -59,7 +62,7 @@ class EdgeHeartbeat:
     """Trang thai thiet bi, khong co du lieu hoc sinh. Thoi gian la wall-clock UTC
     cua edge (can dong bo NTP); app coi edge offline neu ``updated_at`` qua cu."""
 
-    class_id: str
+    class_id: str | None  # None khi ``unconfigured``
     online: bool
     status: str
     session_id: str | None
@@ -106,15 +109,15 @@ class FirestoreSink:
     """Ghi du lieu cua 1 camera (edge node) theo layout o ``src/sync/README.md``.
     ``client`` la ``firestore.Client`` (xem ``firestore_client_from_env``) hoac fake trong test.
 
-    Alert giu trong hang doi gioi han ``max_queue`` (day thi bo cai cu nhat). Ket
-    qua, tong hop va heartbeat la document ghi de: chi giu ban moi nhat cho moi
+    Alert va window (document chi them moi) giu trong hang doi gioi han ``max_queue``
+    (day thi bo cai cu nhat; backend thay thieu ``seq`` thi coi phien chi co mot phan).
+    Ket qua, tong hop va heartbeat la document ghi de: chi giu ban moi nhat cho moi
     duong dan, ban moi thay ban cu chua gui duoc.
     """
 
     def __init__(
         self,
         client: Any,
-        class_id: str,
         camera_id: str,
         *,
         retention_days: int,
@@ -124,9 +127,8 @@ class FirestoreSink:
         max_backoff_sec: float = 60.0,
         now: Callable[[], datetime] = lambda: datetime.now(timezone.utc),
     ) -> None:
-        for name, value in (("class_id", class_id), ("camera_id", camera_id)):
-            if not isinstance(value, str) or not value.strip() or "/" in value:
-                raise ValueError(f"{name} phai la chuoi khong rong, khong chua '/'.")
+        if not isinstance(camera_id, str) or not camera_id.strip() or "/" in camera_id:
+            raise ValueError("camera_id phai la chuoi khong rong, khong chua '/'.")
         if not isinstance(retention_days, int) or isinstance(retention_days, bool) or retention_days < 1:
             raise ValueError("retention_days phai la so nguyen >= 1.")
         if not 1 <= batch_size <= MAX_BATCH_WRITES:
@@ -141,12 +143,11 @@ class FirestoreSink:
         self.dropped = 0  # item bi bo do hang doi day hoac Firestore tu choi du lieu
         self.failures = 0  # so lan flush loi lien tiep, quyet dinh backoff
         self._client = client
-        self._class_id = class_id
         self._camera_id = camera_id
         self._now = now
         # ponytail: hang doi chi nam trong RAM, mat khi tat tien trinh; ghi xuong dia
         # thi phai ma hoa (docs/cloud_data_compliance_checklist.md muc 3.5).
-        self._alerts: deque = deque()
+        self._appends: deque = deque()
         self._latest: dict[str, dict] = {}  # duong dan -> du lieu moi nhat cua document ghi de
         self._lock = threading.Lock()  # bao ve hang doi va ``dropped``
         self._flush_lock = threading.Lock()  # moi luc chi 1 batch dang gui
@@ -157,7 +158,7 @@ class FirestoreSink:
     @property
     def pending(self) -> int:
         with self._lock:
-            return len(self._alerts) + len(self._latest)
+            return len(self._appends) + len(self._latest)
 
     @property
     def backoff_sec(self) -> float:
@@ -168,9 +169,19 @@ class FirestoreSink:
         if not isinstance(alert, AlertEvent):
             raise TypeError("Chi nhan AlertEvent (schema allowlist).")
         with self._lock:
-            self._alerts.append((f"sessions/{alert.session_id}/alerts/{uuid.uuid4().hex}", self._expiring(alert)))
+            self._appends.append((f"sessions/{alert.session_id}/alerts/{uuid.uuid4().hex}", self._expiring(alert)))
             self._trim()
         self._wake.set()  # gui ngay, khong doi chu ky flush (QA01: alert < 1s)
+
+    def add_window(self, window: SessionWindow) -> None:
+        """Them ``session_windows/{session_id}_{run}_{seq}``; window cuoi phien duoc gui ngay."""
+        if not isinstance(window, SessionWindow):
+            raise TypeError("Chi nhan SessionWindow (schema allowlist).")
+        with self._lock:
+            self._appends.append((f"session_windows/{window.doc_id}", self._expiring(window)))
+            self._trim()
+        if window.monitoring_status != "running":
+            self._wake.set()
 
     def set_result(self, result: SessionResult) -> None:
         """Ghi de ``session_results/{session_id}``; ket qua cuoi phien duoc gui ngay."""
@@ -204,27 +215,27 @@ class FirestoreSink:
             logger.warning("Khong doc duoc ket qua phien (%s), coi nhu phien moi.", type(error).__name__)
             return False
 
-    def watch_sessions(self, on_change: Callable[[dict[str, Any]], None]) -> Any:
-        """Nghe ``sessions`` co ``class_id`` la lop nay: goi ``on_change({session_id: state})``
+    def watch_sessions(self, class_id: str, on_change: Callable[[dict[str, Any]], None]) -> Any:
+        """Nghe ``sessions`` cua lop ``class_id``: goi ``on_change({session_id: state})``
         (``status`` da doi qua ``WEB_STATUS_TO_STATE``) tren thread cua listener moi khi co
         thay doi. Tra ve watch co ``unsubscribe()``."""
         # where() positional thay vi FieldFilter: module khong import SDK, CI chay khong can no.
         # ponytail: snapshot gom moi phien cua lop ke ca da xong (de thay ``ended``); loc
         # them theo status thi phien vua xong bien mat -> runtime ghi ``incomplete`` thay vi ``completed``.
-        query = self._client.collection("sessions").where("class_id", "==", self._class_id)
+        query = self._client.collection("sessions").where("class_id", "==", class_id)
         return query.on_snapshot(
             lambda docs, changes, read_time: on_change({doc.id: _session_state(doc.to_dict()) for doc in docs})
         )
 
     def flush(self) -> bool:
-        """Commit het hang doi theo batch (alert truoc). Tra False neu gap loi tam thoi:
+        """Commit het hang doi theo batch (alert, window truoc). Tra False neu gap loi tam thoi:
         batch dang gui duoc tra lai hang doi de thu lai sau."""
         with self._flush_lock:
             while True:
                 with self._lock:
                     taken = []
-                    while self._alerts and len(taken) < self.batch_size:
-                        taken.append((True, self._alerts.popleft()))
+                    while self._appends and len(taken) < self.batch_size:
+                        taken.append((True, self._appends.popleft()))
                     while self._latest and len(taken) < self.batch_size:
                         path = next(iter(self._latest))
                         taken.append((False, (path, self._latest.pop(path))))
@@ -245,9 +256,9 @@ class FirestoreSink:
                         logger.error("Firestore tu choi batch %d item (%s), da bo.", len(taken), type(error).__name__)
                         continue
                     with self._lock:
-                        for is_alert, (path, data) in reversed(taken):
-                            if is_alert:
-                                self._alerts.appendleft((path, data))
+                        for is_append, (path, data) in reversed(taken):
+                            if is_append:
+                                self._appends.appendleft((path, data))
                             else:
                                 self._latest.setdefault(path, data)  # ban moi hon (neu co) thang
                         self._trim()
@@ -294,9 +305,9 @@ class FirestoreSink:
             self._latest[path] = data
 
     def _trim(self) -> None:
-        """Goi khi dang giu ``_lock``: hang doi alert day thi bo alert cu nhat."""
-        while len(self._alerts) > self.max_queue:
-            self._alerts.popleft()
+        """Goi khi dang giu ``_lock``: hang doi alert/window day thi bo item cu nhat."""
+        while len(self._appends) > self.max_queue:
+            self._appends.popleft()
             self.dropped += 1
 
     def _run(self) -> None:

@@ -4,7 +4,7 @@ giong web admin, loi doc va lop khong ton tai."""
 import pytest
 
 from fake_firestore import FakeFirestore, FakeFirestoreError
-from src.config import ClassLayoutError, load_class_seat_grid
+from src.config import ClassLayoutError, load_camera_class, load_camera_setting, load_class_seat_grid
 from src.seating import CornerSeats
 
 CORNERS = CornerSeats((100.0, 600.0), (900.0, 600.0), (700.0, 200.0), (300.0, 200.0))
@@ -95,3 +95,24 @@ def test_regions_for_another_class_fall_back_to_corners_and_bad_boxes_are_skippe
     _regions(client, seats={"S01": [300, 100, 100, 300]})
     with pytest.raises(ClassLayoutError, match="khong co o ghe hop le"):
         load_class_seat_grid(client, "c1", CORNERS, "cam-1")
+
+
+def test_camera_source_is_read_alone_from_the_camera_added_on_the_web_admin():
+    client = FakeFirestore()
+    assert load_camera_setting(client, "CAM-1", "source") is None  # chua them camera tren web
+    client.document("camera_configs/CAM-1").set({"source": "rtsp://admin:pw@10.0.0.5:554/stream1", "updated_by": "a"})
+    assert load_camera_setting(client, "CAM-1", "source") == "rtsp://admin:pw@10.0.0.5:554/stream1"
+    assert client.reads[-1] == {"source": "rtsp://admin:pw@10.0.0.5:554/stream1"}  # khong doc uid admin
+
+
+def test_camera_class_is_the_class_whose_camera_id_is_this_camera_without_its_seat_map():
+    client = FakeFirestore()
+    seat_map = {"S01": {"student_id": "an"}}
+    client.document("classes2/c2").set({"class_name": "11B3", "camera_id": "CAM-2", "seat_map": seat_map})
+    assert load_camera_class(client, "CAM-1") is None  # chua gan lop tren web
+    client.document("classes2/c1").set({"class_name": "11B2", "camera_id": "CAM-1", "seat_map": seat_map})
+    assert load_camera_class(client, "CAM-1") == "c1"
+    assert "an" not in str(client.reads[-1])  # chi lay field camera_id, khong bao gio seat_map
+    client.document("classes2/c3").set({"camera_id": "CAM-1"})
+    with pytest.raises(ClassLayoutError, match="Nhieu lop"):
+        load_camera_class(client, "CAM-1")

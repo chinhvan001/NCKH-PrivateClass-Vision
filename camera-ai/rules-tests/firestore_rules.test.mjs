@@ -37,6 +37,7 @@ const HEARTBEAT = {
   updated_at: NOW,
 };
 const REGIONS = { class_id: 'c1', image_width: 1280, image_height: 720, seats: { S01: [100, 100, 300, 300] } };
+const CAMERA_CONFIG = { class_id: 'c1', source: 'rtsp://admin:pw@10.0.0.5:554/stream1', updated_by: 'admin1' };
 
 let env;
 const db = {
@@ -45,8 +46,8 @@ const db = {
   otherTeacher: () => env.authenticatedContext('t2').firestore(),
   parent: () => env.authenticatedContext('p1').firestore(),
   anonymous: () => env.unauthenticatedContext().firestore(),
-  edge: () => env.authenticatedContext('edge-c1', { role: 'edge', class_id: 'c1', camera_id: 'cam-1' }).firestore(),
-  otherEdge: () => env.authenticatedContext('edge-c2', { role: 'edge', class_id: 'c2', camera_id: 'cam-2' }).firestore(),
+  edge: () => env.authenticatedContext('edge-1', { role: 'edge', camera_id: 'cam-1' }).firestore(),
+  otherEdge: () => env.authenticatedContext('edge-2', { role: 'edge', camera_id: 'cam-2' }).firestore(),
 };
 
 before(async () => {
@@ -72,11 +73,14 @@ beforeEach(async () => {
       'classes2/c1': {
         class_name: '11B2',
         teacher_id: 't1',
+        camera_id: 'cam-1',
         row_count: 2,
         column_count: 2,
         seat_map: { S01: { seat_id: 'S01', row: 1, column: 1, student_id: 'st1', status: 'occupied' } },
       },
-      'session_rosters/s1': { class_id: 'c1', seats: { S01: 'st1' } },
+      'classes2/c2': { class_name: '11B3', teacher_id: 't2', camera_id: 'cam-2', row_count: 1, column_count: 1, seat_map: {} },
+      'cameras/cam-1': { camera_name: 'cam-1', room_name: 'P201', ip_address: '10.0.0.5', rtsp_port: '554' },
+      'sessions/s1/monitored_students/S01': { student_id: 'st1', row: 1, column: 1 },
       'sessions/s1': { class_id: 'c1', teacher_id: 't1', subject: 'Toan', status: 'scheduled' },
       'sessions/s2': { class_id: 'c2', teacher_id: 't2', subject: 'Van', status: 'running' },
       'session_results/s1': RESULT,
@@ -84,6 +88,7 @@ beforeEach(async () => {
       'sessions/s1/alerts/a1': ALERT,
       'edge_nodes/cam-1': HEARTBEAT,
       'seat_regions/cam-1': REGIONS,
+      'camera_configs/cam-1': CAMERA_CONFIG,
       'students2/st1/reports/s1': { session_id: 's1', avg_concentration: 80, partial: false },
       'students2/st2/reports/s1': { session_id: 's1', avg_concentration: 60, partial: false },
     };
@@ -123,13 +128,31 @@ describe('sessions/{s}', () => {
   });
 });
 
-describe('classes2/{c} and session rosters', () => {
-  test('the edge node reads only its own class, parents never read seat maps', async () => {
+describe('classes2/{c}, cameras and monitored students', () => {
+  test('the edge node finds and reads only the class whose camera_id is its own, parents never read seat maps', async () => {
+    await assertSucceeds(getDocs(query(collection(db.edge(), 'classes2'), where('camera_id', '==', 'cam-1'))));
+    await assertFails(getDocs(collection(db.edge(), 'classes2')));
     await assertSucceeds(getDoc(doc(db.edge(), 'classes2/c1')));
     await assertFails(getDoc(doc(db.otherEdge(), 'classes2/c1')));
     await assertFails(getDoc(doc(db.parent(), 'classes2/c1')));
     await assertFails(getDoc(doc(db.anonymous(), 'classes2/c1')));
     await assertSucceeds(getDoc(doc(db.otherTeacher(), 'classes2/c1')));
+  });
+
+  test('a camera moved to another class on the web admin follows it without a new token', async () => {
+    await env.withSecurityRulesDisabled(async (context) => {
+      await updateDoc(doc(context.firestore(), 'classes2/c1'), { camera_id: 'cam-2' });
+    });
+    await assertSucceeds(getDocs(query(collection(db.otherEdge(), 'sessions'), where('class_id', '==', 'c1'))));
+    await assertFails(getDocs(query(collection(db.edge(), 'sessions'), where('class_id', '==', 'c1'))));
+  });
+
+  test('staff read cameras, which never hold the RTSP URL; nobody writes them from a client', async () => {
+    await assertSucceeds(getDoc(doc(db.teacher(), 'cameras/cam-1')));
+    await assertSucceeds(getDoc(doc(db.admin(), 'cameras/cam-1')));
+    await assertFails(getDoc(doc(db.parent(), 'cameras/cam-1')));
+    await assertFails(getDoc(doc(db.anonymous(), 'cameras/cam-1')));
+    await assertFails(setDoc(doc(db.admin(), 'cameras/cam-2'), { camera_name: 'cam-2', room_name: 'P202' }));
   });
 
   test('only the homeroom teacher or an admin changes the seat map, and nothing else', async () => {
@@ -141,13 +164,14 @@ describe('classes2/{c} and session rosters', () => {
     await assertSucceeds(updateDoc(doc(db.admin(), 'classes2/c1'), { seat_map: {} }));
   });
 
-  test('the frozen roster of a session is for its teacher and admins only', async () => {
-    await assertSucceeds(getDoc(doc(db.teacher(), 'session_rosters/s1')));
-    await assertSucceeds(getDoc(doc(db.admin(), 'session_rosters/s1')));
+  test('the monitored students of a session are for its teacher and admins only', async () => {
+    const seat = 'sessions/s1/monitored_students/S01';
+    await assertSucceeds(getDoc(doc(db.teacher(), seat)));
+    await assertSucceeds(getDocs(collection(db.admin(), 'sessions/s1/monitored_students')));
     for (const as of [db.otherTeacher, db.parent, db.edge, db.anonymous]) {
-      await assertFails(getDoc(doc(as(), 'session_rosters/s1')));
+      await assertFails(getDoc(doc(as(), seat)));
     }
-    await assertFails(setDoc(doc(db.teacher(), 'session_rosters/s1'), { class_id: 'c1', seats: {} }));
+    await assertFails(setDoc(doc(db.teacher(), seat), { student_id: 'st2', row: 1, column: 1 }));
   });
 });
 
@@ -172,6 +196,29 @@ describe('edge output', () => {
     await assertFails(setDoc(doc(db.edge(), 'session_evaluations/s1_S9'), EVALUATION));
     await assertFails(setDoc(doc(db.edge(), 'session_evaluations/s1_S2'), { ...EVALUATION, student_id: 'st1' }));
     await assertFails(setDoc(doc(db.otherEdge(), 'session_evaluations/s1_S2'), EVALUATION));
+  });
+
+  test('session_windows: only the class edge node appends the allowlist, no client reads them', async () => {
+    const window = {
+      session_id: 's1',
+      camera_id: 'cam-1',
+      run: '0a1b2c3d',
+      seq: 0,
+      start_sec: 0,
+      end_sec: 10,
+      captured_at: NOW,
+      monitoring_status: 'running',
+      seats: { S01: { normal_sec: 9.5, slumping_sec: 0, head_drop_sec: 0, last_seen_sec: 9.5, last_state: 'normal', last_behaviour_sec: null, alerts: {} } },
+      expire_at: NOW,
+    };
+    const path = 'session_windows/s1_0a1b2c3d_00000';
+    await assertSucceeds(setDoc(doc(db.edge(), path), window));
+    await assertFails(setDoc(doc(db.edge(), 'session_windows/s1_other_00000'), window));
+    await assertFails(setDoc(doc(db.edge(), 'session_windows/s1_0a1b2c3d_00001'), { ...window, seq: 1, keypoints: [] }));
+    await assertFails(setDoc(doc(db.otherEdge(), path.replace('00000', '00002')), { ...window, camera_id: 'cam-2' }));
+    for (const reader of [db.admin(), db.teacher(), db.parent(), db.anonymous()]) {
+      await assertFails(getDoc(doc(reader, path)));
+    }
   });
 
   test('alerts: the edge node creates them, the session teacher only acknowledges or dismisses', async () => {
@@ -208,6 +255,18 @@ describe('seat_regions/{camera_id}', () => {
     await assertFails(setDoc(doc(db.edge(), 'seat_regions/cam-1'), REGIONS));
     await assertFails(deleteDoc(doc(db.teacher(), 'seat_regions/cam-1')));
     await assertSucceeds(deleteDoc(doc(db.admin(), 'seat_regions/cam-1')));
+  });
+});
+
+describe('camera_configs/{camera_id}', () => {
+  test('only that camera\'s edge node reads its class and RTSP URL; no client writes it, admins included', async () => {
+    await assertSucceeds(getDoc(doc(db.edge(), 'camera_configs/cam-1')));
+    await assertFails(getDoc(doc(db.otherEdge(), 'camera_configs/cam-1')));
+    await assertFails(getDoc(doc(db.admin(), 'camera_configs/cam-1')));
+    await assertFails(getDoc(doc(db.teacher(), 'camera_configs/cam-1')));
+    await assertFails(getDoc(doc(db.parent(), 'camera_configs/cam-1')));
+    await assertFails(setDoc(doc(db.admin(), 'camera_configs/cam-2'), CAMERA_CONFIG));
+    await assertFails(setDoc(doc(db.edge(), 'camera_configs/cam-1'), CAMERA_CONFIG));
   });
 });
 

@@ -2,8 +2,8 @@
   "schema_version": 2,
   "camera": {
     "camera_id": "Camera 201",
-    "class_id": "YCzal6eGG2JhL3IAMLjJ",
-    "source_env": "CAMERA_ROOM_201_SOURCE",
+    "class_id": null,
+    "source_env": null,
     "width": 1280,
     "height": 720,
     "angle_type": "frontal"

@@ -8,6 +8,8 @@ reconnect_initial_delay ve gia tri rat nho de test chay nhanh.
 
 import time
 
+import cv2
+import numpy as np
 import pytest
 
 from src.capture import CameraCapture, CameraOpenError, CaptureConfig
@@ -120,6 +122,20 @@ def test_reconnect_after_source_exhausted(synthetic_video):
         cam.close()
 
 
+def test_live_video_runs_in_real_time_and_loops_like_a_camera(synthetic_video, caplog):
+    """--video: doc cham hon FPS cua video thi bo cac frame da qua (nhu camera that, khong
+    phat cham lai), het file thi phat lai tu dau ma khong coi la mat camera."""
+    # synthetic_video: 30 frame, 20 fps (1.5 s), frame i co mau i*8
+    with CameraCapture(CaptureConfig(source=synthetic_video, target_fps=5, live_video=True)) as cam:
+        frames = cam.frames()
+        shades = [int(next(frames).image[0, 0, 0]) for _ in range(10)]
+
+    steps = [after - before for before, after in zip(shades, shades[1:])]
+    assert sorted(steps)[len(steps) // 2] >= 24  # ~4 frame video moi lan doc (20 fps / 5 fps), khong phai 1
+    assert min(steps) < 0  # qua 1.5 s thi quay lai dau video
+    assert "that bai" not in caplog.text
+
+
 def test_apply_config_same_source_updates_without_reopen(synthetic_video):
     cam = CameraCapture(CaptureConfig(source=synthetic_video, target_fps=10))
     cam.open()
@@ -131,3 +147,42 @@ def test_apply_config_same_source_updates_without_reopen(synthetic_video):
         assert frame is not None
     finally:
         cam.close()
+
+
+class _LiveCamera:
+    """Camera mang gia lap phat 100 fps du co ai doc hay khong: grab() cho frame ke
+    tiep, anh retrieve() chua so thu tu frame."""
+
+    def __init__(self, *args):
+        self.count = 0
+
+    def isOpened(self):
+        return True
+
+    def grab(self):
+        time.sleep(0.01)
+        self.count += 1
+        return True
+
+    def retrieve(self):
+        return True, np.full((1, 1), self.count, np.int32)
+
+    def read(self):
+        self.grab()
+        return self.retrieve()
+
+    def get(self, prop):
+        return 0
+
+    def release(self):
+        pass
+
+
+def test_network_stream_keeps_only_the_newest_frame(monkeypatch):
+    """Ngu giua hai lan doc nhu voi file thi frame cua camera mang don lai va tre dan:
+    frames() phai bo cac frame toi truoc han, giu frame moi nhat."""
+    monkeypatch.setattr(cv2, "VideoCapture", _LiveCamera)
+    with CameraCapture(CaptureConfig(source="rtsp://cam/stream", target_fps=10)) as cam:
+        frames = cam.frames()
+        counts = [int(next(frames).image[0, 0]) for _ in range(3)]
+    assert counts[2] - counts[1] >= 5  # ~10 frame camera giua hai frame giu lai (100 fps / 10 fps)

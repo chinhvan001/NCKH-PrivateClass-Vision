@@ -8,7 +8,7 @@ import logging
 import threading
 from typing import Optional
 
-from .camera_capture import CameraCapture
+from .camera_capture import STREAM_TIMEOUT_MS, CameraCapture
 from .config import CaptureConfig
 from .frame_buffer import FrameBuffer
 
@@ -35,9 +35,9 @@ class CaptureWorker:
     def __init__(self, config: CaptureConfig, buffer_size: int = 1):
         self._config = config
         self.buffer = FrameBuffer(maxsize=buffer_size)
-        self._cam = CameraCapture(config)
-        self._thread: Optional[threading.Thread] = None
         self._stop_event = threading.Event()
+        self._cam = CameraCapture(config, self._stop_event)
+        self._thread: Optional[threading.Thread] = None
 
     def start(self) -> None:
         """Mo camera (dong bo -- de CameraOpenError nem ra ngay tai day, khong
@@ -49,19 +49,21 @@ class CaptureWorker:
         logger.info("Da khoi dong capture worker (thread nen).")
 
     def stop(self, timeout: float = 5.0) -> None:
-        """Dung thread doc khung hinh va giai phong camera. An toan goi nhieu lan
-        (kem ca khi start() chua tung duoc goi)."""
+        """Dung thread doc khung hinh; thread tu giai phong camera khi thoat. An toan
+        goi nhieu lan (kem ca khi start() chua tung duoc goi)."""
         self._stop_event.set()
-        if self._thread is not None:
+        if self._thread is None:
+            self._cam.close()
+        else:
             self._thread.join(timeout=timeout)
             if self._thread.is_alive():
                 logger.warning(
-                    "Capture worker khong dung kip trong %.1fs (co the target_fps "
-                    "qua thap khien vong lap dang ngu lau).",
+                    "Capture worker khong dung kip trong %.1fs (camera mang dang khong tra loi, "
+                    "toi da %ds); thread se tu giai phong camera khi thoat.",
                     timeout,
+                    STREAM_TIMEOUT_MS // 1000,
                 )
             self._thread = None
-        self._cam.close()
         self.buffer.clear()
         logger.info(
             "Da dung capture worker. Tong so khung hinh bi drop do buffer day: %d",
@@ -85,3 +87,7 @@ class CaptureWorker:
                 "Capture worker gap loi khong mong doi, thread nen dang dung lai. "
                 "Kiem tra is_alive de phat hien truong hop nay."
             )
+        finally:
+            # Chi thread nay dong camera: VideoCapture khong thread-safe, release() tu thread
+            # goi stop() trong luc read() con cho camera mang co the lam crash process.
+            self._cam.close()

@@ -28,6 +28,9 @@ class CaptureConfig:
     width: Optional[int] = None
     height: Optional[int] = None
     target_fps: float = 15.0
+    # File video dong vai camera that (src.main --video): hinh chay theo dong ho du doc cham, het file thi
+    # phat lai tu dau. Mac dinh tat: run_pipeline va test doc file lan luot tung frame.
+    live_video: bool = False
 
     # Tham so cho co che tu ket noi lai (UC-CAM-01, luong phu / luong ngoai le)
     reconnect_initial_delay: float = 2.0

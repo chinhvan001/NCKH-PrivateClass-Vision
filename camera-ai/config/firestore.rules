@@ -5,8 +5,9 @@ rules_version = '2';
 // Tests: camera-ai/rules-tests (Firestore emulator, run in CI).
 //
 // The web admin's Flask backend and the report job use the Admin SDK, which bypasses these rules.
-// The edge node uses the Admin SDK too until it signs in with a custom token (claims role 'edge',
-// class_id, camera_id); the edge rules below are for that step.
+// The edge node uses the Admin SDK too until it signs in with a custom token (claims role 'edge' and
+// camera_id); the edge rules below are for that step. Its class is the one whose classes2/{c}.camera_id is
+// its camera_id (set on the web admin's camera page), so moving a camera to another class needs no new token.
 //
 // Roles: a user is an admin, teacher or parent when admins/{uid}, teachers/{uid} or parents/{uid} exists.
 service cloud.firestore {
@@ -27,8 +28,12 @@ service cloud.firestore {
       return request.auth.token.get(name, '');
     }
 
+    function isEdge() {
+      return signedIn() && claim('role') == 'edge';
+    }
+
     function isEdgeOf(classId) {
-      return signedIn() && claim('role') == 'edge' && claim('class_id') == classId;
+      return isEdge() && get(/databases/$(database)/documents/classes2/$(classId)).data.get('camera_id', '') == claim('camera_id');
     }
 
     function session(sessionId) {
@@ -78,22 +83,29 @@ service cloud.firestore {
           && request.resource.data.status in ['acknowledged', 'dismissed']
           && request.resource.data.handled_by == request.auth.uid;
       }
+
+      // monitored_student of the agreed diagram: seat -> student frozen by the web backend when the session
+      // starts, then the scoring worker's summary. A subcollection, not a map in the session document, because
+      // the edge node listens to session documents and must never see student IDs (checklist 3.2).
+      match /monitored_students/{seatId} {
+        allow read: if isAdmin() || teachesSession(sessionId);
+      }
     }
 
     // Written by the web backend. seat_map holds the seat -> student mapping (checklist 3.2):
     // any teacher may read it for the live seat view; only the homeroom teacher
-    // (classes2/{c}.teacher_id) or an admin changes it. The edge node asks for row_count
-    // and column_count only.
+    // (classes2/{c}.teacher_id) or an admin changes it. The edge node finds its class with a query
+    // on camera_id and asks for camera_id, row_count and column_count only.
     match /classes2/{classId} {
-      allow read: if isAdmin() || isTeacher() || isEdgeOf(classId);
+      allow read: if isAdmin() || isTeacher() || (isEdge() && resource.data.camera_id == claim('camera_id'));
       allow update: if (isAdmin() || homeroomOf(classId))
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['seat_map', 'updated_at']);
     }
 
-    // Seat -> student mapping frozen by the web backend when a session starts, so reports keep
-    // the seating of that lesson. Never readable by the edge node or parents.
-    match /session_rosters/{sessionId} {
-      allow read: if isAdmin() || teachesSession(sessionId);
+    // Cameras of the agreed diagram, written by the web backend: room, name, address. Never the RTSP URL
+    // (camera_configs) nor a stored status (edge_nodes holds the live one).
+    match /cameras/{cameraId} {
+      allow read: if isAdmin() || isTeacher();
     }
 
     // UC07: live seat states, one document per session, overwritten by the edge node.
@@ -114,11 +126,21 @@ service cloud.firestore {
         && request.resource.data.keys().hasOnly(['session_id', 'seat_id', 'captured_at', 'concentration', 'avg_concentration', 'distraction', 'observed_sec', 'expire_at']);
     }
 
+    // Per-seat posture time every 10 s of monitoring, for the web backend's scoring worker (Admin SDK).
+    // The session's edge node only appends; no client reads it.
+    match /session_windows/{windowId} {
+      allow create: if edgeOfSession(request.resource.data.session_id)
+        && windowId.matches(request.resource.data.session_id + '_' + request.resource.data.run + '_[0-9]{5,}')
+        && request.resource.data.keys().hasOnly(['session_id', 'camera_id', 'run', 'seq', 'start_sec', 'end_sec', 'captured_at', 'monitoring_status', 'seats', 'expire_at'])
+        && request.resource.data.camera_id == claim('camera_id')
+        && request.resource.data.monitoring_status in ['running', 'completed', 'incomplete'];
+    }
+
     // Device heartbeat (UC04 step 3, UC10). No student data.
     match /edge_nodes/{cameraId} {
       allow read: if isAdmin() || isTeacher();
-      allow create, update: if signedIn() && claim('role') == 'edge' && claim('camera_id') == cameraId
-        && request.resource.data.class_id == claim('class_id')
+      allow create, update: if isEdge() && claim('camera_id') == cameraId
+        && (request.resource.data.class_id == null || isEdgeOf(request.resource.data.class_id))
         && request.resource.data.keys().hasOnly(['class_id', 'online', 'status', 'session_id', 'fps', 'camera_ok', 'last_frame_at', 'updated_at']);
     }
 
@@ -130,6 +152,13 @@ service cloud.firestore {
       allow create, update: if isAdmin()
         && request.resource.data.keys().hasOnly(['class_id', 'image_width', 'image_height', 'seats', 'updated_at', 'updated_by']);
       allow delete: if isAdmin();
+    }
+
+    // Camera added on the web admin's camera page (written by the web backend, Admin SDK): the class the
+    // camera monitors and its RTSP URL, camera user and password included. No client reads it, admins
+    // included (the API never returns the URL); only that camera's edge node does.
+    match /camera_configs/{cameraId} {
+      allow read: if signedIn() && claim('role') == 'edge' && claim('camera_id') == cameraId;
     }
 
     // Students, written by the web backend. A parent finds their children with a query on parent_id;

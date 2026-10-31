@@ -14,7 +14,7 @@ from fake_firestore import FakeFirestore, FakeFirestoreError
 from src.capture import CaptureConfig
 from src.engagement.posture_monitor import PostureThresholds
 from src.pipeline import AlertManager, run_pipeline
-from src.privacy import SeatEvaluation, SeatResult, SessionResult, make_alert_event
+from src.privacy import SeatEvaluation, SeatResult, SessionResult, SessionWindow, make_alert_event
 from src.seating.seat_grid import Seat, SeatGrid
 from src.sync import EdgeHeartbeat, FirestoreSink, firestore_client_from_env
 from test_end_to_end_pipeline import AlertScenarioProvider, _video
@@ -45,7 +45,7 @@ def _heartbeat(status="monitoring"):
 def _sink(client, **kwargs):
     kwargs.setdefault("retention_days", 30)
     kwargs.setdefault("now", lambda: NOW)
-    return FirestoreSink(client, "class-1", "cam-1", **kwargs)
+    return FirestoreSink(client, "cam-1", **kwargs)
 
 
 def _alerts(client):
@@ -87,6 +87,21 @@ def test_session_docs_carry_expire_at_for_ttl_but_heartbeat_does_not():
     assert client.docs["session_evaluations/s1_A1"]["expire_at"] == EXPIRE_AT
     assert _alerts(client)[0]["expire_at"] == EXPIRE_AT
     assert "expire_at" not in client.docs[HEARTBEAT]
+
+
+def test_windows_are_appended_once_per_run_and_seq_even_after_a_failed_commit():
+    client = FakeFirestore()
+    sink = _sink(client)
+    window = SessionWindow("s1", "cam-1", "0a1b2c3d", 3, 30.0, 40.0, NOW, "running", ())
+    sink.add_window(window)
+    client.fail_next(FakeFirestoreError(503))
+    assert not sink.flush()
+    assert sink.flush()
+
+    assert list(client.docs) == ["session_windows/s1_0a1b2c3d_00003"]
+    assert client.docs["session_windows/s1_0a1b2c3d_00003"]["expire_at"] == EXPIRE_AT
+    with pytest.raises(TypeError):
+        sink.add_window(window.to_dict())  # chi nhan object allowlist
 
 
 def test_network_error_keeps_queue_and_backs_off_until_success():
@@ -182,7 +197,7 @@ def test_watch_sessions_maps_status_for_own_class_and_result_exists():
     client = FakeFirestore()
     sink = _sink(client)
     seen = []
-    watch = sink.watch_sessions(seen.append)
+    watch = sink.watch_sessions("class-1", seen.append)
     for session_id, class_id, status in [
         ("s1", "class-1", "running"),
         ("s2", "class-1", "ended"),
@@ -236,9 +251,9 @@ def test_sink_only_accepts_allowlisted_schemas_and_valid_config():
     with pytest.raises(ValueError):
         _sink(FakeFirestore(), retention_days=0)
     with pytest.raises(ValueError):
-        FirestoreSink(FakeFirestore(), "class/1", "cam-1", retention_days=30)
+        FirestoreSink(FakeFirestore(), "cam/1", retention_days=30)
     with pytest.raises(ValueError):
-        FirestoreSink(FakeFirestore(), "class-1", "", retention_days=30)
+        FirestoreSink(FakeFirestore(), "", retention_days=30)
     with pytest.raises(ValueError):
         _sink(FakeFirestore(), batch_size=501)
 

@@ -109,7 +109,7 @@ def test_redact_source_hides_camera_credentials(source, expected):
 class _UnreachableCamera:
     """Thay cv2.VideoCapture: mo that bai ngay, khong cho timeout mang."""
 
-    def __init__(self, source):
+    def __init__(self, source, *args):
         pass
 
     def isOpened(self):

@@ -9,13 +9,17 @@ from .engagement_export import (
 )
 from .alert_event import ALERT_TYPES, AlertEvent, AlertEventError, check_session_id, make_alert_event
 from .session_output import MONITORING_STATUSES, SEAT_STATUSES, SeatEvaluation, SeatResult, SessionResult
+from .session_window import POSTURE_STATES, SeatWindow, SessionWindow
 
 __all__ = [
     "MONITORING_STATUSES",
+    "POSTURE_STATES",
     "SEAT_STATUSES",
     "SeatEvaluation",
     "SeatResult",
+    "SeatWindow",
     "SessionResult",
+    "SessionWindow",
     "ALERT_TYPES",
     "AlertEvent",
     "AlertEventError",

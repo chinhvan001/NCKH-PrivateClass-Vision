@@ -54,8 +54,10 @@ def _unit(value: Any, path: str, *, allow_zero: bool = False) -> float:
 @dataclass(frozen=True)
 class CameraLocalConfig:
     camera_id: str  # vd "Camera 201", ten document edge_nodes/{camera_id}
-    class_id: str  # document classes2/{class_id}: 1 lop = 1 phong = 1 camera
-    source_env: str
+    # document classes2/{class_id}: 1 lop = 1 phong = 1 camera. None: lop admin gan cho camera tren web
+    # (camera_configs/{camera_id}); edge node doi lop theo web khi khong co phien.
+    class_id: Optional[str]
+    source_env: Optional[str]  # ten bien moi truong chua nguon camera; None: URL admin nhap tren web
     width: Optional[int]
     height: Optional[int]
     angle_type: str  # frontal | top_down; back-turn chi chay voi frontal
@@ -157,12 +159,20 @@ class LocalPipelineConfig:
             privacy=_parse_privacy(data["privacy"]),
         )
 
-    def to_capture_config(self) -> CaptureConfig:
-        """Chuyen sang config capture, chi doc source tu bien moi truong luc chay."""
-        raw_source = os.getenv(self.camera.source_env)
-        if not raw_source:
+    def to_capture_config(self, web_source: Optional[str] = None) -> CaptureConfig:
+        """Chuyen sang config capture. Nguon camera chi doc luc chay: bien moi truong
+        ``camera.source_env``, hoac ``web_source`` (URL admin nhap tren web) khi source_env la null."""
+        if self.camera.source_env is not None:
+            raw_source = os.getenv(self.camera.source_env)
+            if not raw_source:
+                raise LocalConfigError(
+                    f"Chua dat bien moi truong {self.camera.source_env!r} cho camera {self.camera.camera_id!r}."
+                )
+        elif web_source:
+            raw_source = web_source
+        else:
             raise LocalConfigError(
-                f"Chua dat bien moi truong {self.camera.source_env!r} cho camera {self.camera.camera_id!r}."
+                f"Camera {self.camera.camera_id!r} chua duoc them tren web admin (trang Quan ly camera)."
             )
         try:
             source: Union[int, str] = int(raw_source)
@@ -187,12 +197,14 @@ def _object(value: Any, path: str, keys: set[str]) -> dict:
 def _parse_camera(value: Any) -> CameraLocalConfig:
     data = _object(value, "camera", {"camera_id", "class_id", "source_env", "width", "height", "angle_type"})
     for key in ("camera_id", "class_id", "source_env"):
+        if data[key] is None and key != "camera_id":
+            continue  # null: lop/nguon camera admin dat tren web (camera_configs/{camera_id})
         if not isinstance(data[key], str) or not data[key].strip():
             raise LocalConfigError(f"camera.{key} phai la chuoi khong rong.")
     for key in ("camera_id", "class_id"):
-        if "/" in data[key]:
+        if data[key] is not None and "/" in data[key]:
             raise LocalConfigError(f"camera.{key} la ten document Firestore, khong duoc chua '/'.")
-    if not data["source_env"].isidentifier():
+    if data["source_env"] is not None and not data["source_env"].isidentifier():
         raise LocalConfigError("camera.source_env phai la ten bien moi truong hop le.")
     width, height = data["width"], data["height"]
     if (width is None) != (height is None):

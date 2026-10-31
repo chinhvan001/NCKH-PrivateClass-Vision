@@ -71,3 +71,15 @@ def test_dropped_count_increases_when_consumer_is_slow(synthetic_video):
 
     assert worker.buffer.dropped_count > 0
     assert worker.buffer.qsize() <= 2  # khong bao gio vuot maxsize
+
+
+def test_stop_interrupts_the_reconnect_wait(synthetic_video):
+    """Camera mat tin hieu luc het phien: stop() khong doi het backoff, va thread khong
+    mo lai camera sau khi da dung."""
+    cfg = CaptureConfig(source=synthetic_video, target_fps=1000, reconnect_initial_delay=30)
+    worker = CaptureWorker(cfg)
+    worker.start()
+    time.sleep(0.5)  # doc het 30 frame, dang cho 30 s truoc khi ket noi lai
+    started = time.monotonic()
+    worker.stop(timeout=3.0)
+    assert time.monotonic() - started < 1.0

@@ -6,7 +6,9 @@ theo hang tu 1 (``S01``, ``S02``, ...; ``backend/routes/class_routes.py``), nen 
 tu sinh ma ghe tu so hang/cot va doc lop voi ``field_paths`` -- ``seat_map`` khong ve
 toi edge. Vi tri ghe tren anh: o chu nhat admin ve tren trang Quan ly camera
 (``seat_regions/{camera_id}``, ve cho dung lop nay), neu khong co thi 4 ghe goc trong
-config local (``seating.corner_seats``). Client Firestore truyen vao
+config local (``seating.corner_seats``). Lop admin gan camera tren trang Quan ly camera la
+lop co ``classes2/{lop}.camera_id`` bang camera nay (``load_camera_class``); nguon camera
+nam o ``camera_configs/{camera_id}`` (``load_camera_setting``). Client Firestore truyen vao
 (``sync.firestore_client_from_env`` hoac fake trong test).
 """
 
@@ -22,6 +24,7 @@ logger = logging.getLogger("camera_ai.seating")
 
 CLASS_COLLECTION = "classes2"
 REGION_COLLECTION = "seat_regions"
+CAMERA_CONFIG_COLLECTION = "camera_configs"  # Rules: chi edge node cua camera doc duoc (URL co mat khau)
 # Schema cua nhom dung row_count/column_count; document cu cua nhanh Web ghi row_number/column_number.
 _COUNT_FIELDS = ["row_count", "column_count", "row_number", "column_number"]
 _REGION_FIELDS = ["class_id", "image_width", "image_height", "seats"]  # khong doc updated_by (uid admin)
@@ -43,6 +46,27 @@ def _read(client: Any, path: str, field_paths: list[str]) -> Any:
         return client.document(path).get(field_paths=field_paths)
     except Exception as error:  # chi ten loi: message cua server co the lap lai du lieu
         raise ClassLayoutError(f"Khong doc duoc {path} tu Firestore ({type(error).__name__}).") from error
+
+
+def load_camera_class(client: Any, camera_id: str) -> str | None:
+    """ID lop admin gan camera nay tren web (``classes2/{lop}.camera_id``), None khi chua gan.
+    Chi lay field ``camera_id``: ``seat_map`` (ghe -> hoc sinh) khong ve toi edge."""
+    query = client.collection(CLASS_COLLECTION).where("camera_id", "==", camera_id).select(["camera_id"]).limit(2)
+    try:
+        class_ids = [snapshot.id for snapshot in query.stream()]
+    except Exception as error:  # chi ten loi: message cua server co the lap lai du lieu
+        raise ClassLayoutError(f"Khong tim duoc lop cua camera tren Firestore ({type(error).__name__}).") from error
+    if len(class_ids) > 1:  # web admin khong cho; du lieu sua tay thi giu lop dang nghe
+        raise ClassLayoutError(f"Nhieu lop cung gan camera {camera_id!r} tren web admin.")
+    return class_ids[0] if class_ids else None
+
+
+def load_camera_setting(client: Any, camera_id: str, field: str) -> str | None:
+    """``source`` admin dat cho camera tren web (doc dung 1 field); None khi chua them camera.
+    ``source`` la URL RTSP kem mat khau: khong log, khong ghi ra dau."""
+    snapshot = _read(client, f"{CAMERA_CONFIG_COLLECTION}/{camera_id}", [field])
+    value = (snapshot.to_dict() or {}).get(field) if snapshot.exists else None
+    return value if isinstance(value, str) and value.strip() else None
 
 
 def _size(value: Any, limit: int) -> bool:

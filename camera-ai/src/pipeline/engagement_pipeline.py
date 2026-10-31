@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from collections import Counter
+from dataclasses import dataclass, field
 from typing import Callable, Dict, List, Optional, Protocol
 
 from src.capture import CameraCapture, CaptureConfig, Frame
@@ -12,7 +13,7 @@ from src.engagement.engagement_score import SeatEngagementTracker, classify_post
 from src.engagement.hand_activity import HandActivityMonitor
 from src.engagement.posture import CameraAngleType, compute_head_drop_ratio, compute_torso_vector_angle
 from src.engagement.posture_monitor import BaselineEstablisher, PostureMonitor, PostureThresholds, RollingSmoother
-from src.engagement.rolling_engagement import RollingSeatEngagementTracker
+from src.engagement.rolling_engagement import DEFAULT_MAX_GAP_SEC, RollingSeatEngagementTracker
 from src.engagement.side_conversation import SideConversationDetector, SideConversationEvent
 from src.pipeline.alert_manager import AlertCandidate, AlertManager
 from src.privacy import AlertEvent, AnonymizedEngagementRecord, anonymize_engagement, dispose_frame
@@ -41,8 +42,21 @@ class _SeatPipelineState:
     head_smoother: RollingSmoother
     deviation_smoother: RollingSmoother
     last_seen: float = 0.0
+    seen: bool = False  # last_seen chi co nghia khi da thay nguoi it nhat 1 lan
     posture_state: str = "normal"
     behaviour_at: Optional[float] = None  # lan cuoi quay lung/noi chuyen rieng
+    window: Counter = field(default_factory=Counter)  # trang thai tu the -> giay trong window hien tai
+
+
+@dataclass(frozen=True)
+class SeatWindowState:
+    """Thoi gian 1 ghe o tung trang thai tu the trong 1 window (``session_windows``)."""
+
+    seat_id: str
+    seconds: Dict[str, float]  # normal / slumping / head_drop
+    last_seen: float
+    last_state: str
+    last_behaviour: Optional[float]  # quay lung/noi chuyen rieng gan nhat trong window
 
 
 @dataclass(frozen=True)
@@ -115,6 +129,7 @@ class EngagementEngine:
         self._smoothing_window_sec = smoothing_window_sec
         self._seat_tracker = SeatTracker(seat_grid, max_distance=max_seat_distance)
         self._states: Dict[str, _SeatPipelineState] = {}
+        self._window_start = 0.0
         self._back_turn_detector = back_turn_detector
         self._side_conversation_detector = side_conversation_detector
 
@@ -144,7 +159,11 @@ class EngagementEngine:
             state.tracker.update(timestamp, head_event, slump_event, hand_activity)
             state.rolling.update(timestamp, head_event, slump_event, hand_activity)
             posture_state = classify_posture_state(head_event, slump_event, hand_activity)
-            state.last_seen, state.posture_state = timestamp, posture_state
+            # Nhu RollingSeatEngagementTracker: khoang tu lan thay truoc thuoc trang thai vua xac nhan,
+            # khoang trong qua dai khong tinh; phan nam truoc window hien tai da gui o window truoc.
+            if state.seen and timestamp - state.last_seen <= DEFAULT_MAX_GAP_SEC:
+                state.window[posture_state] += max(0.0, timestamp - max(state.last_seen, self._window_start))
+            state.last_seen, state.posture_state, state.seen = timestamp, posture_state, True
             record = anonymize_engagement(state.tracker.compute_score(), timestamp, posture_state)
             observations.append(SeatObservation(assignment.seat_id, assignment.person, head_signal, record))
             if posture_state == "head_drop":
@@ -171,6 +190,19 @@ class EngagementEngine:
             if candidate.type != "head_drop":
                 self._states[candidate.seat_id].behaviour_at = timestamp
         return FrameResult(observations, back_turn_events, conversation_events, candidates)
+
+    def take_window(self, now: float) -> List[SeatWindowState]:
+        """Cac ghe thay nguoi trong window [lan goi truoc, ``now``], theo seat_id; roi mo window moi tu ``now``."""
+        start, self._window_start = self._window_start, now
+        windows = []
+        for seat_id, state in sorted(self._states.items()):
+            if state.seen and state.last_seen >= start:
+                recent = state.behaviour_at is not None and state.behaviour_at >= start
+                behaviour = state.behaviour_at if recent else None
+                seconds = {posture: state.window[posture] for posture in ("normal", "slumping", "head_drop")}
+                windows.append(SeatWindowState(seat_id, seconds, state.last_seen, state.posture_state, behaviour))
+            state.window.clear()
+        return windows
 
     def seat_states(self, now: float) -> List[SeatState]:
         """Moi ghe da tung thay nguoi, theo seat_id: diem gan day, diem tu dau phien, trang thai luc ``now``."""

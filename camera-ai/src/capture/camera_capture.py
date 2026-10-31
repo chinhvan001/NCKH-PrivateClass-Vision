@@ -15,6 +15,7 @@ FPS + tu ket noi lai. Buffer/queue giua capture va detection la task rieng
 
 import logging
 import re
+import threading
 import time
 from typing import Iterator, NamedTuple, Optional
 
@@ -24,11 +25,20 @@ from .config import CaptureConfig
 
 logger = logging.getLogger("camera_ai.capture")
 
+# Camera mang khong tra loi: OpenCV mac dinh cho toi ~90 s (do tren Windows), qua moc web
+# coi edge node la offline (heartbeat cu hon 30 s) trong khi vong lap chinh bi chan o open().
+STREAM_TIMEOUT_MS = 10000
+
 
 def redact_source(source) -> str:
     """An user:password trong URL camera (rtsp://user:pass@host/...) truoc khi
     dua vao log/thong bao loi -- log duoc ghi ra dia (logs/camera-ai.log)."""
     return re.sub(r"(://)[^/@\s]+@", r"\1***@", str(source))
+
+
+def _is_stream(source) -> bool:
+    """Camera mang (rtsp://, http://...), khac chi so webcam va file video."""
+    return isinstance(source, str) and "://" in source
 
 
 class Frame(NamedTuple):
@@ -59,12 +69,15 @@ class CameraCapture:
                 ...  # xu ly frame.image (numpy array, BGR)
     """
 
-    def __init__(self, config: CaptureConfig):
+    def __init__(self, config: CaptureConfig, stop_event: Optional[threading.Event] = None):
         self._config = config
+        # CaptureWorker.stop() dat event nay: frames() dung va reconnect khong mo lai camera.
+        self._stop = stop_event or threading.Event()
         self._cap: Optional[cv2.VideoCapture] = None
         self._frame_index = 0
         self._consecutive_failures = 0
         self._is_open = False
+        self._video_start = 0.0  # live_video: luc phat frame dau cua luot hien tai
 
     # ------------------------------------------------------------------
     # Vong doi (lifecycle)
@@ -76,15 +89,15 @@ class CameraCapture:
         Nem CameraOpenError neu khong mo duoc camera ngay tu dau.
         """
         logger.info("Dang mo camera voi source=%s", redact_source(self._config.source))
-        self._cap = cv2.VideoCapture(self._config.source)
+        self._cap = self._new_capture()
         self._apply_resolution()
 
         if not self._cap.isOpened():
             self._cap = None
             raise CameraOpenError(
                 f"Khong mo duoc camera voi source={redact_source(self._config.source)}. "
-                "Kiem tra lai CAMERA_SOURCE, quyen truy cap camera, hoac camera "
-                "co dang bi ung dung khac chiem dung khong."
+                "Kiem tra lai nguon camera (URL RTSP, mat khau, IP hoac chi so webcam), quyen truy cap "
+                "camera, hoac camera co dang bi ung dung khac chiem dung khong."
             )
 
         self._is_open = True
@@ -97,6 +110,15 @@ class CameraCapture:
             actual_h,
             self._config.target_fps,
         )
+        if self._config.width and (actual_w, actual_h) != (self._config.width, self._config.height):
+            logger.warning(
+                "Camera gui %dx%d thay vi %dx%d da cau hinh: camera IP giu do phan giai cai trong "
+                "camera, doi o do (khoang 1280x720).",
+                actual_w,
+                actual_h,
+                self._config.width,
+                self._config.height,
+            )
 
     def close(self) -> None:
         """Giai phong camera. An toan khi goi nhieu lan hoac khi camera chua mo."""
@@ -129,9 +151,41 @@ class CameraCapture:
         """
         if self._cap is None:
             raise RuntimeError("Camera chua duoc mo. Goi open() truoc, hoac dung cau truc 'with'.")
+        return self._to_frame(*self._cap.read())
 
+    def _read_due(self, due: float) -> Optional[Frame]:
+        """read() cho camera mang: grab() bo moi frame toi truoc ``due``, chi doi sang
+        anh BGR (retrieve) frame dau tien toi han."""
+        if self._cap is None:
+            raise RuntimeError("Camera chua duoc mo. Goi open() truoc, hoac dung cau truc 'with'.")
+        while self._cap.grab():
+            if time.time() >= due:
+                return self._to_frame(*self._cap.retrieve())
+        return self._handle_read_failure()
+
+    def _read_video(self) -> Optional[Frame]:
+        """read() cho file video dong vai camera (live_video): camera van quay khi khong ai doc, nen
+        grab() bo cac frame da qua theo dong ho roi doc frame toi han; het file thi phat lai tu dau.
+        None khi frame tiep theo chua toi han (target_fps cao hon FPS cua video)."""
+        if self._cap is None:
+            raise RuntimeError("Camera chua duoc mo. Goi open() truoc, hoac dung cau truc 'with'.")
+        position = int(self._cap.get(cv2.CAP_PROP_POS_FRAMES))
+        if position == 0:  # vua mo hoac vua quay lai dau
+            self._video_start = time.monotonic()
+        due = int((time.monotonic() - self._video_start) * (self._cap.get(cv2.CAP_PROP_FPS) or 25.0))
+        if due < position:
+            return None
+        for _ in range(due - position):
+            if not self._cap.grab():
+                break
         ret, image = self._cap.read()
+        if not ret and position > 0:  # het file
+            self._cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+            self._video_start = time.monotonic()
+            ret, image = self._cap.read()
+        return self._to_frame(ret, image)
 
+    def _to_frame(self, ret: bool, image) -> Optional[Frame]:
         if not ret or image is None:
             return self._handle_read_failure()
 
@@ -140,26 +194,38 @@ class CameraCapture:
         return Frame(image=image, timestamp=time.time(), frame_index=self._frame_index)
 
     def frames(self) -> Iterator[Frame]:
-        """Generator doc khung hinh lien tuc, tu throttle theo target_fps da cau hinh.
+        """Generator doc khung hinh lien tuc, tu throttle theo target_fps da cau hinh,
+        dung khi stop_event duoc dat.
 
         Day la cach dung chinh cho vong lap xu ly (module detection/ se lap qua
         generator nay, hoac buffer/queue cua task tiep theo se bao boc no).
+
+        Camera mang phat theo FPS cua no du co ai doc hay khong: neu ngu giua hai lan
+        doc nhu voi file/webcam, frame don trong buffer FFmpeg/socket va frame doc duoc
+        tre dan (vai giay toi vai chuc giay). Nen voi camera mang, doc het moi frame toi
+        va chi giu frame toi han (_read_due).
         """
         frame_interval = 1.0 / self._config.target_fps if self._config.target_fps > 0 else 0.0
         next_read_time = time.time()
 
-        while True:
-            frame = self.read()
+        while not self._stop.is_set():
+            stream = _is_stream(self._config.source)
+            if stream:
+                frame = self._read_due(next_read_time)
+            elif self._config.live_video:
+                frame = self._read_video()
+            else:
+                frame = self.read()
             if frame is not None:
                 yield frame
 
             next_read_time += frame_interval
             sleep_for = next_read_time - time.time()
-            if sleep_for > 0:
-                time.sleep(sleep_for)
-            else:
+            if sleep_for <= 0:
                 # Xu ly cham hon frame_interval -- khong ngu, tranh don tich luy do tre.
                 next_read_time = time.time()
+            elif not stream:
+                time.sleep(sleep_for)
 
     # ------------------------------------------------------------------
     # Xu ly mat ket noi & tu ket noi lai (UC-CAM-01, luong phu / luong ngoai le)
@@ -187,12 +253,13 @@ class CameraCapture:
             self._config.reconnect_max_delay,
         )
         logger.info("Thu ket noi lai camera sau %.1fs...", delay)
-        time.sleep(delay)
+        if self._stop.wait(delay):
+            return  # worker da dung: khong mo lai camera ngoai phien
 
         if self._cap is not None:
             self._cap.release()
 
-        self._cap = cv2.VideoCapture(self._config.source)
+        self._cap = self._new_capture()
         self._apply_resolution()
 
         if self._cap.isOpened():
@@ -227,6 +294,15 @@ class CameraCapture:
                 new_config.width,
                 new_config.height,
             )
+
+    def _new_capture(self) -> cv2.VideoCapture:
+        if not _is_stream(self._config.source):
+            return cv2.VideoCapture(self._config.source)
+        return cv2.VideoCapture(
+            self._config.source,
+            cv2.CAP_FFMPEG,
+            [cv2.CAP_PROP_OPEN_TIMEOUT_MSEC, STREAM_TIMEOUT_MS, cv2.CAP_PROP_READ_TIMEOUT_MSEC, STREAM_TIMEOUT_MS],
+        )
 
     def _apply_resolution(self) -> None:
         if self._cap is None:

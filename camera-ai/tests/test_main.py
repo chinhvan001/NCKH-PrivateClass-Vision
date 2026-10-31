@@ -21,3 +21,26 @@ def test_main_exits_2_on_missing_or_invalid_config(tmp_path, monkeypatch, capsys
     assert main(["--config", str(no_source)]) == 2
 
     assert "S3cret" not in capsys.readouterr().err
+
+
+def test_check_camera_reports_the_stream_without_firebase(tmp_path, monkeypatch, capsys, synthetic_video):
+    config = tmp_path / "config.json"
+    config.write_text(json.dumps(valid_config()), encoding="utf-8")
+
+    monkeypatch.setenv("CAMERA_1_SOURCE", synthetic_video)
+    assert main(["--config", str(config), "--check-camera", "0.5"]) == 0
+    assert "320x240" in capsys.readouterr().out
+
+    monkeypatch.setenv("CAMERA_1_SOURCE", str(tmp_path / "missing.mp4"))
+    assert main(["--config", str(config), "--check-camera", "0.5"]) == 1
+
+
+def test_video_stands_in_for_the_camera(tmp_path, monkeypatch, capsys, synthetic_video):
+    """--video: khong can nguon camera trong config (bien moi truong) hay tren web."""
+    config = tmp_path / "config.json"
+    config.write_text(json.dumps(valid_config()), encoding="utf-8")
+    monkeypatch.delenv("CAMERA_1_SOURCE", raising=False)
+
+    assert main(["--config", str(config), "--video", synthetic_video, "--check-camera", "0.5"]) == 0
+    assert "320x240" in capsys.readouterr().out
+    assert main(["--config", str(config), "--video", str(tmp_path / "missing.mp4")]) == 2

@@ -6,6 +6,9 @@
 *firebase-adminsdk*.json
 *service-account*.json
 *service_account*.json
+# Edge node configs are per installation (camera-ai/config/README.md)
+camera-ai/config/*.json
+!camera-ai/config/local_pipeline.example.json
 
 # Python
 __pycache__/

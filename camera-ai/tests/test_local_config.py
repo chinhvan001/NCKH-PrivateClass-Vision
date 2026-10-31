@@ -118,3 +118,14 @@ def test_corner_seats_can_be_null_when_seats_are_drawn_on_the_web():
     data = valid_config()
     data["seating"]["corner_seats"] = None
     assert LocalPipelineConfig.from_dict(data).seating.corner_seats is None
+
+
+def test_class_and_camera_source_can_be_left_to_the_web_admin():
+    data = valid_config()
+    data["camera"].update(class_id=None, source_env=None)
+    config = LocalPipelineConfig.from_dict(data)
+    assert config.camera.class_id is None
+    source = "rtsp://admin:pw@10.0.0.5:554/stream1"  # camera_configs/{camera_id}.source
+    assert config.to_capture_config(source).source == source
+    with pytest.raises(LocalConfigError):
+        config.to_capture_config(None)  # camera chua duoc them tren web
