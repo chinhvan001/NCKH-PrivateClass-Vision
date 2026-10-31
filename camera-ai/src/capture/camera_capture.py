@@ -32,8 +32,9 @@ STREAM_TIMEOUT_MS = 10000
 
 def redact_source(source) -> str:
     """An user:password trong URL camera (rtsp://user:pass@host/...) truoc khi
-    dua vao log/thong bao loi -- log duoc ghi ra dia (logs/camera-ai.log)."""
-    return re.sub(r"(://)[^/@\s]+@", r"\1***@", str(source))
+    dua vao log/thong bao loi -- log duoc ghi ra dia (logs/camera-ai.log). An toi @
+    cuoi cung: mat khau nhap tay co / @ # chua ma hoa % van bi an (an thua con hon lot)."""
+    return re.sub(r"(://).*@", r"\1***@", str(source), flags=re.DOTALL)
 
 
 def _is_stream(source) -> bool:

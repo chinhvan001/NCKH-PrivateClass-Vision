@@ -45,7 +45,7 @@ The edge node picks a new camera up within 15 s and a class change within a minu
 A field set in the local config takes precedence over the web admin. `camera.class_id` fixes the class. `camera.source_env` names an environment variable that holds the source:
 
 - USB webcam: its index, `0` for the first one. `camera.width` and `camera.height` set its resolution.
-- IP camera: its RTSP URL, `rtsp://user:password@192.168.1.64:554/<path>`. Percent-encode `@`, `:`, `/` and `#` in the password (`@` becomes `%40`), otherwise the URL breaks and part of the password can reach the logs; the web admin does this itself.
+- IP camera: its RTSP URL, `rtsp://user:password@192.168.1.64:554/<path>`. Percent-encode `@`, `:`, `/` and `#` in the password (`@` becomes `%40`), otherwise the URL breaks; the web admin does this itself. Logs and error messages hide everything between `://` and the last `@` either way.
 
 ### Stream paths
 

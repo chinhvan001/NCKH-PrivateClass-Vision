@@ -18,7 +18,7 @@ async function getList(url, key) {
 }
 
 // camera: sửa camera đã thêm (tên camera và phòng giữ nguyên; đường dẫn, tài khoản để trống thì giữ như
-// cũ); không có: thêm camera mới
+// cũ, tài khoản chỉ khi IP và cổng không đổi); không có: thêm camera mới
 const AddCameraForm = ({
     camera = null,
     edgeNames = [],
@@ -303,7 +303,7 @@ const AddCameraForm = ({
 
                         <p>
                             {camera
-                                ? "Web không hiển thị lại tài khoản và mật khẩu. Để trống cả hai thì giữ như cũ, nhập một trong hai thì thay cả hai."
+                                ? "Web không hiển thị lại tài khoản và mật khẩu. Để trống cả hai thì giữ như cũ (đổi IP hoặc cổng thì phải nhập lại), nhập một trong hai thì thay cả hai."
                                 : "Chỉ camera AI đọc được tài khoản và mật khẩu: web không hiển thị lại, giáo viên và phụ huynh không đọc được. Muốn đổi thì nhấn chuột phải vào camera, chọn Chỉnh sửa thông tin."}
                         </p>
                     </div>

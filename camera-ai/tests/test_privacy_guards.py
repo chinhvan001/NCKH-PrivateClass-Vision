@@ -98,6 +98,8 @@ def test_frame_wiped_even_when_inference_fails(tmp_path):
     [
         ("rtsp://admin:S3cret@10.0.0.5:554/stream1", "rtsp://***@10.0.0.5:554/stream1"),
         ("http://user@cam.local/video", "http://***@cam.local/video"),
+        # mat khau nhap tay chua ma hoa %: / @ # khoang trang khong de lot phan nao
+        ("rtsp://admin:a/b@c#d e@10.0.0.5:554/stream1", "rtsp://***@10.0.0.5:554/stream1"),
         ("rtsp://10.0.0.5/stream1", "rtsp://10.0.0.5/stream1"),
         (0, "0"),
     ],
