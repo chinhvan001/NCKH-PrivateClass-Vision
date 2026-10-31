@@ -14,8 +14,11 @@ export default function SessionDetailPanel() {
   
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]); 
   const [selectedShift, setSelectedShift] = useState('morning'); // 'morning' | 'afternoon'
+  const [viewMode, setViewMode] = useState('class'); // 'class' | 'teacher'
+  const [timeFilterMode, setTimeFilterMode] = useState('day'); // 'day' | 'week' | 'month'
   
   const [showAddModal, setShowAddModal] = useState(false);
+  const [selectedSessionDetail, setSelectedSessionDetail] = useState(null);
   
   const periodsConfigMap = {
     morning: {
@@ -34,39 +37,35 @@ export default function SessionDetailPanel() {
     }
   };
 
-  const [formData, setFormData] = useState({
+  const initialFormState = {
     class_id: '',
     teacher_id: '',
     subject: '',
+    is_custom_subject: false,
+    custom_subject_name: '',
     session_date: new Date().toISOString().split('T')[0],
-    morning_or_afternoon: 'morning',
-    period: 1,
-    start_time: '07:00',
-    end_time: '07:45',
-    room: ''
-  });
+    room: '',
+    repeat_count: 5,
+    day_configs: {
+      1: { active: true, shift: 'morning', period: 1 },
+      3: { active: true, shift: 'morning', period: 1 }
+    }
+  };
 
+  const [formData, setFormData] = useState(initialFormState);
   const [notification, setNotification] = useState(null);
 
-  // Hàm lấy token xác thực từ Firebase Auth SDK
   const getAuthHeaders = async () => {
-    const headers = {
-      'Content-Type': 'application/json',
-    };
-    
+    const headers = { 'Content-Type': 'application/json' };
     try {
       const auth = getAuth();
       const currentUser = auth.currentUser;
       if (currentUser) {
         const token = await currentUser.getIdToken();
-        if (token) {
-          headers['Authorization'] = `Bearer ${token}`;
-        }
+        if (token) headers['Authorization'] = `Bearer ${token}`;
       } else {
         const token = localStorage.getItem('token') || localStorage.getItem('firebaseToken') || sessionStorage.getItem('token');
-        if (token) {
-          headers['Authorization'] = `Bearer ${token}`;
-        }
+        if (token) headers['Authorization'] = `Bearer ${token}`;
       }
     } catch (e) {
       console.error("Lỗi lấy token:", e);
@@ -99,25 +98,10 @@ export default function SessionDetailPanel() {
       const teacherResult = await teacherRes.json();
       const roomResult = await roomRes.json();
 
-      if (scheduleResult.success) {
-        setSessions(scheduleResult.data || []);
-      } else {
-        showNotify(scheduleResult.message || 'Không thể lấy dữ liệu lịch học', 'error');
-      }
-
-      if (classResult.success) {
-        setClassList(classResult.data || []);
-      } else {
-        showNotify(classResult.message || 'Không thể lấy danh sách lớp học', 'error');
-      }
-
-      if (teacherResult.success) {
-        setTeacherList(teacherResult.data || []);
-      }
-
-      if (roomResult.success) {
-        setRoomList(roomResult.data || []);
-      }
+      if (scheduleResult.success) setSessions(scheduleResult.data || []);
+      if (classResult.success) setClassList(classResult.data || []);
+      if (teacherResult.success) setTeacherList(teacherResult.data || []);
+      if (roomResult.success) setRoomList(roomResult.data || []);
     } catch (error) {
       showNotify('Lỗi kết nối khi tải dữ liệu từ database', 'error');
     } finally {
@@ -130,71 +114,154 @@ export default function SessionDetailPanel() {
     setTimeout(() => setNotification(null), 3000);
   };
 
-  // Tra cứu tên giáo viên dựa vào teacher_id
+  const resetForm = () => {
+    setFormData({
+      ...initialFormState,
+      session_date: new Date().toISOString().split('T')[0]
+    });
+  };
+
   const getTeacherName = (teacherId) => {
     if (!teacherId) return 'Chưa phân công';
     const found = teacherList.find(t => t.id === teacherId);
     return found ? (found.name || found.full_name || found.email || teacherId) : teacherId;
   };
 
-  const handleFormChange = (field, value) => {
+  const getClassName = (classId) => {
+    if (!classId) return 'Chưa rõ lớp';
+    const found = classList.find(c => c.id === classId);
+    return found ? (found.name || found.class_name || classId) : classId;
+  };
+
+  const getSelectedTeacherSubjects = () => {
+    if (!formData.teacher_id) return [];
+    const foundTeacher = teacherList.find(t => t.id === formData.teacher_id);
+    if (!foundTeacher || !foundTeacher.subject) return [];
+    if (Array.isArray(foundTeacher.subject)) return foundTeacher.subject;
+    return String(foundTeacher.subject).split(',').map(s => s.trim()).filter(Boolean);
+  };
+
+  const handleTeacherChange = (teacherId) => {
     setFormData(prev => {
-      const updated = { ...prev, [field]: value };
-      
-      if (field === 'morning_or_afternoon' || field === 'period') {
-        const shift = field === 'morning_or_afternoon' ? value : prev.morning_or_afternoon;
-        const periodNum = field === 'period' ? Number(value) : prev.period;
-        const timeSlot = periodsConfigMap[shift]?.[periodNum];
-        
-        if (timeSlot) {
-          updated.start_time = timeSlot.start;
-          updated.end_time = timeSlot.end;
+      const foundTeacher = teacherList.find(t => t.id === teacherId);
+      let defaultSubject = '';
+      if (foundTeacher && foundTeacher.subject) {
+        defaultSubject = Array.isArray(foundTeacher.subject) 
+          ? foundTeacher.subject[0] 
+          : String(foundTeacher.subject).split(',')[0].trim();
+      }
+      return {
+        ...prev,
+        teacher_id: teacherId,
+        subject: defaultSubject,
+        is_custom_subject: false,
+        custom_subject_name: ''
+      };
+    });
+  };
+
+  const toggleDaySelection = (dayVal) => {
+    setFormData(prev => {
+      const currentConfigs = { ...prev.day_configs };
+      if (currentConfigs[dayVal]) {
+        delete currentConfigs[dayVal];
+      } else {
+        currentConfigs[dayVal] = { active: true, shift: 'morning', period: 1 };
+      }
+      return { ...prev, day_configs: currentConfigs };
+    });
+  };
+
+  const handleDayConfigChange = (dayVal, field, value) => {
+    setFormData(prev => ({
+      ...prev,
+      day_configs: {
+        ...prev.day_configs,
+        [dayVal]: {
+          ...prev.day_configs[dayVal],
+          [field]: value
         }
       }
-      return updated;
-    });
+    }));
   };
 
   const handleCreateSchedule = async (e) => {
     e.preventDefault();
+    const finalSubject = formData.is_custom_subject 
+      ? formData.custom_subject_name.trim() 
+      : formData.subject;
+
+    if (!finalSubject) {
+      showNotify('Vui lòng chọn hoặc nhập môn học.', 'error');
+      return;
+    }
+
+    if (Object.keys(formData.day_configs).length === 0) {
+      showNotify('Vui lòng chọn ít nhất 1 ngày học trong tuần.', 'error');
+      return;
+    }
+
     try {
       const headers = await getAuthHeaders();
+      const payload = {
+        class_id: formData.class_id,
+        teacher_id: formData.teacher_id,
+        subject: finalSubject,
+        session_date: formData.session_date,
+        room: formData.room,
+        repeat_count: Number(formData.repeat_count) || 1,
+        day_configs: formData.day_configs
+      };
+
       const res = await fetch('/api/admin/schedules', {
         method: 'POST',
         headers,
-        body: JSON.stringify(formData)
+        body: JSON.stringify(payload)
       });
       const result = await res.json();
+
       if (result.success) {
-        showNotify('Thêm lịch học thành công!');
+        showNotify(result.message || 'Thêm lịch học thành công!');
         setShowAddModal(false);
+        resetForm();
         fetchDataReal();
       } else {
         showNotify(result.message || 'Thêm thất bại', 'error');
       }
     } catch (err) {
-      showNotify('Lỗi kết nối server', 'error');
+      showNotify('Lỗi kết nối máy chủ', 'error');
     }
   };
 
-  const handleDateChange = (days) => {
+  const handleTimeNavigation = (direction) => {
     const d = new Date(selectedDate || new Date());
-    d.setDate(d.getDate() + days);
+    if (timeFilterMode === 'day') {
+      d.setDate(d.getDate() + direction);
+    } else if (timeFilterMode === 'week') {
+      d.setDate(d.getDate() + direction * 7);
+    } else if (timeFilterMode === 'month') {
+      d.setMonth(d.getMonth() + direction);
+    }
     setSelectedDate(d.toISOString().split('T')[0]);
   };
 
-  const formatDateLabel = (dateStr) => {
+  const formatDateLabel = () => {
     try {
-      if (!dateStr) return "Chọn ngày";
-      const date = new Date(dateStr);
-      return date.toLocaleDateString("vi-VN", {
-        weekday: "long",
-        day: "2-digit",
-        month: "2-digit",
-        year: "numeric",
-      });
+      if (!selectedDate) return "Chọn ngày";
+      const date = new Date(selectedDate);
+      if (timeFilterMode === 'day') {
+        return date.toLocaleDateString("vi-VN", { weekday: "long", day: "2-digit", month: "2-digit", year: "numeric" });
+      } else if (timeFilterMode === 'week') {
+        const startOfWeek = new Date(date);
+        startOfWeek.setDate(date.getDate() - date.getDay() + (date.getDay() === 0 ? -6 : 1));
+        const endOfWeek = new Date(startOfWeek);
+        endOfWeek.setDate(startOfWeek.getDate() + 5);
+        return `Tuần: ${startOfWeek.toLocaleDateString("vi-VN", {day: "2-digit", month: "2-digit"})} - ${endOfWeek.toLocaleDateString("vi-VN", {day: "2-digit", month: "2-digit", year: "numeric"})}`;
+      } else {
+        return date.toLocaleDateString("vi-VN", { month: "long", year: "numeric" });
+      }
     } catch (e) {
-      return dateStr;
+      return selectedDate;
     }
   };
 
@@ -215,6 +282,21 @@ export default function SessionDetailPanel() {
     ]
   };
 
+  const getDaysInCurrentWeek = () => {
+    const curr = new Date(selectedDate);
+    const week = [];
+    const firstDayOfWeek = curr.getDate() - curr.getDay() + (curr.getDay() === 0 ? -6 : 1);
+    
+    for (let i = 0; i < 6; i++) {
+      const nextDay = new Date(curr.setDate(firstDayOfWeek + i));
+      week.push({
+        dateStr: nextDay.toISOString().split('T')[0],
+        label: nextDay.toLocaleDateString("vi-VN", { weekday: "short", day: "2-digit", month: "2-digit" })
+      });
+    }
+    return week;
+  };
+
   const extractSessionDate = (s) => {
     if (s.session_date) return s.session_date.substring(0, 10);
     if (s.started_at) {
@@ -224,13 +306,24 @@ export default function SessionDetailPanel() {
     return '';
   };
 
-  const extractStartTime = (s) => {
-    if (s.start_time) return s.start_time;
-    if (s.started_at) {
-      const d = new Date(s.started_at);
-      if (!isNaN(d.getTime())) return d.toTimeString().substring(0, 5);
+  const getSessionStatusStyle = (sessionDate, startTimeStr, endTimeStr) => {
+    const todayStr = new Date().toISOString().split('T')[0];
+    const now = new Date();
+    const currentTimeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+
+    if (sessionDate < todayStr) {
+      return { bg: '#f1f5f9', border: '#cbd5e1', textBg: '#475569', statusText: 'Đã học xong', statusColor: '#64748b' };
     }
-    return '07:00';
+    if (sessionDate > todayStr) {
+      return { bg: '#eff6ff', border: '#bfdbfe', textBg: '#1e40af', statusText: 'Sắp tới', statusColor: '#2563eb' };
+    }
+    if (currentTimeStr > endTimeStr) {
+      return { bg: '#f1f5f9', border: '#cbd5e1', textBg: '#475569', statusText: 'Đã học xong', statusColor: '#64748b' };
+    } else if (currentTimeStr >= startTimeStr && currentTimeStr <= endTimeStr) {
+      return { bg: '#dcfce7', border: '#86efac', textBg: '#15803d', statusText: 'Đang hoạt động', statusColor: '#16a34a' };
+    } else {
+      return { bg: '#eff6ff', border: '#bfdbfe', textBg: '#1e40af', statusText: 'Sắp tới', statusColor: '#2563eb' };
+    }
   };
 
   const stats = {
@@ -238,6 +331,9 @@ export default function SessionDetailPanel() {
     morning: sessions.filter(s => (s.session_type || 'morning') === 'morning').length,
     afternoon: sessions.filter(s => (s.session_type || 'afternoon') === 'afternoon').length,
   };
+
+  const teacherSubjects = getSelectedTeacherSubjects();
+  const currentWeekDays = getDaysInCurrentWeek();
 
   return (
     <div className="session-management">
@@ -259,7 +355,7 @@ export default function SessionDetailPanel() {
         </button>
       </div>
 
-      {/* Thống kê tổng quan */}
+      {/* Thống kê */}
       <div className="session-statistics">
         <div className="session-stat-card">
           <div>
@@ -291,129 +387,242 @@ export default function SessionDetailPanel() {
         </div>
       </div>
 
-      {/* Card chứa bộ điều hướng ngày và lưới thời khóa biểu */}
+      {/* Card lịch học */}
       <div className="session-calendar-card">
         <div className="session-date-header" style={{ flexWrap: 'wrap', gap: '12px' }}>
-          <div className="session-date-navigation" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <button onClick={() => handleDateChange(-1)} className="session-date-btn" title="Ngày trước">‹</button>
-            <div className="session-current-date">{formatDateLabel(selectedDate)}</div>
-            <button onClick={() => handleDateChange(1)} className="session-date-btn" title="Ngày sau">›</button>
-            
-            {/* Biểu tượng cuốn lịch chọn ngày nhanh */}
-            <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
-              <div 
-                className="session-date-btn" 
-                style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-                title="Chọn ngày nhanh"
-                onClick={() => {
-                  const dateInput = document.getElementById('quick-date-picker');
-                  if (dateInput && typeof dateInput.showPicker === 'function') dateInput.showPicker();
-                  else if (dateInput) dateInput.click();
-                }}
-              >
-                <Calendar size={18} />
-              </div>
-              <input 
-                id="quick-date-picker"
-                type="date"
-                value={selectedDate}
-                onChange={(e) => { if (e.target.value) setSelectedDate(e.target.value); }}
-                style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', opacity: 0, cursor: 'pointer', zIndex: 2 }}
-              />
+          
+          {/* Nút điều hướng < > và bộ lọc Ngày / Tuần / Tháng */}
+          <div className="session-date-navigation" style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', background: '#f1f5f9', padding: '3px', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+              <button onClick={() => setTimeFilterMode('day')} style={{ padding: '5px 10px', fontSize: '12px', fontWeight: 600, borderRadius: '6px', border: 'none', background: timeFilterMode === 'day' ? '#2563eb' : 'transparent', color: timeFilterMode === 'day' ? '#fff' : '#64748b', cursor: 'pointer' }}>Ngày</button>
+              <button onClick={() => setTimeFilterMode('week')} style={{ padding: '5px 10px', fontSize: '12px', fontWeight: 600, borderRadius: '6px', border: 'none', background: timeFilterMode === 'week' ? '#2563eb' : 'transparent', color: timeFilterMode === 'week' ? '#fff' : '#64748b', cursor: 'pointer' }}>Tuần</button>
+              <button onClick={() => setTimeFilterMode('month')} style={{ padding: '5px 10px', fontSize: '12px', fontWeight: 600, borderRadius: '6px', border: 'none', background: timeFilterMode === 'month' ? '#2563eb' : 'transparent', color: timeFilterMode === 'month' ? '#fff' : '#64748b', cursor: 'pointer' }}>Tháng</button>
             </div>
 
+            <button 
+              onClick={() => handleTimeNavigation(-1)} 
+              className="session-date-btn" 
+              title="Trước"
+              style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: '36px', height: '36px', padding: 0 }}
+            >
+              ‹
+            </button>
+            <div className="session-current-date" style={{ fontWeight: '600', color: '#0f172a', fontSize: '14px' }}>{formatDateLabel()}</div>
+            <button 
+              onClick={() => handleTimeNavigation(1)} 
+              className="session-date-btn" 
+              title="Sau"
+              style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: '36px', height: '36px', padding: 0 }}
+            >
+              ›
+            </button>
+            
             <button onClick={() => setSelectedDate(new Date().toISOString().split('T')[0])} className="session-today-btn">
               Hôm nay
             </button>
           </div>
 
-          <div style={{ display: 'flex', gap: '8px' }}>
-            <button onClick={() => setSelectedShift('morning')} className={`session-today-btn ${selectedShift === 'morning' ? 'active' : ''}`}>
-              ☀️ Buổi Sáng
-            </button>
-            <button onClick={() => setSelectedShift('afternoon')} className={`session-today-btn ${selectedShift === 'afternoon' ? 'active' : ''}`}>
-              🌙 Buổi Chiều
-            </button>
-            <button onClick={fetchDataReal} className="session-date-btn" title="Làm mới">
+          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
+            {/* Chế độ Theo lớp / Theo giáo viên */}
+            <div style={{ display: 'flex', background: '#f1f5f9', padding: '3px', borderRadius: '8px', border: '1px solid #e2e8f0', minWidth: '220px' }}>
+              <button 
+                onClick={() => setViewMode('class')} 
+                style={{ flex: 1, textAlign: 'center', padding: '6px 12px', fontSize: '13px', fontWeight: 600, borderRadius: '6px', border: 'none', background: viewMode === 'class' ? '#2563eb' : 'transparent', color: viewMode === 'class' ? '#fff' : '#64748b', cursor: 'pointer' }}
+              >
+                Theo lớp
+              </button>
+              <button 
+                onClick={() => setViewMode('teacher')} 
+                style={{ flex: 1, textAlign: 'center', padding: '6px 12px', fontSize: '13px', fontWeight: 600, borderRadius: '6px', border: 'none', background: viewMode === 'teacher' ? '#2563eb' : 'transparent', color: viewMode === 'teacher' ? '#fff' : '#64748b', cursor: 'pointer' }}
+              >
+                Theo giáo viên
+              </button>
+            </div>
+
+            {timeFilterMode === 'day' && (
+              <>
+                <button onClick={() => setSelectedShift('morning')} className={`session-today-btn ${selectedShift === 'morning' ? 'active' : ''}`}>Buổi Sáng</button>
+                <button onClick={() => setSelectedShift('afternoon')} className={`session-today-btn ${selectedShift === 'afternoon' ? 'active' : ''}`}>Buổi Chiều</button>
+              </>
+            )}
+            <button onClick={fetchDataReal} className="session-date-btn" title="Làm mới" style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: '36px', height: '36px' }}>
               <RefreshCw size={16} />
             </button>
           </div>
         </div>
 
-        {/* Bảng lưới thời khóa biểu */}
+        {/* LƯỚI HIỂN THỊ THỜI KHÓA BIỂU (Tối ưu hiển thị Sáng/Chiều cho Tuần và Tháng) */}
         <div className="session-calendar-wrapper" style={{ overflowX: 'auto', padding: '16px' }}>
           {loading ? (
             <div style={{ textAlign: 'center', padding: '40px', color: '#64748b' }}>Đang tải dữ liệu từ database...</div>
-          ) : classList.length === 0 ? (
-            <div style={{ textAlign: 'center', padding: '40px', color: '#94a3b8' }}>Chưa có lớp học nào trong cơ sở dữ liệu.</div>
           ) : (
             <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: '950px' }}>
               <thead>
                 <tr style={{ background: '#f8fafc', borderBottom: '2px solid #e2e8f0' }}>
-                  <th style={{ padding: '12px', borderRight: '1px solid #e2e8f0', width: '150px', textAlign: 'center', color: '#0f172a', fontSize: '14px' }}>Lớp học</th>
-                  {periodsConfig[selectedShift].map((p) => (
+                  <th style={{ padding: '12px', borderRight: '1px solid #e2e8f0', width: '160px', textAlign: 'center', color: '#0f172a', fontSize: '14px' }}>
+                    {viewMode === 'class' ? 'Lớp học' : 'Giáo viên'}
+                  </th>
+                  
+                  {/* Xem theo Ngày */}
+                  {timeFilterMode === 'day' && periodsConfig[selectedShift].map((p) => (
                     <th key={p.period} style={{ padding: '12px', borderRight: '1px solid #e2e8f0', textAlign: 'center', color: '#475569', fontSize: '13px' }}>
                       <div style={{ fontWeight: 700, color: '#1e293b' }}>Tiết {p.period}</div>
                       <div style={{ fontSize: '11px', fontWeight: 500, color: '#64748b', marginTop: '2px' }}>{p.time}</div>
                     </th>
                   ))}
+
+                  {/* Xem theo Tuần */}
+                  {timeFilterMode === 'week' && currentWeekDays.map((dayObj) => (
+                    <th key={dayObj.dateStr} style={{ padding: '12px', borderRight: '1px solid #e2e8f0', textAlign: 'center', color: '#475569', fontSize: '13px' }}>
+                      <div style={{ fontWeight: 700, color: '#1e293b' }}>{dayObj.label}</div>
+                    </th>
+                  ))}
+
+                  {/* Xem theo Tháng */}
+                  {timeFilterMode === 'month' && (
+                    <th style={{ padding: '12px', textAlign: 'center', color: '#475569', fontSize: '13px' }}>
+                      Danh sách các buổi học trong tháng (Sáng & Chiều)
+                    </th>
+                  )}
                 </tr>
               </thead>
               <tbody>
-                {classList.map((cls) => {
-                  const classId = cls.id;
-                  const className = cls.name || cls.class_name || classId;
+                {(viewMode === 'class' ? classList : teacherList).map((item) => {
+                  const itemId = item.id;
+                  const itemName = viewMode === 'class' ? (item.name || item.class_name || itemId) : (item.name || item.full_name || itemId);
 
                   return (
-                    <tr key={classId} style={{ borderBottom: '1px solid #e2e8f0' }}>
+                    <tr key={itemId} style={{ borderBottom: '1px solid #e2e8f0' }}>
                       <td style={{ padding: '14px', background: '#f8fafc', borderRight: '1px solid #e2e8f0', fontWeight: 700, color: '#2563eb', textAlign: 'center' }}>
-                        {className}
+                        {itemName}
                       </td>
-                      {periodsConfig[selectedShift].map((p) => {
+
+                      {/* HIỂN THỊ THEO NGÀY */}
+                      {timeFilterMode === 'day' && periodsConfig[selectedShift].map((p) => {
                         const matchedSession = sessions.find(s => {
                           const sDate = extractSessionDate(s);
-                          const sClassId = s.class_id;
                           const sShift = s.session_type || 'morning';
-                          
-                          let sPeriod = Number(s.period);
-                          const timeStr = extractStartTime(s);
-                          
-                          if (!sPeriod && timeStr) {
-                            const [h, m] = timeStr.split(':').map(Number);
-                            if (sShift === 'morning') {
-                              if (h === 7 && m <= 45) sPeriod = 1;
-                              else if ((h === 7 && m >= 55) || (h === 8 && m <= 40)) sPeriod = 2;
-                              else if ((h === 8 && m >= 50) || (h === 9 && m <= 35)) sPeriod = 3;
-                              else if ((h === 9 && m >= 45) || (h === 10 && m <= 30)) sPeriod = 4;
-                              else if (h >= 10) sPeriod = 5;
-                            } else {
-                              if (h === 13 && m <= 45) sPeriod = 1;
-                              else if ((h === 13 && m >= 55) || (h === 14 && m <= 40)) sPeriod = 2;
-                              else if ((h === 14 && m >= 50) || (h === 15 && m <= 35)) sPeriod = 3;
-                              else if ((h === 15 && m >= 45) || (h === 16 && m <= 30)) sPeriod = 4;
-                              else if (h >= 16) sPeriod = 5;
-                            }
-                          }
-
-                          return sDate === selectedDate && sClassId === classId && sShift === selectedShift && sPeriod === p.period;
+                          const sPeriod = Number(s.period || 1);
+                          const matchesCondition = viewMode === 'class' ? (s.class_id === itemId) : (s.teacher_id === itemId);
+                          return sDate === selectedDate && matchesCondition && sShift === selectedShift && sPeriod === p.period;
                         });
+
+                        const sessionStyle = matchedSession ? getSessionStatusStyle(selectedDate, p.time.split(' - ')[0], p.time.split(' - ')[1]) : null;
 
                         return (
                           <td key={p.period} style={{ padding: '6px', borderRight: '1px solid #e2e8f0', verticalAlign: 'top', height: '95px', width: '190px', background: '#fff' }}>
                             {matchedSession ? (
-                              <div style={{ background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: '8px', padding: '8px', height: '100%', boxSizing: 'border-box', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', overflow: 'hidden' }}>
-                                <div style={{ fontWeight: 700, fontSize: '13px', color: '#1e293b', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{matchedSession.subject || 'Môn học'}</div>
-                                <div style={{ fontSize: '11px', color: '#475569' }}>Phòng: <strong style={{ color: '#1e293b' }}>{matchedSession.room || cls.room || 'P101'}</strong></div>
-                                <div style={{ fontSize: '11px', color: '#475569', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>GV: <strong style={{ color: '#1e293b' }}>{getTeacherName(matchedSession.teacher_id)}</strong></div>
+                              <div 
+                                onClick={() => setSelectedSessionDetail(matchedSession)}
+                                style={{ background: sessionStyle.bg, border: `1px solid ${sessionStyle.border}`, borderRadius: '8px', padding: '8px', height: '100%', boxSizing: 'border-box', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', cursor: 'pointer' }}
+                              >
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                  <div style={{ fontWeight: 700, fontSize: '13px', color: sessionStyle.textBg, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{matchedSession.subject}</div>
+                                  <span style={{ fontSize: '10px', fontWeight: 'bold', color: sessionStyle.statusColor, background: '#fff', padding: '2px 6px', borderRadius: '4px' }}>{sessionStyle.statusText}</span>
+                                </div>
+                                <div style={{ fontSize: '11px', color: '#475569' }}>
+                                  {viewMode === 'class' ? 'GV: ' : 'Lớp: '} <strong style={{ color: '#1e293b' }}>{viewMode === 'class' ? getTeacherName(matchedSession.teacher_id) : getClassName(matchedSession.class_id)}</strong>
+                                </div>
+                                <div style={{ fontSize: '11px', color: '#475569' }}>Phòng: <strong style={{ color: '#1e293b' }}>{matchedSession.room || '301'}</strong></div>
                               </div>
                             ) : (
-                              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: '#cbd5e1', fontSize: '12px', border: '1px dashed #f1f5f9', borderRadius: '8px' }}>
-                                Trống
-                              </div>
+                              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: '#cbd5e1', fontSize: '12px', border: '1px dashed #f1f5f9', borderRadius: '8px' }}>Trống</div>
                             )}
                           </td>
                         );
                       })}
+
+                      {/* HIỂN THỊ THEO TUẦN (Tối ưu hiển thị Sáng/Chiều rõ ràng) */}
+                      {timeFilterMode === 'week' && currentWeekDays.map((dayObj) => {
+                        const daySessions = sessions.filter(s => {
+                          const sDate = extractSessionDate(s);
+                          const matchesCondition = viewMode === 'class' ? (s.class_id === itemId) : (s.teacher_id === itemId);
+                          return sDate === dayObj.dateStr && matchesCondition;
+                        });
+
+                        return (
+                          <td key={dayObj.dateStr} style={{ padding: '6px', borderRight: '1px solid #e2e8f0', verticalAlign: 'top', minHeight: '95px', width: '150px', background: '#fff' }}>
+                            {daySessions.length > 0 ? (
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                                {daySessions.map(sess => {
+                                  const isMorning = (sess.session_type || 'morning') === 'morning';
+                                  return (
+                                    <div 
+                                      key={sess.id} 
+                                      onClick={() => setSelectedSessionDetail(sess)}
+                                      style={{ 
+                                        background: isMorning ? '#eff6ff' : '#fef3c7', 
+                                        border: `1px solid ${isMorning ? '#bfdbfe' : '#fde68a'}`, 
+                                        borderRadius: '6px', 
+                                        padding: '6px', 
+                                        cursor: 'pointer', 
+                                        fontSize: '11px' 
+                                      }}
+                                    >
+                                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                        <strong style={{ color: isMorning ? '#1e40af' : '#b45309' }}>{sess.subject}</strong>
+                                        <span style={{ fontSize: '9px', fontWeight: 'bold', padding: '1px 4px', background: '#fff', borderRadius: '3px', color: isMorning ? '#2563eb' : '#d97706' }}>
+                                          {isMorning ? 'Sáng' : 'Chiều'}
+                                        </span>
+                                      </div>
+                                      <div style={{ color: '#475569', marginTop: '2px' }}>Tiết {sess.period} • P.{sess.room || '301'}</div>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            ) : (
+                              <div style={{ textAlign: 'center', color: '#cbd5e1', fontSize: '11px', padding: '20px 0' }}>Không có lịch</div>
+                            )}
+                          </td>
+                        );
+                      })}
+
+                      {/* HIỂN THỊ THEO THÁNG (Tối ưu phân biệt Sáng/Chiều trực quan) */}
+                      {timeFilterMode === 'month' && (
+                        <td style={{ padding: '10px', background: '#fff' }}>
+                          {(() => {
+                            const currentMonthPrefix = selectedDate ? selectedDate.substring(0, 7) : ''; 
+                            const monthSessions = sessions.filter(s => {
+                              const sDate = extractSessionDate(s);
+                              const matchesCondition = viewMode === 'class' ? (s.class_id === itemId) : (s.teacher_id === itemId);
+                              return sDate && sDate.startsWith(currentMonthPrefix) && matchesCondition;
+                            });
+                            return (
+                              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                                {monthSessions.length > 0 ? monthSessions.map(sess => {
+                                  const sDate = extractSessionDate(sess);
+                                  const dayPart = sDate.length >= 10 ? sDate.substring(8, 10) : '01';
+                                  const monthPart = sDate.length >= 7 ? sDate.substring(5, 7) : '01';
+                                  const isMorning = (sess.session_type || 'morning') === 'morning';
+                                  
+                                  return (
+                                    <span 
+                                      key={sess.id} 
+                                      onClick={() => setSelectedSessionDetail(sess)}
+                                      style={{ 
+                                        background: isMorning ? '#f1f5f9' : '#fef9c3', 
+                                        border: `1px solid ${isMorning ? '#cbd5e1' : '#fde047'}`, 
+                                        borderRadius: '4px', 
+                                        padding: '4px 8px', 
+                                        fontSize: '12px', 
+                                        cursor: 'pointer',
+                                        display: 'inline-flex',
+                                        alignItem: 'center',
+                                        gap: '4px'
+                                      }}
+                                    >
+                                      <strong>{dayPart}/{monthPart}:</strong> {sess.subject || 'Môn học'} 
+                                      <span style={{ fontSize: '10px', color: isMorning ? '#2563eb' : '#d97706', fontWeight: 600 }}>
+                                        ({isMorning ? 'Sáng' : 'Chiều'} - Tiết {sess.period || 1})
+                                      </span>
+                                    </span>
+                                  );
+                                }) : <span style={{ color: '#94a3b8', fontSize: '12px' }}>Chưa có lịch học trong tháng này.</span>}
+                              </div>
+                            );
+                          })()}
+                        </td>
+                      )}
                     </tr>
                   );
                 })}
@@ -423,138 +632,171 @@ export default function SessionDetailPanel() {
         </div>
       </div>
 
-      {/* Modal Thêm Lịch Học */}
+      {/* MODAL THÊM LỊCH HỌC MỚI */}
       {showAddModal && (
         <div className="session-modal-overlay">
-          <div className="session-modal">
+          <div className="session-modal" style={{ maxWidth: '620px' }}>
             <div className="session-modal-header">
               <div>
                 <h2>Thêm lịch học mới</h2>
-                <p>Phân bổ lịch học theo đúng khung giờ và lớp học.</p>
+                <p>Phân bổ lịch học tự động theo tuần, số lần lặp lại và tiết học.</p>
               </div>
-              <button onClick={() => setShowAddModal(false)} className="session-modal-close"><X size={18} /></button>
+              <button onClick={() => { setShowAddModal(false); resetForm(); }} className="session-modal-close"><X size={18} /></button>
             </div>
             <form onSubmit={handleCreateSchedule}>
-              <div className="session-modal-content">
-                <div className="session-form-group">
-                  <label>Môn học *</label>
-                  <input 
-                    type="text" required className="session-form-control"
-                    value={formData.subject} onChange={(e) => handleFormChange('subject', e.target.value)}
-                    placeholder="Ví dụ: Toán, Ngữ Văn..."
-                  />
-                </div>
+              <div className="session-modal-content" style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                
                 <div className="session-form-grid">
-                  <div className="session-form-group">
-                    <label>Ngày học *</label>
-                    <input 
-                      type="date" required className="session-form-control"
-                      value={formData.session_date} onChange={(e) => handleFormChange('session_date', e.target.value)}
-                    />
-                  </div>
-                  <div className="session-form-group">
-                    <label>Buổi học</label>
-                    <select 
-                      className="session-form-control"
-                      value={formData.morning_or_afternoon} 
-                      onChange={(e) => {
-                        const newShift = e.target.value;
-                        const defaultSlot = periodsConfigMap[newShift]?.[1] || { start: '07:00', end: '07:45' };
-                        setFormData(prev => ({
-                          ...prev,
-                          morning_or_afternoon: newShift,
-                          period: 1,
-                          start_time: defaultSlot.start,
-                          end_time: defaultSlot.end
-                        }));
-                      }}
-                    >
-                      <option value="morning">Buổi Sáng</option>
-                      <option value="afternoon">Buổi Chiều</option>
-                    </select>
-                  </div>
-                </div>
-
-                <div className="session-form-grid">
-                  <div className="session-form-group">
-                    <label>Tiết số (1-5) *</label>
-                    <select 
-                      className="session-form-control"
-                      value={formData.period} 
-                      onChange={(e) => handleFormChange('period', Number(e.target.value))}
-                    >
-                      {Object.entries(periodsConfigMap[formData.morning_or_afternoon] || {}).map(([pNum, slot]) => (
-                        <option key={pNum} value={Number(pNum)}>
-                          Tiết {pNum} ({slot.start} - {slot.end})
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  <div className="session-form-group">
-                    <label>Phòng học *</label>
-                    <select 
-                      required className="session-form-control"
-                      value={formData.room} onChange={(e) => handleFormChange('room', e.target.value)}
-                    >
-                      <option value="">-- Chọn phòng học --</option>
-                      {roomList.map(room => (
-                        <option key={room.id} value={room.id}>{room.name || room.id}</option>
-                      ))}
-                    </select>
-                  </div>
-                </div>
-
-                <div className="session-form-grid">
-                  <div className="session-form-group">
-                    <label>Thời gian bắt đầu</label>
-                    <input 
-                      type="time" className="session-form-control"
-                      value={formData.start_time} 
-                      onChange={(e) => handleFormChange('start_time', e.target.value)}
-                    />
-                  </div>
-                  <div className="session-form-group">
-                    <label>Thời gian kết thúc</label>
-                    <input 
-                      type="time" className="session-form-control"
-                      value={formData.end_time} 
-                      onChange={(e) => handleFormChange('end_time', e.target.value)}
-                    />
-                  </div>
-                </div>
-
-                <div className="session-form-grid">
-                  <div className="session-form-group">
-                    <label>Chọn Lớp học *</label>
-                    <select 
-                      required className="session-form-control"
-                      value={formData.class_id} onChange={(e) => handleFormChange('class_id', e.target.value)}
-                    >
-                      <option value="">-- Chọn lớp học --</option>
-                      {classList.map(cls => (
-                        <option key={cls.id} value={cls.id}>{cls.name || cls.class_name || cls.id}</option>
-                      ))}
-                    </select>
-                  </div>
                   <div className="session-form-group">
                     <label>Giáo viên giảng dạy *</label>
-                    <select 
-                      required className="session-form-control"
-                      value={formData.teacher_id} onChange={(e) => handleFormChange('teacher_id', e.target.value)}
-                    >
+                    <select required className="session-form-control" value={formData.teacher_id} onChange={(e) => handleTeacherChange(e.target.value)}>
                       <option value="">-- Chọn giáo viên --</option>
                       {teacherList.map(teacher => (
                         <option key={teacher.id} value={teacher.id}>{teacher.name || teacher.full_name || teacher.id}</option>
                       ))}
                     </select>
                   </div>
+
+                  <div className="session-form-group">
+                    <label>Môn học *</label>
+                    {!formData.is_custom_subject ? (
+                      <select required className="session-form-control" value={formData.subject} onChange={(e) => {
+                        if (e.target.value === '__OTHER__') {
+                          setFormData(prev => ({ ...prev, is_custom_subject: true, custom_subject_name: '' }));
+                        } else {
+                          setFormData(prev => ({ ...prev, subject: e.target.value }));
+                        }
+                      }}>
+                        <option value="">-- Chọn môn học --</option>
+                        {teacherSubjects.map((sub, i) => (<option key={i} value={sub}>{sub}</option>))}
+                        <option value="__OTHER__">+ Môn học khác / Dạy thế...</option>
+                      </select>
+                    ) : (
+                      <div style={{ display: 'flex', gap: '6px' }}>
+                        <input type="text" required className="session-form-control" placeholder="Nhập tên môn học..." value={formData.custom_subject_name} onChange={(e) => setFormData(prev => ({ ...prev, custom_subject_name: e.target.value }))} />
+                        <button type="button" className="session-secondary-btn" style={{ padding: '0 10px', fontSize: '12px' }} onClick={() => setFormData(prev => ({ ...prev, is_custom_subject: false }))}>Chọn lại</button>
+                      </div>
+                    )}
+                  </div>
                 </div>
+
+                <div className="session-form-grid">
+                  <div className="session-form-group">
+                    <label>Chọn Lớp học *</label>
+                    <select required className="session-form-control" value={formData.class_id} onChange={(e) => setFormData(prev => ({ ...prev, class_id: e.target.value }))}>
+                      <option value="">-- Chọn lớp học --</option>
+                      {classList.map(cls => (<option key={cls.id} value={cls.id}>{cls.name || cls.class_name || cls.id}</option>))}
+                    </select>
+                  </div>
+
+                  <div className="session-form-group">
+                    <label>Phòng học *</label>
+                    <select required className="session-form-control" value={formData.room} onChange={(e) => setFormData(prev => ({ ...prev, room: e.target.value }))}>
+                      <option value="">-- Chọn phòng học --</option>
+                      {roomList.map(room => (<option key={room.id} value={room.id}>{room.name || room.id}</option>))}
+                    </select>
+                  </div>
+                </div>
+
+                <div className="session-form-group">
+                  <label>Ngày bắt đầu (Buổi đầu tiên) *</label>
+                  <input type="date" required className="session-form-control" value={formData.session_date} onChange={(e) => setFormData(prev => ({ ...prev, session_date: e.target.value }))} />
+                </div>
+
+                <div style={{ background: '#f8fafc', padding: '14px', borderRadius: '10px', border: '1px solid #e2e8f0', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                  <label style={{ fontSize: '13px', fontWeight: '600', color: '#1e293b' }}>Chọn các ngày học trong tuần (Tùy chỉnh tiết riêng từng ngày)</label>
+                  
+                  <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                    {[
+                      { label: 'Thứ 2', val: 1 }, { label: 'Thứ 3', val: 2 }, { label: 'Thứ 4', val: 3 },
+                      { label: 'Thứ 5', val: 4 }, { label: 'Thứ 6', val: 5 }, { label: 'Thứ 7', val: 6 },
+                    ].map(day => {
+                      const isSelected = Boolean(formData.day_configs[day.val]);
+                      return (
+                        <button key={day.val} type="button" onClick={() => toggleDaySelection(day.val)} style={{ padding: '6px 14px', borderRadius: '6px', fontSize: '12px', fontWeight: '600', border: isSelected ? '1px solid #2563eb' : '1px solid #cbd5e1', background: isSelected ? '#2563eb' : '#fff', color: isSelected ? '#fff' : '#475569', cursor: 'pointer' }}>
+                          {day.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  {Object.keys(formData.day_configs).length > 0 && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '4px' }}>
+                      {Object.keys(formData.day_configs).sort().map(dayKey => {
+                        const dayNum = Number(dayKey);
+                        const dayNames = { 1: 'Thứ 2', 2: 'Thứ 3', 3: 'Thứ 4', 4: 'Thứ 5', 5: 'Thứ 6', 6: 'Thứ 7' };
+                        const config = formData.day_configs[dayKey];
+                        return (
+                          <div key={dayKey} style={{ display: 'flex', alignItems: 'center', gap: '10px', background: '#ffffff', padding: '8px 12px', borderRadius: '6px', border: '1px solid #e2e8f0' }}>
+                            <span style={{ fontSize: '12px', fontWeight: '700', color: '#2563eb', minWidth: '55px' }}>{dayNames[dayNum]}:</span>
+                            <select className="session-filter-select" style={{ height: '32px', fontSize: '12px', flex: 1 }} value={config.shift} onChange={(e) => handleDayConfigChange(dayKey, 'shift', e.target.value)}>
+                              <option value="morning">Buổi Sáng</option>
+                              <option value="afternoon">Buổi Chiều</option>
+                            </select>
+                            <select className="session-filter-select" style={{ height: '32px', fontSize: '12px', flex: 1 }} value={config.period} onChange={(e) => handleDayConfigChange(dayKey, 'period', Number(e.target.value))}>
+                              {Object.entries(periodsConfigMap[config.shift] || {}).map(([pNum, slot]) => (
+                                <option key={pNum} value={Number(pNum)}>Tiết {pNum} ({slot.start} - {slot.end})</option>
+                              ))}
+                            </select>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '6px', paddingTop: '8px', borderTop: '1px solid #e2e8f0' }}>
+                    <span style={{ fontSize: '13px', color: '#475569', fontWeight: '500' }}>Tổng số lần lặp lại (số buổi học):</span>
+                    <input type="number" min="1" max="100" className="session-form-control" style={{ width: '80px', textAlign: 'center', fontWeight: '700', height: '36px' }} value={formData.repeat_count} onChange={(e) => setFormData(prev => ({ ...prev, repeat_count: Math.max(1, Number(e.target.value)) }))} />
+                  </div>
+                </div>
+
               </div>
+
               <div className="session-modal-footer">
-                <button type="button" onClick={() => setShowAddModal(false)} className="session-secondary-btn">Hủy</button>
-                <button type="submit" className="session-primary-btn">Lưu lịch học</button>
+                <button type="button" onClick={() => { setShowAddModal(false); resetForm(); }} className="session-secondary-btn">Hủy</button>
+                <button type="submit" className="session-primary-btn">Tạo lịch tự động ({formData.repeat_count} buổi)</button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL XEM CHI TIẾT TIẾT HỌC */}
+      {selectedSessionDetail && (
+        <div className="session-modal-overlay" onClick={() => setSelectedSessionDetail(null)}>
+          <div className="session-modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '520px' }}>
+            <div className="session-modal-header">
+              <div>
+                <h2>Chi tiết tiết học</h2>
+                <p>Thông tin phòng học, giáo viên và lớp học.</p>
+              </div>
+              <button onClick={() => setSelectedSessionDetail(null)} className="session-modal-close"><X size={18} /></button>
+            </div>
+            <div className="session-modal-content" style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', background: '#f8fafc', padding: '10px 14px', borderRadius: '8px' }}>
+                <span style={{ color: '#64748b' }}>Môn học:</span>
+                <strong style={{ color: '#2563eb', fontSize: '15px' }}>{selectedSessionDetail.subject || 'Chưa cập nhật'}</strong>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', background: '#f8fafc', padding: '10px 14px', borderRadius: '8px' }}>
+                <span style={{ color: '#64748b' }}>Lớp học:</span>
+                <strong style={{ color: '#0f172a' }}>{getClassName(selectedSessionDetail.class_id)}</strong>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', background: '#f8fafc', padding: '10px 14px', borderRadius: '8px' }}>
+                <span style={{ color: '#64748b' }}>Giáo viên giảng dạy:</span>
+                <strong style={{ color: '#0f172a' }}>{getTeacherName(selectedSessionDetail.teacher_id)}</strong>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', background: '#f8fafc', padding: '10px 14px', borderRadius: '8px' }}>
+                <span style={{ color: '#64748b' }}>Phòng học:</span>
+                <strong style={{ color: '#0f172a' }}>{selectedSessionDetail.room || '301'}</strong>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', background: '#f8fafc', padding: '10px 14px', borderRadius: '8px' }}>
+                <span style={{ color: '#64748b' }}>Buổi & Ngày học:</span>
+                <strong style={{ color: '#0f172a' }}>{selectedSessionDetail.session_date} ({selectedSessionDetail.session_type === 'afternoon' ? 'Buổi Chiều' : 'Buổi Sáng'} - Tiết {selectedSessionDetail.period})</strong>
+              </div>
+            </div>
+            <div className="session-modal-footer">
+              <button type="button" className="session-secondary-btn" onClick={() => setSelectedSessionDetail(null)}>Đóng</button>
+            </div>
           </div>
         </div>
       )}

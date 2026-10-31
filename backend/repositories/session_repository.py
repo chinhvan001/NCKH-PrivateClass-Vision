@@ -26,7 +26,8 @@ class SessionRepository:
                     data = doc.to_dict() or {}
                     teachers.append({
                         "id": doc.id,
-                        "name": data.get("full_name") or data.get("name") or data.get("email") or doc.id
+                        "name": data.get("full_name") or data.get("name") or data.get("email") or doc.id,
+                        "subject": data.get("subject") or data.get("subjects") or ""
                     })
                 if teachers:
                     break
@@ -50,7 +51,7 @@ class SessionRepository:
             pass
         
         if not rooms_set:
-            rooms_set = {"P101", "P102", "P103", "P201", "P202", "Lab 1", "Lab 2"}
+            rooms_set = {"301", "302", "303", "401", "402", "Lab 1", "Lab 2"}
             
         return [{"id": r, "name": r} for r in sorted(rooms_set)]
 
@@ -61,29 +62,17 @@ class SessionRepository:
         return doc_ref, doc
 
     @staticmethod
-    def create_session(data):
-        session_ref = db.collection("sessions").document()
-        payload = {
-            "class_id": data.get("class_id"),
-            "teacher_id": data.get("teacher_id"),
-            "subject": data.get("subject"),
-            "session_date": data.get("session_date"),
-            "day_of_week": data.get("day_of_week"),
-            "session_type": data.get("morning_or_afternoon", "morning"),
-            "period": data.get("period", 1),
-            "start_time": data.get("start_time"),
-            "end_time": data.get("end_time"),
-            "room": data.get("room"),
-            "status": "scheduled",
-            "created_at": server_timestamp(),
-        }
-        session_ref.set(payload)
-        return session_ref
-
-    @staticmethod
-    def update_status(session_ref, update_data):
-        session_ref.update(update_data)
-        return session_ref.get()
+    def create_batch_sessions(sessions_payloads):
+        batch = db.batch()
+        created_ids = []
+        for payload in sessions_payloads:
+            doc_ref = db.collection("sessions").document()
+            payload["created_at"] = server_timestamp()
+            payload["status"] = "scheduled"
+            batch.set(doc_ref, payload)
+            created_ids.append(doc_ref.id)
+        batch.commit()
+        return created_ids
 
     @staticmethod
     def get_class_exists(class_id):
@@ -91,4 +80,7 @@ class SessionRepository:
 
     @staticmethod
     def get_teacher_exists(teacher_id):
-        return db.collection("teachers").document(teacher_id).get().exists
+        return (
+            db.collection("teachers").document(teacher_id).get().exists or
+            db.collection("users").document(teacher_id).get().exists
+        )
