@@ -11,9 +11,9 @@ Do not enable it in production until the *Blocker* items in `docs/cloud_data_com
 ```python
 from src.sync import FirestoreSink, firestore_client_from_env
 
-sink = FirestoreSink(firestore_client_from_env(), class_id, camera_id, retention_days=365)
+sink = FirestoreSink(firestore_client_from_env(), camera_id, retention_days=365)
 sink.start()  # background flush thread
-watch = sink.watch_sessions(runtime.on_sessions)  # {session_id: state} on every change
+watch = sink.watch_sessions(class_id, runtime.on_sessions)  # {session_id: state} on every change
 ...
 sink.set_result(result)  # SessionResult, overwrites session_results/{session_id}
 sink.set_evaluations(evaluations)  # SeatEvaluation per seat
@@ -45,18 +45,21 @@ Sessions, classes and seats belong to the web admin and the app (`docs/web_admin
 |---|---|---|
 | `sessions/{session_id}` | listens to those with its `class_id` | `status`, written by the web admin or app (`docs/edge_node.md`) |
 | `classes2/{class_id}` | reads `row_count`, `column_count` at session start | `config/class_layout.py`; a field projection, so `seat_map` (seat → student) is never read |
+| `classes2` (query) | while idle, when the local config leaves the class to the web admin: the class whose `camera_id` is this camera, asking for that field only | `config/class_layout.py::load_camera_class` |
+| `camera_configs/{camera_id}` | reads `source` when opening the camera, when the local config leaves it to the web admin | `config/class_layout.py::load_camera_setting`; `source` is the RTSP URL with the camera's password, never logged |
 | `session_results/{session_id}` | reads once at session start, then overwrites | `SessionResult.to_dict()` + `expire_at` |
 | `session_evaluations/{session_id}_{seat_id}` | overwrites | `SeatEvaluation.to_dict()` + `expire_at` |
+| `session_windows/{session_id}_{run}_{seq}` | creates | `SessionWindow.to_dict()` + `expire_at`: each seat's time in each posture state over ~10 s, for the web backend's scoring |
 | `sessions/{session_id}/alerts/{doc_id}` | creates | `AlertEvent.to_dict()` + `expire_at` |
 | `edge_nodes/{camera_id}` | overwrites | `EdgeHeartbeat.to_dict()` |
 
-`doc_id` is a random UUID assigned when the alert is queued. Documents contain exactly the schema's fields; the sink adds only `expire_at` (queue time + `retention_days`) to session documents, for a Firestore TTL policy.
+`doc_id` is a random UUID assigned when the alert is queued. A window's ID is fixed by its `run` (8 hex characters, new each time the edge node starts or resumes the session) and `seq` (0, 1, 2, … on five digits), so a retried commit overwrites instead of duplicating. Documents contain exactly the schema's fields; the sink adds only `expire_at` (queue time + `retention_days`) to session documents, for a Firestore TTL policy.
 
 ## Delivery behaviour
 
 | Concern | Behaviour | Default |
 |---|---|---|
-| Upload rate | The runtime writes `session_results` every 10 s of monitored time and `session_evaluations` every 5 minutes and at session end. Per-seat records never leave the edge node. For 40 seats and a 45-minute session this is about 950 writes including heartbeats. | |
+| Upload rate | The runtime writes `session_results` and one `session_windows` document every 10 s of monitored time, and `session_evaluations` every 5 minutes and at session end. Windows add about 270 writes per 45-minute session. Per-seat records never leave the edge node. For 40 seats and a 45-minute session this is about 950 writes including heartbeats. | |
 | Overwritten documents | Results, evaluations and the heartbeat keep only their latest version per path in RAM. A newer version replaces one that has not been sent, so an outage never piles up stale snapshots. | |
 | Batching | Up to `batch_size` writes per `WriteBatch` commit: alerts first, then overwritten documents. | 500 (Firestore maximum) |
 | Flush timing | Every `flush_interval_sec`. A new alert or an end-of-session result wakes the thread at once, to meet QA01 (alerts in under 1 s). | 2 s |
@@ -64,7 +67,7 @@ Sessions, classes and seats belong to the web admin and the app (`docs/web_admin
 | Duplicates | Alert IDs are fixed when an alert is queued, and the other documents have deterministic paths. Retrying after an ambiguous failure (the server committed but the client timed out) overwrites the same documents instead of duplicating them. | |
 | Rejected data | On HTTP 400 or a client-side encoding error, the batch is dropped and logged, so one bad batch cannot block the queue forever. | |
 | Offline queue (UC02 alternate flow) | Alerts: at most `max_queue`, in RAM; when full the oldest is dropped and counted in `dropped`. Overwritten documents: one per path. | 20,000 alerts |
-| Session listener | A Firestore watch on `sessions` where `class_id` is this node's class. It maps `status` to the runtime's states (`running` → `active`, `completed` → `ended`, and the older `live`/`ended` the same way; anything else unchanged). It dies when the network drops; the runtime subscribes again once flushes succeed (`docs/edge_node.md`, Known limits). | |
+| Session listener | A Firestore watch on `sessions` where `class_id` is this node's class. It maps `status` to the runtime's states (`running` → `active`, `completed` → `ended`, and the older `live`/`ended` the same way; anything else unchanged). It dies when the network drops; the runtime subscribes again once flushes succeed (`docs/edge_node.md`, Known limits), and for the new class when the class set on the web admin changes between sessions. | |
 | Logging | Only the error type and queue counters. Never document contents or server error messages, which may echo them. | |
 
 Limits:

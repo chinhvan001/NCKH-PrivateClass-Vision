@@ -1,16 +1,16 @@
 # Local config schema
 
-Copy `local_pipeline.example.json` to a local file that stays out of Git (for example `local_pipeline.json`). The camera source is not in the JSON: put it in the environment variable named by `camera.source_env`, for example:
+Copy `local_pipeline.example.json` to a local file (for example `local_pipeline.json`; every JSON file here except the example is gitignored) and set `camera.camera_id`. The camera's class and RTSP URL are added on the web admin's camera page, so the example leaves `camera.class_id` and `camera.source_env` at `null`. Then start the edge node with `python -m src.main --config config/local_pipeline.json` (`docs/edge_node.md`, Connect the camera).
+
+To keep them on the edge node instead, set `camera.class_id`, and put the source in the environment variable named by `camera.source_env`; the JSON never holds the source itself:
 
 ```powershell
 $env:CAMERA_ROOM_201_SOURCE = "rtsp://..."
 ```
 
-Then start the edge node with `python -m src.main --config config/local_pipeline.json` (see `docs/edge_node.md`).
-
 Sections (`schema_version` 2):
 
-- `camera`: `camera_id` (for example `Camera 201`, also the name of the heartbeat document `edge_nodes/{camera_id}`), `class_id` (the `classes` document of the class taught in this room), resolution, the **name** of the environment variable holding the camera source, and `angle_type` (`frontal` or `top_down`; back-turn detection runs only for `frontal`).
+- `camera`: `camera_id` (for example `Camera 201`, also the name of the heartbeat document `edge_nodes/{camera_id}` and of the camera on the web admin), `class_id` (the `classes2` document of the class taught in this room, or `null` for the class set on the web admin), resolution, the **name** of the environment variable holding the camera source (or `null` for the URL entered on the web admin), and `angle_type` (`frontal` or `top_down`; back-turn detection runs only for `frontal`).
 - `seating.corner_seats`: pixel position, in the camera image, of the centre of the four corner seats, or `null` when an admin draws the seats on the web admin's camera page (see below).
 - `sampling`: capture FPS, and run pose inference on every n-th frame.
 - `thresholds`: pose and alert thresholds.

@@ -1,6 +1,6 @@
 # Firestore Access Review: Edge Node
 
-Prepared 2026-10-04 for the review with the Firebase owner, updated 2026-10-17 for the team's Firestore schema 2026-10-23 for the web admin's `classes2` seat plan and 2026-10-25 for seats drawn on the web (`seat_regions`). It covers how the camera-ai edge node authenticates to Firestore, and the Security Rules draft for the paths camera-ai uses (`config/firestore.rules`). Decisions from the review update `cloud_data_compliance_checklist.md` §3.7.
+Prepared 2026-10-04 for the review with the Firebase owner, updated 2026-10-17 for the team's Firestore schema 2026-10-23 for the web admin's `classes2` seat plan 2026-10-25 for seats drawn on the web (`seat_regions`) and 2026-10-27 for cameras added on the web (`camera_configs`). It covers how the camera-ai edge node authenticates to Firestore, and the Security Rules draft for the paths camera-ai uses (`config/firestore.rules`). Decisions from the review update `cloud_data_compliance_checklist.md` §3.7.
 
 ## 1. Current setup
 
@@ -11,12 +11,14 @@ Prepared 2026-10-04 for the review with the Firebase owner, updated 2026-10-17 f
 | Path | Edge access | Data |
 |---|---|---|
 | `sessions/{s}` | listen (query `class_id == c`) | Session `status`, written by the web admin or app. The document also holds `teacher_id`, `subject`, `started_at`, `ended_at`. |
-| `classes2/{c}` | read `row_count`, `column_count` | Class document. It also holds `seat_map` (seat → student ID); the edge node asks for the two counts only. |
+| `classes2/{c}` | query `camera_id == own camera_id` asking for `camera_id` only; read `row_count`, `column_count` | Class document. It also holds `seat_map` (seat → student ID); the edge node asks for those fields only. |
 | `session_results/{s}` | read once, overwrite | `SessionResult` |
 | `session_evaluations/{s}_{seat}` | overwrite | `SeatEvaluation` |
+| `session_windows/{s}_{run}_{seq}` | create | `SessionWindow`: per-seat posture time every 10 s, for the web backend's scoring |
 | `sessions/{s}/alerts/{id}` | create | `AlertEvent` |
 | `edge_nodes/{camera_id}` | overwrite | `EdgeHeartbeat`. Device status only. |
 | `seat_regions/{camera_id}` | read `class_id`, `image_width`, `image_height`, `seats` | Seat rectangles an admin drew on the web admin's camera page. Coordinates only; the edge node does not ask for `updated_by`. |
+| `camera_configs/{camera_id}` | read `source` | The camera's RTSP URL, its user and password included, set on the web admin. Written by the web backend. |
 
 These paths live in the same database as the team's personal data: `students` (full name, birthday, gender), `parents` (name, email), `teachers` (email, phone) and `admins`.
 
@@ -24,12 +26,12 @@ These paths live in the same database as the team's personal data: `students` (f
 
 Security Rules apply only to requests from client SDKs (Firebase Auth users). Server libraries, the Admin SDK included, bypass them, and only IAM controls their access. IAM cannot be limited to a document path: `roles/datastore.user`, the narrowest predefined role that can write, can read and write the whole database.
 
-So anyone who copies the key from a classroom edge box can read and write the whole database: students' names and birthdays, parents' emails, and the seat→student mapping that turns pseudonymous seat IDs back into students (checklist §3.2).
+So anyone who copies the key from a classroom edge box can read and write the whole database: students' names and birthdays, parents' emails, the seat→student mapping that turns pseudonymous seat IDs back into students (checklist §3.2), and every camera's RTSP URL and password (`camera_configs`).
 
 | Option | What changes | Result | Cost |
 |---|---|---|---|
 | A. Isolate by database or project | Keep the Admin SDK. Everything the edge reads or writes lives in a Firestore database or Firebase project that holds no personal data, and the edge account is granted access only there. | A stolen key exposes the session data of all classes, but no personal data. | High with the team's schema: the web backend would have to mirror every session and seat plan into the second database and read the edge output from there. |
-| B. Edge signs in as a Firebase Auth user | An admin mints a custom token per edge node with claims `{role: "edge", class_id, camera_id}`. The edge node exchanges it once for an ID token and a refresh token kept on the device, and writes through the Firestore REST API, so Rules apply. | Rules allow each node only its own class's sessions and seats and its own outputs, with field allowlists. A lost device is revoked in Firebase Auth. | Medium: a one-off token script for admins, and a REST client behind the sink's `client` interface. |
+| B. Edge signs in as a Firebase Auth user | An admin mints a custom token per edge node with claims `{role: "edge", camera_id}`; the Rules find its class through `classes2/{c}.camera_id`, so moving a camera to another class needs no new token. The edge node exchanges it once for an ID token and a refresh token kept on the device, and writes through the Firestore REST API, so Rules apply. | Rules allow each node only its own class's sessions and seats and its own outputs, with field allowlists. A lost device is revoked in Firebase Auth. | Medium: a one-off token script for admins, and a REST client behind the sink's `client` interface. |
 | C. Edge writes through the backend | Follows architecture §5.1 (edge → Flask backend → Firebase). Only the backend holds a service account. | The edge holds a revocable, class-scoped API token. | High: new backend endpoints for every edge read and write. |
 
 Recommendation (changed on 2026-10-17 from A): **B**. With personal data and session data in one database, A needs a mirror that the team does not have, while B needs nothing from the web side. `config/firestore.rules` already holds the edge rules for B, tested on the emulator. Until B ships, run the Admin SDK only against a test project without real student data. Whatever is chosen:
@@ -47,12 +49,15 @@ Recommendation (changed on 2026-10-17 from A): **B**. With personal data and ses
 |---|---|---|---|---|
 | `sessions/{s}` | read | read own (`teacher_id`); change only `status`, `started_at`, `ended_at`: `scheduled` → `running` or `cancelled`, `running` → `paused` or `completed`, `paused` → `running` or `completed` | none | read own class (`class_id`) |
 | `classes2/{c}` | read; change only `seat_map`, `updated_at` | read; change only `seat_map`, `updated_at` as the homeroom teacher (`classes2/{c}.teacher_id`) | none | read own class. Rules cannot hide `seat_map` from it; the edge node asks for the counts only |
-| `session_rosters/{s}` | read | read for own sessions | none | none |
+| `sessions/{s}/monitored_students/{seat}` | read | read for own sessions | none | none |
+| `cameras/{camera_id}` | read | read | none | none |
 | `session_results/{s}` | read | read for own sessions | none | write for own class's sessions: field allowlist, own `camera_id` |
 | `session_evaluations/{e}` | read | read for own sessions | none | write for own class's sessions: ID `{session_id}_{seat_id}`, field allowlist |
+| `session_windows/{w}` | none (the backend reads them) | none | none | create for own class's sessions: ID `{session_id}_{run}_{seq}`, field allowlist, own `camera_id` |
 | `sessions/{s}/alerts/{id}` | read | read for own sessions; set only `status` (`acknowledged` or `dismissed`), `handled_by` (own UID) and `handled_at` | none | create for own class's sessions: field and type allowlists |
 | `edge_nodes/{camera_id}` | read | read | none | write own `camera_id` with own `class_id`, field allowlist |
 | `seat_regions/{camera_id}` | read; write with a field allowlist; delete | none | none | read own `camera_id` |
+| `camera_configs/{camera_id}` | none (the backend writes it, the API never returns `source`) | none | none | read own `camera_id` |
 | `students2/{sid}` | read | read | read own children (`parent_id`), through a query on `parent_id` | none |
 | `students2/{sid}/reports/{s}` | read | none | read own child (`students2/{sid}.parent_id`) | none |
 

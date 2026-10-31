@@ -118,7 +118,26 @@ tự thử kết nối lại theo cơ chế backoff tăng dần (`reconnect_init
 nhân dần theo `reconnect_backoff_factor`, tối đa `reconnect_max_delay`).
 `read()`/`frames()` trả về `None`/bỏ qua khung hình trong lúc đang thử kết nối
 lại — **không** raise exception, vì đây là tình huống có thể tự phục hồi,
-khác với lỗi mở camera lần đầu.
+khác với lỗi mở camera lần đầu. `CaptureWorker.stop()` ngắt thời gian chờ
+backoff: camera không bị mở lại sau khi phiên đã dừng.
+
+### Camera mạng (RTSP/HTTP) khác webcam ở đâu?
+
+Camera mạng phát theo FPS của nó dù có ai đọc hay không. Nếu `frames()` ngủ
+giữa hai lần đọc như với webcam/file, frame dồn trong buffer FFmpeg/socket và
+frame đọc được trễ dần (luồng 30 fps đọc ở 5 fps: trễ 12 s sau 15 s). Vì vậy với
+nguồn có `://`, `frames()` `grab()` mọi frame tới và chỉ `retrieve()` frame tới
+hạn theo `target_fps`. Mở/đọc camera mạng dừng sau `STREAM_TIMEOUT_MS` (10 s;
+mặc định OpenCV chờ tới ~90 s với camera không trả lời), để heartbeat của edge
+node không bị web coi là offline.
+
+### File video thay camera (`live_video`)
+
+Mặc định `frames()` đọc file video lần lượt từng frame, không bỏ frame nào:
+`run_pipeline` và test cần kết quả lặp lại được. Với `live_video=True`
+(`python -m src.main --video`), file video đóng vai camera. Hình chạy theo đồng
+hồ: tới hạn `target_fps` thì `grab()` bỏ các frame đã qua rồi mới đọc. Hết file
+thì phát lại từ đầu, không coi là mất camera.
 
 ## Chạy unit test
 
@@ -134,9 +153,9 @@ thread cùng lúc. Xem chi tiết từng test case trong `tests/capture/`.
 
 ## Giới hạn đã biết
 
-- `width`/`height` trong `CaptureConfig` chỉ có tác dụng với **camera thật**
-  (webcam/IP camera) — không có tác dụng khi `source` là một file video, vì
-  OpenCV không resize được khung hình đã ghi sẵn trong file.
+- `width`/`height` trong `CaptureConfig` chỉ có tác dụng với **webcam**. Camera
+  IP gửi đúng độ phân giải cài trong camera, file video giữ độ phân giải đã ghi;
+  `open()` ghi cảnh báo khi khác cấu hình.
 - `apply_config()` (dùng khi module `config/` ở Sprint 7 đẩy cấu hình mới từ
   xa xuống) mở lại camera hoàn toàn nếu `source` thay đổi; nếu chỉ đổi
   FPS/độ phân giải thì áp dụng trực tiếp lên kết nối đang mở, không gián đoạn.

@@ -4,6 +4,19 @@ Written 2026-10-17 for the next team meeting (T0). camera-ai now follows the tea
 
 Updated 2026-10-23: the web admin (branch `Web`) is merged into `camera-ai` and both sides now talk through the contract. Where the web admin had already built something differently (`classes2`, `seat_map`, `S01` seat IDs, `completed`), camera-ai follows it; §2 marks what that settled.
 
+Updated 2026-10-27: cameras are added on the web admin's camera page, class and RTSP URL included (§2 item 15).
+
+Updated 2026-10-29: `docs/backend_scoring_and_schema_proposal.md` proposes moving the scoring to the web backend and aligning the database with the agreed diagram.
+
+Updated 2026-10-30: the code now follows the agreed diagram (items 14 and 15; `docs/web_admin_integration.md`):
+
+- `cameras/{camera_id}`;
+- `classes2.camera_id`;
+- `sessions.camera_id`;
+- `sessions/{s}/monitored_students`.
+
+The edge node also writes `session_windows` for the backend scoring (package A). `backend/jobs/migrate_schema.py` moves the live data; it has not been run with `--apply`.
+
 ## 1. What camera-ai does now
 
 - **Sessions.** The edge node listens to `sessions` where `class_id` is its class and reacts to `status`: `running` opens the camera, `paused` closes it, `completed` finishes the session, `cancelled` or a deleted document stops it as incomplete. It still accepts the older `live` and `ended`.
@@ -17,7 +30,7 @@ Updated 2026-10-23: the web admin (branch `Web`) is merged into `camera-ai` and 
 - **Volume.** About 950 writes for a 40-seat class and a 45-minute session, against about 10,800 with the previous per-seat records.
 - **Retention.** Every session document carries `expire_at`, so a Firestore TTL policy can delete it.
 - **Security Rules.** `config/firestore.rules` is rewritten for the schema and tested on the emulator in CI (`rules-tests/`).
-- **Web admin side (2026-10-23).** Start, pause, resume and end from the timetable, with the pre-start checks of UC04 step 3; the seating frozen into `session_rosters/{s}` at the start; a live view of seats and alerts; reports and the dashboard from `session_evaluations`, with interrupted sessions marked; a parent report job; session deletion with all its edge documents; a camera page fed by the edge heartbeats, with no RTSP URL stored and seat rectangles drawn over a local snapshot; admin sign-in required on every monitoring, report and student endpoint. Tested together with the real edge runtime (`backend/tests/test_edge_contract.py`).
+- **Web admin side (2026-10-23).** Start, pause, resume and end from the timetable, with the pre-start checks of UC04 step 3; the seating frozen into `session_rosters/{s}` at the start; a live view of seats and alerts; reports and the dashboard from `session_evaluations`, with interrupted sessions marked; a parent report job; session deletion with all its edge documents; a camera page fed by the edge heartbeats, where an admin adds a camera (its class and RTSP URL go to `camera_configs`, never returned to the browser) and draws seat rectangles over a local snapshot; admin sign-in required on every monitoring, report and student endpoint. Tested together with the real edge runtime (`backend/tests/test_edge_contract.py`).
 
 ## 2. Choices to confirm at the meeting
 
@@ -31,12 +44,13 @@ Updated 2026-10-23: the web admin (branch `Web`) is merged into `camera-ai` and 
 | 6 | `session_evaluations` | Collection name `session_evaluations`, ID `{session_id}_{seat_id}`, overwritten every 5 minutes and at the end, plus a new `observed_sec` field | Reports must ignore seats where someone only walked past, and weight class averages | Name, ID and the extra field |
 | 7 | Seat positions | Since 2026-10-25, drawn on the web admin: an admin drags one rectangle per seat over a camera snapshot, and `seat_regions/{camera_id}` keeps the rectangles (pixels, with the snapshot's size), never the image. Otherwise the four corner seats in the edge node's local config | A drawing screen needs a picture of the room, but a camera frame stored on the server or in Firestore would be a stored image of students: the snapshot is opened locally, ideally of the empty room | That admins draw seats on the web, and the `seat_regions` collection |
 | 8 | Seat→student mapping | Kept as the web admin built it: `seat_map` on `classes2/{c}`, readable by admins and teachers only (never parents). The edge node reads only the counts. Each session's seating is copied to `session_rosters/{s}` at the start | Rules cannot hide one field of a document, so access to the whole class document has to stay narrow; reports need the seating of that lesson, not today's | Confirmed by the web implementation; seat documents (proposed 2026-10-17) dropped |
-| 9 | One camera per class | The edge node is configured with one `class_id` and one `camera_id` | THPT classes keep their room | Classes that change rooms (labs) would need `camera_id` on the session |
+| 9 | One camera per class | Each edge node has one `camera_id` and follows one class at a time, set on the web admin or in its local config; the web admin refuses a second camera for a class | THPT classes keep their room | Classes that change rooms (labs) would need `camera_id` on the session |
 | 10 | Timestamps | `captured_at` and `expire_at` are UTC times from the edge clock (keep NTP on); alert times stay as seconds since the session start | The diagram uses timestamps; the session already has `started_at` | That alerts keep `start_sec` |
 | 11 | Parent view (UC03) | Parents read only `students2/{sid}/reports/{s}`, written by `backend/jobs/parent_reports.py` after each session: class, subject, date and times, `avg_concentration`, `level`, `observed_min`, alert counts per type, `partial` | Parents must not see other children's seats | The report fields, and who sets `students2.parent_id` |
 | 12 | Who reads `classes2` | The Rules draft lets any teacher read every class (for the live view) and only the homeroom teacher or an admin change `seat_map` | Subject teachers need names on the live seat map | Or a `teacher_ids` list on the class |
 | 13 | Diagram fixes | The second "Teachers" box (bottom left) is a copy of "Parents". Seat IDs are `S01`, `S02`, ... as the web admin writes them, not `S01-ClassID` | | Update the diagram |
-| 14 | `session_rosters/{s}` | New: `class_id`, `seats` (seat → student ID), `created_at`, written by the web admin when a session first starts; read by admins and the session's teacher | Reports and the parent job must map seats to the students of that lesson | The collection, and that the app freezes it too if it starts sessions itself |
+| 14 | `session_rosters/{s}`, replaced on 2026-10-30 by `sessions/{s}/monitored_students/{seat}` (the diagram's `monitored_student`, as a subcollection) | New: `class_id`, `seats` (seat → student ID), `created_at`, written by the web admin when a session first starts; read by admins and the session's teacher | Reports and the parent job must map seats to the students of that lesson | The collection, and that the app freezes it too if it starts sessions itself |
+| 15 | Cameras added on the web admin | Since 2026-10-30, following the diagram: `cameras/{camera_id}` holds the display fields and `classes2/{c}.camera_id` the class, so `camera_configs/{camera_id}` keeps only `source`. Before that: `camera_configs/{camera_id}`: `class_id`, `source` (RTSP URL with the camera's user and password, percent-encoded), `updated_at`, `updated_by`. Written by the web backend when an admin adds a camera; Rules deny it to every client, admins included, and the API never returns `source`; only that camera's edge node reads it. The edge node follows the class between sessions. This reverses the 2026-10-23 choice to keep RTSP URLs only in the edge node's environment | Installing a camera, or moving it to next year's class, should not need someone at the edge box editing files | Storing camera passwords in Firestore: anyone with an Admin SDK key (web backend, every edge node until option B of the security review) or Firebase console access can read them, and the deployed Rules must not allow `camera_configs` |
 
 ## 3. What each part of the team needs to do
 
