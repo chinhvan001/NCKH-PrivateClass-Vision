@@ -1,0 +1,179 @@
+rules_version = '2';
+
+// DRAFT for review with the Firebase owner: see camera-ai/docs/firestore_security_review.md.
+// Covers only the paths camera-ai reads or writes, on the team's schema. Merge it into the project's rules.
+// Tests: camera-ai/rules-tests (Firestore emulator, run in CI).
+//
+// The web admin's Flask backend and the report job use the Admin SDK, which bypasses these rules.
+// The edge node uses the Admin SDK too until it signs in with a custom token (claims role 'edge' and
+// camera_id); the edge rules below are for that step. Its class is the one whose classes2/{c}.camera_id is
+// its camera_id (set on the web admin's camera page), so moving a camera to another class needs no new token.
+//
+// Roles: a user is an admin, teacher or parent when admins/{uid}, teachers/{uid} or parents/{uid} exists.
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return signedIn() && exists(/databases/$(database)/documents/admins/$(request.auth.uid));
+    }
+
+    function isTeacher() {
+      return signedIn() && exists(/databases/$(database)/documents/teachers/$(request.auth.uid));
+    }
+
+    function claim(name) {
+      return request.auth.token.get(name, '');
+    }
+
+    function isEdge() {
+      return signedIn() && claim('role') == 'edge';
+    }
+
+    function isEdgeOf(classId) {
+      return isEdge() && get(/databases/$(database)/documents/classes2/$(classId)).data.get('camera_id', '') == claim('camera_id');
+    }
+
+    function session(sessionId) {
+      return get(/databases/$(database)/documents/sessions/$(sessionId)).data;
+    }
+
+    function teachesSession(sessionId) {
+      return signedIn() && session(sessionId).teacher_id == request.auth.uid;
+    }
+
+    function edgeOfSession(sessionId) {
+      return isEdgeOf(session(sessionId).class_id);
+    }
+
+    function homeroomOf(classId) {
+      return signedIn() && get(/databases/$(database)/documents/classes2/$(classId)).data.teacher_id == request.auth.uid;
+    }
+
+    // UC04: start, pause, resume, end; cancel only before the start. Same as the web backend's
+    // VALID_TRANSITIONS (backend/routes/session_routes.py).
+    function validTransition(before, after) {
+      return (before == 'scheduled' && after in ['running', 'cancelled'])
+        || (before == 'running' && after in ['paused', 'completed'])
+        || (before == 'paused' && after in ['running', 'completed']);
+    }
+
+    // Created and deleted by the web backend. Teachers' queries filter on teacher_id,
+    // the edge node's on class_id, so these rules can be checked against them.
+    match /sessions/{sessionId} {
+      allow read: if isAdmin()
+        || (signedIn() && resource.data.teacher_id == request.auth.uid)
+        || isEdgeOf(resource.data.class_id);
+      allow update: if signedIn() && resource.data.teacher_id == request.auth.uid
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'started_at', 'ended_at'])
+        && validTransition(resource.data.status, request.resource.data.status);
+
+      // UC09: written by the edge node; the session's teacher may only acknowledge or dismiss,
+      // recording who handled it.
+      match /alerts/{alertId} {
+        allow read: if isAdmin() || teachesSession(sessionId);
+        allow create: if edgeOfSession(sessionId)
+          && request.resource.data.keys().hasOnly(['session_id', 'seat_id', 'type', 'start_sec', 'duration_sec', 'expire_at'])
+          && request.resource.data.session_id == sessionId
+          && request.resource.data.type in ['head_drop', 'back_turn', 'side_conversation'];
+        allow update: if teachesSession(sessionId)
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'handled_by', 'handled_at'])
+          && request.resource.data.status in ['acknowledged', 'dismissed']
+          && request.resource.data.handled_by == request.auth.uid;
+      }
+
+      // monitored_student of the agreed diagram: seat -> student frozen by the web backend when the session
+      // starts, then the scoring worker's summary. A subcollection, not a map in the session document, because
+      // the edge node listens to session documents and must never see student IDs (checklist 3.2).
+      match /monitored_students/{seatId} {
+        allow read: if isAdmin() || teachesSession(sessionId);
+      }
+    }
+
+    // Written by the web backend. seat_map holds the seat -> student mapping (checklist 3.2):
+    // any teacher may read it for the live seat view; only the homeroom teacher
+    // (classes2/{c}.teacher_id) or an admin changes it. The edge node finds its class with a query
+    // on camera_id and asks for camera_id, row_count and column_count only.
+    match /classes2/{classId} {
+      allow read: if isAdmin() || isTeacher() || (isEdge() && resource.data.camera_id == claim('camera_id'));
+      allow update: if (isAdmin() || homeroomOf(classId))
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['seat_map', 'updated_at']);
+    }
+
+    // Cameras of the agreed diagram, written by the web backend: room, name, address. Never the RTSP URL
+    // (camera_configs) nor a stored status (edge_nodes holds the live one).
+    match /cameras/{cameraId} {
+      allow read: if isAdmin() || isTeacher();
+    }
+
+    // UC07: live seat states, one document per session, overwritten by the edge node.
+    match /session_results/{sessionId} {
+      allow read: if isAdmin() || teachesSession(sessionId);
+      allow create, update: if edgeOfSession(sessionId)
+        && request.resource.data.keys().hasOnly(['session_id', 'camera_id', 'captured_at', 'monitoring_status', 'result_map', 'expire_at'])
+        && request.resource.data.session_id == sessionId
+        && request.resource.data.camera_id == claim('camera_id')
+        && request.resource.data.monitoring_status in ['running', 'completed', 'incomplete'];
+    }
+
+    // UC03, UC11: one document per seat and session. Client queries must filter on session_id.
+    match /session_evaluations/{evaluationId} {
+      allow read: if isAdmin() || teachesSession(resource.data.session_id);
+      allow create, update: if edgeOfSession(request.resource.data.session_id)
+        && evaluationId == request.resource.data.session_id + '_' + request.resource.data.seat_id
+        && request.resource.data.keys().hasOnly(['session_id', 'seat_id', 'captured_at', 'concentration', 'avg_concentration', 'distraction', 'observed_sec', 'expire_at']);
+    }
+
+    // Per-seat posture time every 10 s of monitoring, for the web backend's scoring worker (Admin SDK).
+    // The session's edge node only appends; no client reads it.
+    match /session_windows/{windowId} {
+      allow create: if edgeOfSession(request.resource.data.session_id)
+        && windowId.matches(request.resource.data.session_id + '_' + request.resource.data.run + '_[0-9]{5,}')
+        && request.resource.data.keys().hasOnly(['session_id', 'camera_id', 'run', 'seq', 'start_sec', 'end_sec', 'captured_at', 'monitoring_status', 'seats', 'expire_at'])
+        && request.resource.data.camera_id == claim('camera_id')
+        && request.resource.data.monitoring_status in ['running', 'completed', 'incomplete'];
+    }
+
+    // Device heartbeat (UC04 step 3, UC10). No student data.
+    match /edge_nodes/{cameraId} {
+      allow read: if isAdmin() || isTeacher();
+      allow create, update: if isEdge() && claim('camera_id') == cameraId
+        && (request.resource.data.class_id == null || isEdgeOf(request.resource.data.class_id))
+        && request.resource.data.keys().hasOnly(['class_id', 'online', 'status', 'session_id', 'fps', 'camera_ok', 'last_frame_at', 'updated_at']);
+    }
+
+    // Seat regions an admin draws on a camera snapshot in the web admin's camera page (the snapshot
+    // stays in the browser): one pixel box per seat_id, no student data. The camera's edge node reads
+    // them when a session starts.
+    match /seat_regions/{cameraId} {
+      allow read: if isAdmin() || (signedIn() && claim('role') == 'edge' && claim('camera_id') == cameraId);
+      allow create, update: if isAdmin()
+        && request.resource.data.keys().hasOnly(['class_id', 'image_width', 'image_height', 'seats', 'updated_at', 'updated_by']);
+      allow delete: if isAdmin();
+    }
+
+    // Camera added on the web admin's camera page (written by the web backend, Admin SDK): the class the
+    // camera monitors and its RTSP URL, camera user and password included. No client reads it, admins
+    // included (the API never returns the URL); only that camera's edge node does.
+    match /camera_configs/{cameraId} {
+      allow read: if signedIn() && claim('role') == 'edge' && claim('camera_id') == cameraId;
+    }
+
+    // Students, written by the web backend. A parent finds their children with a query on parent_id;
+    // staff read every student for the live seat view. Never readable by edge nodes.
+    match /students2/{studentId} {
+      allow read: if isAdmin() || isTeacher()
+        || (signedIn() && resource.data.parent_id == request.auth.uid);
+
+      // UC03 for parents: one report per finished session, written by the report job
+      // (backend/jobs/parent_reports.py, Admin SDK).
+      match /reports/{sessionId} {
+        allow read: if isAdmin()
+          || (signedIn() && get(/databases/$(database)/documents/students2/$(studentId)).data.parent_id == request.auth.uid);
+      }
+    }
+    // Every path not matched above is denied by this draft.
+  }
+}
