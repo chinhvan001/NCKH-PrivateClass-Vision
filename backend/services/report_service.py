@@ -10,7 +10,7 @@ from collections import Counter
 from datetime import timedelta
 
 from routes.test_helpers import commit_writes, db, server_timestamp
-from services import monitoring_service
+from services import monitoring_service, scoring_service
 from services.evaluation_service import level, usable
 
 LOOKBACK_DAYS = 7
@@ -38,6 +38,12 @@ def build_session_reports(session_id, force=False):
     for doc in db.collection("session_evaluations").where("session_id", "==", session_id).stream():
         evaluation = doc.to_dict() or {}
         evaluations[evaluation.get("seat_id")] = evaluation
+
+    if not evaluations:
+        windows = [d.to_dict() for d in db.collection("session_windows").where("session_id", "==", session_id).stream() if d.to_dict()]
+        if windows:
+            _, evals = scoring_service.compute_session_scores(windows)
+            evaluations = evals
     alerts = Counter()
     for doc in db.collection("sessions").document(session_id).collection("alerts").stream():
         alert = doc.to_dict() or {}
