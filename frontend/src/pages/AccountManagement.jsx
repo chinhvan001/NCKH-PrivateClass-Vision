@@ -33,8 +33,6 @@ const AccountManagement = () => {
 
       const data = await response.json();
 
-      // console.log("Admin users:", data);
-
       if (!response.ok || !data.success) {
         throw new Error(data.message || "Không thể lấy danh sách tài khoản");
       }
@@ -69,11 +67,7 @@ const AccountManagement = () => {
         throw new Error("Không xác định được ID giáo viên");
       }
 
-      if (!uid) {
-        throw new Error("Không xác định được UID của giáo viên");
-      }
-
-      const response = await fetch(`http://127.0.0.1:5000/api/users/${uid}`, {
+      const response = await fetch(`http://127.0.0.1:5000/api/users/${teacherId}`, {
         method: "PUT",
         headers: {
           Authorization: `Bearer ${idToken}`,
@@ -97,7 +91,7 @@ const AccountManagement = () => {
 
       setUsers((prevUsers) =>
         prevUsers.map((user) =>
-          user.id === uid || user.uid === uid
+          user.id === teacherId || user.uid === teacherId
             ? {
                 ...user,
                 name: updatedUser.name,
@@ -133,18 +127,14 @@ const AccountManagement = () => {
         throw new Error("Không tìm thấy phiên đăng nhập");
       }
 
-      const teacherId = updatedUser.id || updatedUser.uid;
+      const teacherId = teacher.id || teacher.uid;
 
       if (!teacherId) {
         throw new Error("Không xác định được ID giáo viên");
       }
 
-      if (!uid) {
-        throw new Error("Không xác định được UID của giáo viên");
-      }
-
       const response = await fetch(
-        `http://127.0.0.1:5000/api/admin/teachers/${uid}`,
+        `http://127.0.0.1:5000/api/admin/teachers/${teacherId}`,
         {
           method: "DELETE",
           headers: {
