@@ -57,7 +57,7 @@ class ClassDetailController extends ChangeNotifier {
   int get classroomColumns => _classDetail?.columnCount ?? 8;
 
   String get classroomName {
-    return classroomData?['classroom_name']?.toString() ??
+    return classroomData?['room_name']?.toString() ??
         classDetail?.room ??
         'Chưa cập nhật';
   }
@@ -152,7 +152,7 @@ class ClassDetailController extends ChangeNotifier {
                     .get();
                 if (camDoc.exists && camDoc.data() != null) {
                   _classroomData = camDoc.data()!;
-                  roomName = _classroomData?['classroom_name']?.toString() ??
+                  roomName = _classroomData?['room_name']?.toString() ??
                       _classroomData?['camera_name']?.toString();
                 }
               }

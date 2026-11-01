@@ -285,7 +285,7 @@ class _SessionDetailScreenState extends State<SessionDetailScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 const Text(
-                  'Chi tiết phiên',
+                  'Chi tiết buổi học',
                   style: TextStyle(
                     fontSize: 20,
                     fontWeight: FontWeight.w800,
@@ -345,7 +345,7 @@ class _SessionDetailScreenState extends State<SessionDetailScreen> {
                     borderRadius: BorderRadius.circular(16),
                   ),
                   child: Text(
-                    widget.classId,
+                    widget.className,
                     style: const TextStyle(
                       fontSize: 17,
                       fontWeight: FontWeight.w800,

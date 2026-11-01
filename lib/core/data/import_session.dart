@@ -1,77 +1,99 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
-Future<void> addSessionForClass12A1() async {
-  final FirebaseFirestore firestore = FirebaseFirestore.instance;
+Future<void> addSessionsForClass12A1() async {
+  final firestore = FirebaseFirestore.instance;
+  final teacherId = FirebaseAuth.instance.currentUser?.uid;
 
-  try {
-    // 1. Đọc document 'lop12a1' từ collection 'classes2' để lấy seat_map
-    DocumentSnapshot classDoc = await firestore.collection('classes2').doc('lop12a1').get();
-
+  if (teacherId == null || teacherId.isEmpty) {
+    debugPrint('Chưa đăng nhập, không có teacher_id!');
+    return;
+  }
+    // 1. Đọc seat_map của lớp
+    const classId = 'lop12a1';
+    final classDoc = await firestore.collection('classes2').doc(classId).get();
     if (!classDoc.exists) {
-      debugPrint("Không tìm thấy lớp lop12a1 trong collection classes2!");
+      debugPrint('Không tìm thấy lớp $classId trong classes2!');
       return;
     }
 
-    Map<String, dynamic> classData = classDoc.data() as Map<String, dynamic>;
-    Map<String, dynamic> seatMap = classData['seat_map'] ?? {};
-
-    if (seatMap.isEmpty) {
-      debugPrint("Lớp lop12a1 không có dữ liệu seat_map!");
+    final classData = classDoc.data() ?? {};
+    final rawSeatMap = classData['seat_map'] ?? classData['seatmap'];
+    if (rawSeatMap is! Map || rawSeatMap.isEmpty) {
+      debugPrint('Lớp $classId không có seat_map!');
       return;
     }
 
-    // 2. Xây dựng dữ liệu cho monitored_students dựa trên seat_map của lớp
-    Map<String, dynamic> monitoredStudents = {};
-
-    seatMap.forEach((seatId, seatValue) {
-      Map<String, dynamic> seat = seatValue as Map<String, dynamic>;
-      
-      monitoredStudents[seatId] = {
-        "student_id": seat['student_id'] ?? "null",
-        "row": seat['row'] ?? 1,
-        "column": seat['column'] ?? 1,
-        "is_attention": false, // Mặc định là false
-        "is_present": false,    // Mặc định có mặt (hoặc false tùy logic của bạn)
-        "attention_score": 0.0, // Kiểu double mặc định là 0.0
-        "note": "",            // Để trống
+    // 2. Dựng monitored_students từ seat_map
+    final Map<String, dynamic> monitoredStudents = {};
+    rawSeatMap.forEach((seatId, seatValue) {
+      final seat = Map<String, dynamic>.from(seatValue as Map);
+      monitoredStudents[seatId.toString()] = {
+        'student_id': seat['student_id'] ?? 'null',
+        'row': seat['row'] ?? 1,
+        'column': seat['column'] ?? 1,
+        'is_attention': false,
+        'is_present': false,
+        'attention_score': 0.0,
+        'note': '',
       };
     });
 
-    // 3. Thiết lập thời gian cho buổi học (Ví dụ: Hôm nay, từ 7:00 đến 7:45)
-    DateTime now = DateTime.now();
-    DateTime startDate = DateTime(now.year, now.month, now.day, 7, 0);
-    DateTime endDate = DateTime(now.year, now.month, now.day, 7, 45);
+    // 3. Khung giờ 5 tiết: (giờ bắt đầu, phút bắt đầu)
+    //    Mỗi tiết 45 phút; nghỉ 5 phút, riêng giữa tiết 3 và 4 nghỉ 15 phút.
+    const periodStarts = [
+      [7, 0], // tiết 1: 7:00 - 7:45
+      [7, 50], // tiết 2: 7:50 - 8:35
+      [8, 40], // tiết 3: 8:40 - 9:25
+      [9, 40], // tiết 4: 9:40 - 10:25 (nghỉ 15p)
+      [10, 30], // tiết 5: 10:30 - 11:15
+    ];
+    const periodMinutes = 45;
 
-    Timestamp sessionDateTimestamp = Timestamp.fromDate(DateTime(now.year, now.month, now.day));
-    Timestamp startTimeTimestamp = Timestamp.fromDate(startDate);
-    Timestamp endTimeTimestamp = Timestamp.fromDate(endDate);
+    final firstDay = DateTime(2026, 11, 2);
+    const totalDays = 7; // 2/11 -> 8/11
 
-    // 4. Dữ liệu của session mới theo đúng yêu cầu
-    Map<String, dynamic> sessionData = {
-      "class_id": "lop12a1",
-      "class_attention_score": 0.0,
-      "subject": "Toán",
-      "period": 1,
-      "room": "302",
-      "session_type": "morning", // hoặc 'morning' tùy theo định dạng của bạn
-      "status": "scheduled",
-      "teacher_id": "", // Để trống
-      "camera_id": "",  // Để trống
-      "note": "",       // Để trống
-      "session_date": sessionDateTimestamp,
-      "start_time": startTimeTimestamp,
-      "end_time": endTimeTimestamp,
-      "monitored_students": monitoredStudents,
-      "created_at": Timestamp.now(),
-      "updated_at": Timestamp.now(),
-    };
+    // 4. Ghi bằng batch (35 document, dưới giới hạn 500)
+    final batch = firestore.batch();
+    int count = 0;
 
-    // 5. Thêm document mới vào collection 'sessions' (Firestore sẽ tự sinh ID ngẫu nhiên cho session)
-    await firestore.collection('sessions').add(sessionData);
+    for (int d = 0; d < totalDays; d++) {
+      final day = DateTime(firstDay.year, firstDay.month, firstDay.day + d);
 
-    debugPrint("Đã thêm thành công buổi học cho lớp 12A1 vào collection sessions với ${monitoredStudents.length} học sinh được giám sát!");
-  } catch (e) {
-    debugPrint("Lỗi khi thêm session: $e");
-  }
+      // DateTime.weekday: 1 = Thứ 2 ... 6 = Thứ 7, 7 = Chủ nhật
+      final thu = day.weekday == DateTime.sunday ? 'CN' : '${day.weekday + 1}';
+
+      for (int p = 0; p < periodStarts.length; p++) {
+        final start = DateTime(
+            day.year, day.month, day.day, periodStarts[p][0], periodStarts[p][1]);
+        final end = start.add(const Duration(minutes: periodMinutes));
+
+        // Tên document: gvtoan_tiet{N}_thu{M}_ngay{P}
+        final docId = 'gvtoan_tiet${p + 1}_thu${thu}_ngay${day.day}';
+
+        batch.set(firestore.collection('sessions').doc(docId), {
+          'class_id': classId,
+          'class_attention_score': 0.0,
+          'subject': 'Toán',
+          'period': p + 1,
+          'room': '302',
+          'session_type': 'morning',
+          'status': 'scheduled',
+          'teacher_id': teacherId,
+          'camera_id': '',
+          'note': '',
+          'session_date': Timestamp.fromDate(day),
+          'start_time': Timestamp.fromDate(start),
+          'end_time': Timestamp.fromDate(end),
+          'monitored_students': monitoredStudents,
+          'created_at': Timestamp.now(),
+          'updated_at': Timestamp.now(),
+        });
+        count++;
+      }
+    }
+
+    await batch.commit();
+    debugPrint('Đã thêm $count buổi học cho $classId (teacher: $teacherId).');
 }

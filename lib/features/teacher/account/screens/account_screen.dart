@@ -1,7 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_privateclass_vision/core/data/import.dart';
+import 'package:flutter_privateclass_vision/core/data/import_session.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 
 import '../../../../core/constants/app_colors.dart';
@@ -76,21 +76,21 @@ class AccountScreen extends StatelessWidget {
 
                       const SizedBox(height: 32),
                       _buildLogoutButton(context),
-          //Them ham du lieu
+                        //Them ham du lieu
                       const SizedBox(height: 16),
                       ElevatedButton.icon(
                         onPressed: () async {
                           ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(content: Text('Đang tạo 40 học sinh, vui lòng đợi...')),
+                            const SnackBar(content: Text('Dang them dl damn it')),
                           );
-                          await addClass12B2ToFirestore();
+                          await addSessionsForClass12A1();
                           ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(content: Text('Đã tạo xong 40 học sinh vào students2!')),
+                            const SnackBar(content: Text('Da them du lieu!')),
                           );
                         },
                         icon: const Icon(Icons.playlist_add, size: 19),
                         label: const Text(
-                          'Tạo 40 Document Student2',
+                          'Them du lieu',
                           style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
                         ),
                         style: ElevatedButton.styleFrom(
