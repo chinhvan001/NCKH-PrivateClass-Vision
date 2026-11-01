@@ -88,28 +88,29 @@ const LoginBrandPanel = () => {
           </div>
         </div>
 
+        {/* Khối phía dưới được thay đổi thành thông điệp bảo mật/công nghệ thay vì số liệu thô */}
         <div className="system-status">
           <div className="status-title">
             <span className="status-dot"></span>
-            <span>Tất cả hệ thống đang hoạt động</span>
+            <span>Hệ thống bảo mật và phân tích thông minh</span>
           </div>
 
           <div className="status-line"></div>
 
           <div className="status-statistics">
             <div className="status-item">
-              <strong>128</strong>
-              <span>Camera trực tuyến</span>
+              <strong>Bảo mật</strong>
+              <span>Mã hóa đầu cuối</span>
             </div>
 
             <div className="status-item">
-              <strong>24</strong>
-              <span>Lớp học hôm nay</span>
+              <strong>Riêng tư</strong>
+              <span>AI phân tích ẩn danh</span>
             </div>
 
             <div className="status-item">
-              <strong>86</strong>
-              <span>Giáo viên</span>
+              <strong>Ổn định</strong>
+              <span>Hoạt động 24/7</span>
             </div>
           </div>
         </div>
