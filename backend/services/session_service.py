@@ -3,6 +3,13 @@ from repositories.session_repository import SessionRepository
 from routes.test_helpers import json_value, server_timestamp
 from services import monitoring_service
 
+# Giờ từng tiết, như periodsConfigMap trong frontend SessionPanel.jsx (sửa cả hai chỗ). start_time/end_time
+# của tiết dùng cho tự kết thúc tiết bị quên, báo cáo phụ huynh và trang đánh giá.
+PERIOD_TIMES = {
+    "morning": {1: ("07:00", "07:45"), 2: ("07:55", "08:40"), 3: ("08:50", "09:35"), 4: ("09:45", "10:30"), 5: ("10:40", "11:25")},
+    "afternoon": {1: ("13:00", "13:45"), 2: ("13:55", "14:40"), 3: ("14:50", "15:35"), 4: ("15:45", "16:30"), 5: ("16:40", "17:25")},
+}
+
 class SessionService:
     @staticmethod
     def fetch_all_schedules():
@@ -70,14 +77,16 @@ class SessionService:
                 shift = config.get("shift", data.get("morning_or_afternoon", "morning"))
                 period = int(config.get("period", data.get("period", 1)))
 
+                start_time, end_time = PERIOD_TIMES.get(shift, {}).get(period, (None, None))
                 payload = {
                     "class_id": class_id,
                     "teacher_id": teacher_id,
                     "subject": subject,
                     "session_date": session_date_fmt,
-                    "day_of_week": target_day,
                     "session_type": shift,
                     "period": period,
+                    "start_time": start_time,
+                    "end_time": end_time,
                     "room": room,
                 }
                 sessions_to_create.append(payload)

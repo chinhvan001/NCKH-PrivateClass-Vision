@@ -108,6 +108,31 @@ def test_start_freezes_the_seat_plan_and_completion_keeps_the_timetable(client, 
     assert set_status(client, admin, "running").status_code == 409
 
 
+def test_recurring_lessons_keep_their_timetable_times(client, db, admin):
+    """Lịch lặp theo thứ trong tuần: mỗi tiết có giờ theo tiết (tự kết thúc tiết bị quên cần end_time)."""
+    seed(db)
+    db.document("teachers/t1").set({"full_name": "Cô Lan"})
+    body = {
+        "class_id": "c1",
+        "teacher_id": "t1",
+        "subject": "Toán",
+        "session_date": "2026-11-02",  # thứ Hai
+        "repeat_count": 3,
+        "room": "301",
+        "day_configs": {"1": {"shift": "morning", "period": 2}, "3": {"shift": "afternoon", "period": 1}},
+    }
+    response = client.post("/api/admin/schedules", json=body, headers=admin)
+    assert response.status_code == 201, response.get_json()
+    created = [data for path, data in db.docs.items() if path.count("/") == 1 and path.startswith("sessions/")]
+    created = [data for data in created if data.get("created_at")]  # bỏ tiết s1 của seed
+    assert sorted((s["session_date"], s["start_time"], s["end_time"], s["status"]) for s in created) == [
+        ("2026-11-02", "07:55", "08:40", "scheduled"),  # thứ Hai, sáng tiết 2
+        ("2026-11-04", "13:00", "13:45", "scheduled"),  # thứ Tư, chiều tiết 1
+        ("2026-11-09", "07:55", "08:40", "scheduled"),
+    ]
+    assert not any("day_of_week" in session for session in created)  # field cũ, sơ đồ đã chốt bỏ
+
+
 @pytest.mark.parametrize("change, code", [
     (lambda db: db.document("classes2/c1").update({"row_count": 0}), "no_seat_plan"),
     (lambda db: db.document("classes2/c1").update({"column_count": 51}), "no_seat_plan"),
