@@ -1,11 +1,14 @@
 import 'dart:async';
 
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
 
+import '../../../../core/constants/firestore_constants.dart';
 import '../../../../core/models/class_model.dart';
 import '../../../../core/models/session_model.dart';
 import '../../../../core/models/student_model.dart';
+import '../../../../core/utils/firestore_parsers.dart';
 
 class ClassDetailController extends ChangeNotifier {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
@@ -15,7 +18,6 @@ class ClassDetailController extends ChangeNotifier {
     init();
   }
 
-  // --- Trạng thái (State) ---
   bool _isLoading = true;
   String? _errorMessage;
   ClassModel? _classDetail;
@@ -26,12 +28,9 @@ class ClassDetailController extends ChangeNotifier {
   int _selectedTabIndex = 0;
   String _searchStudentQuery = '';
 
-  // Subscriptions
   StreamSubscription<DocumentSnapshot>? _classSubscription;
-  StreamSubscription<QuerySnapshot>? _enrollmentSubscription;
   StreamSubscription<QuerySnapshot>? _sessionsSubscription;
 
-  // --- Getters ---
   bool get isLoading => _isLoading;
   bool get hasError => _errorMessage != null;
   String? get errorMessage => _errorMessage;
@@ -54,15 +53,8 @@ class ClassDetailController extends ChangeNotifier {
       )
       .length;
 
-  int get classroomRows {
-    final rows = (classroomData?['row'] as num?)?.toInt();
-    return (rows != null && rows > 0) ? rows : 5;
-  }
-
-  int get classroomColumns {
-    final cols = (classroomData?['column'] as num?)?.toInt();
-    return (cols != null && cols > 0) ? cols : 8;
-  }
+  int get classroomRows => _classDetail?.rowCount ?? 5;
+  int get classroomColumns => _classDetail?.columnCount ?? 8;
 
   String get classroomName {
     return classroomData?['classroom_name']?.toString() ??
@@ -71,11 +63,15 @@ class ClassDetailController extends ChangeNotifier {
   }
 
   String get cameraName {
-    return classroomData?['camera_name']?.toString() ?? 'Chưa cấu hình';
+    return classroomData?['camera_name']?.toString() ??
+        _classDetail?.cameraId ??
+        'Chưa cấu hình';
   }
 
   String get cameraStatus {
-    return classroomData?['camera_status']?.toString() ?? 'Không rõ';
+    return classroomData?['camera_status']?.toString() ??
+        classroomData?['status']?.toString() ??
+        'online';
   }
 
   double get avgAttentionScore {
@@ -96,8 +92,7 @@ class ClassDetailController extends ChangeNotifier {
         .where(
           (s) =>
               s.name.toLowerCase().contains(query) ||
-              s.short.toLowerCase().contains(query) ||
-              s.parentEmail.toLowerCase().contains(query),
+              s.short.toLowerCase().contains(query),
         )
         .toList();
   }
@@ -108,16 +103,20 @@ class ClassDetailController extends ChangeNotifier {
     notifyListeners();
 
     _listenToClass();
-    _listenToEnrollmentAndStudents();
     _listenToSessions();
   }
 
   void setTabIndex(int index) {
     if (_selectedTabIndex != index) {
       _selectedTabIndex = index;
+      notifyListeners();
     }
   }
 
+  void setSearchQuery(String query) {
+    _searchStudentQuery = query;
+    notifyListeners();
+  }
   void setSearchStudentQuery(String query) {
     _searchStudentQuery = query;
     notifyListeners();
@@ -126,137 +125,85 @@ class ClassDetailController extends ChangeNotifier {
   void _listenToClass() {
     _classSubscription?.cancel();
     _classSubscription = _firestore
-        .collection('classes')
+        .collection(FirestoreConstants.classes)
         .doc(classId)
         .snapshots()
         .listen(
           (snapshot) async {
             if (!snapshot.exists) {
+              _errorMessage = "Không tìm thấy dữ liệu lớp học";
               _isLoading = false;
-              _errorMessage = 'Không tìm thấy thông tin lớp học.';
               notifyListeners();
               return;
             }
 
             try {
               final data = snapshot.data() ?? {};
-              final String classroomId = data['classroom_id']?.toString() ?? '';
-              final String teacherId = data['teacher_id']?.toString() ?? '';
 
-              await Future.wait([
-                if (classroomId.isNotEmpty) _fetchClassroom(classroomId),
-                if (teacherId.isNotEmpty) _fetchTeacher(teacherId),
-              ]);
-
-              final String roomTitle =
-                  _classroomData?['classroom_name']?.toString() ??
-                  (classroomId.isNotEmpty ? classroomId : 'Chưa cập nhật');
-
-              _classDetail = ClassModel.fromFirestore(
-                snapshot,
-                roomName: roomTitle,
+              String? roomName;
+              final String camId = FirestoreParsers.string(
+                data,
+                ['camera_id', 'classroom_id'],
               );
+              if (camId.isNotEmpty) {
+                final camDoc = await _firestore
+                    .collection(FirestoreConstants.cameras)
+                    .doc(camId)
+                    .get();
+                if (camDoc.exists && camDoc.data() != null) {
+                  _classroomData = camDoc.data()!;
+                  roomName = _classroomData?['classroom_name']?.toString() ??
+                      _classroomData?['camera_name']?.toString();
+                }
+              }
+
+              final String tId = data['teacher_id']?.toString() ?? '';
+              if (tId.isNotEmpty) {
+                final teacherDoc = await _firestore
+                    .collection(FirestoreConstants.teachers)
+                    .doc(tId)
+                    .get();
+                if (teacherDoc.exists && teacherDoc.data() != null) {
+                  _teacherData = teacherDoc.data()!;
+                }
+              }
+
+              _classDetail =
+                  ClassModel.fromFirestore(snapshot, roomName: roomName);
+
+              await _processClassSeatmap(_classDetail!);
+
               _isLoading = false;
               _errorMessage = null;
               notifyListeners();
             } catch (e) {
+              _errorMessage = "Lỗi xử lý dữ liệu lớp: $e";
               _isLoading = false;
-              _errorMessage = 'Lỗi xử lý dữ liệu lớp: $e';
               notifyListeners();
             }
           },
-          onError: (error) {
+          onError: (e) {
+            _errorMessage = "Lỗi kết nối lớp học: $e";
             _isLoading = false;
-            _errorMessage = 'Lỗi kết nối lớp học: $error';
             notifyListeners();
           },
         );
   }
 
-  Future<void> _fetchClassroom(String classroomId) async {
+  Future<void> _processClassSeatmap(ClassModel classModel) async {
     try {
-      final doc = await _firestore
-          .collection('classrooms')
-          .doc(classroomId)
-          .get();
-      if (doc.exists) {
-        _classroomData = doc.data();
-      }
-    } catch (e) {
-      debugPrint('Lỗi fetchClassroom: $e');
-    }
-  }
+      final seatmap = classModel.seatmap;
+      final Map<String, SeatSlotModel> studentSlots = {};
 
-  Future<void> _fetchTeacher(String teacherId) async {
-    try {
-      final doc = await _firestore.collection('teacher').doc(teacherId).get();
-      if (doc.exists) {
-        _teacherData = doc.data();
-      }
-    } catch (e) {
-      debugPrint('Lỗi fetchTeacher: $e');
-    }
-  }
-
-  void _listenToEnrollmentAndStudents() {
-    _enrollmentSubscription?.cancel();
-
-    _enrollmentSubscription = _firestore
-        .collection('Enrollment')
-        .where('class_id', isEqualTo: classId)
-        .snapshots()
-        .listen(
-          (enrollSnap) async {
-            if (enrollSnap.docs.isEmpty) {
-              try {
-                final fallbackSnap = await _firestore
-                    .collection('enrollments')
-                    .where('class_id', isEqualTo: classId)
-                    .get();
-
-                if (fallbackSnap.docs.isNotEmpty) {
-                  await _processEnrollmentDocs(fallbackSnap.docs);
-                  return;
-                }
-              } catch (_) {}
-
-              _students = [];
-              notifyListeners();
-              return;
-            }
-
-            await _processEnrollmentDocs(enrollSnap.docs);
-          },
-          onError: (e) {
-            debugPrint('Lỗi listen Enrollment: $e');
-          },
-        );
-  }
-
-  Future<void> _processEnrollmentDocs(List<QueryDocumentSnapshot> docs) async {
-    try {
-      final Map<String, Map<String, dynamic>> enrollmentMeta = {};
-      final List<String> studentIds = [];
-
-      for (var doc in docs) {
-        final data = doc.data() as Map<String, dynamic>? ?? {};
-        final String? sId = data['student_id']?.toString();
-        if (sId != null && sId.isNotEmpty) {
-          studentIds.add(sId);
-          enrollmentMeta[sId] = {
-            'row': (data['row'] as num?)?.toInt(),
-            'column': (data['column'] as num?)?.toInt(),
-            'is_studying': data['is_studying'] is bool
-                ? data['is_studying']
-                : true,
-            'school_year': (data['school_year'] as num?)?.toInt(),
-          };
+      for (final slot in seatmap.values) {
+        if (slot.studentId != null && slot.studentId!.isNotEmpty) {
+          studentSlots[slot.studentId!] = slot;
         }
       }
 
+      final List<String> studentIds = studentSlots.keys.toList();
       if (studentIds.isEmpty) {
         _students = [];
-        notifyListeners();
         return;
       }
 
@@ -269,18 +216,18 @@ class ClassDetailController extends ChangeNotifier {
         );
 
         final studentsSnap = await _firestore
-            .collection('students')
+            .collection(FirestoreConstants.students)
             .where(FieldPath.documentId, whereIn: chunk)
             .get();
 
         for (var doc in studentsSnap.docs) {
-          final meta = enrollmentMeta[doc.id] ?? {};
+          final slot = studentSlots[doc.id];
           fetchedStudents.add(
             StudentModel.fromFirestore(
               doc,
-              row: meta['row'] as int?,
-              column: meta['column'] as int?,
-              isStudying: (meta['is_studying'] as bool?) ?? true,
+              row: slot?.row,
+              column: slot?.column,
+              isStudying: true,
             ),
           );
         }
@@ -288,17 +235,27 @@ class ClassDetailController extends ChangeNotifier {
 
       fetchedStudents.sort((a, b) => a.name.compareTo(b.name));
       _students = fetchedStudents;
+      if (_sessions.isNotEmpty) {
+        _sessions = _sessions
+            .map((s) => s.copyWith(
+                size: _classDetail?.students ?? _students.length))
+            .toList();
+      }
       notifyListeners();
     } catch (e) {
-      debugPrint('Lỗi _processEnrollmentDocs: $e');
+      debugPrint('Lỗi _processClassSeatmap: $e');
     }
   }
 
   void _listenToSessions() {
     _sessionsSubscription?.cancel();
+    
+    final currentTeacherId = FirebaseAuth.instance.currentUser?.uid ?? '';
+    
     _sessionsSubscription = _firestore
-        .collection('monitoring_sessions')
+        .collection(FirestoreConstants.sessions)
         .where('class_id', isEqualTo: classId)
+        .where('teacher_id', isEqualTo: currentTeacherId)
         .snapshots()
         .listen(
           (snapshot) {
@@ -318,7 +275,7 @@ class ClassDetailController extends ChangeNotifier {
             notifyListeners();
           },
           onError: (e) {
-            debugPrint('Lỗi listen monitoring_sessions: $e');
+            debugPrint('Lỗi listen sessions: $e');
           },
         );
   }
@@ -327,10 +284,22 @@ class ClassDetailController extends ChangeNotifier {
     init();
   }
 
+  Future<bool> updateSessionNote(String sessionId, String newNote) async {
+    try {
+      await _firestore
+          .collection(FirestoreConstants.sessions)
+          .doc(sessionId)
+          .update({'note': newNote});
+      return true;
+    } catch (e) {
+      debugPrint('Lỗi cập nhật ghi chú buổi học: $e');
+      return false;
+    }
+  }
+
   @override
   void dispose() {
     _classSubscription?.cancel();
-    _enrollmentSubscription?.cancel();
     _sessionsSubscription?.cancel();
     super.dispose();
   }

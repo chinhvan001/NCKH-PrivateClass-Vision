@@ -51,20 +51,7 @@ const List<String> studentNames = [
 // Hàm tạo danh sách học sinh ngẫu nhiên cho từng lớp
 List<String> getStudentsForClass(String classId) {
   List<String> shuffled = List.of(studentNames);
-
   var random = Random(classId.hashCode);
   shuffled.shuffle(random);
-
-  final classInfo = mockClasses.firstWhere(
-    (c) => c.id == classId,
-    orElse: () => mockClasses.first,
-  );
-
-  // Không giới hạn số lượng nữa, nếu lớp 45 học sinh, lấy đủ 45.
-  if (shuffled.length < classInfo.students) {
-    shuffled.addAll(List.of(studentNames));
-    shuffled.shuffle(random); // Xáo trộn lại
-  }
-
-  return shuffled.take(classInfo.students).toList();
+  return shuffled.take(30).toList();
 }

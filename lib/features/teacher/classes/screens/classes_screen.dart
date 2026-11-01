@@ -4,6 +4,7 @@ import 'package:flutter_privateclass_vision/features/teacher/classes/screens/cla
     show ClassroomService;
 
 import '../../../../core/constants/app_colors.dart';
+import '../../../../core/constants/firestore_constants.dart';
 import '../../../../core/models/class_model.dart';
 import '../../class_detail/screens/class_detail_screen.dart';
 
@@ -51,7 +52,7 @@ class ClassScreen extends StatelessWidget {
                 ),
                 child: StreamBuilder<QuerySnapshot>(
                   stream: FirebaseFirestore.instance
-                      .collection('classes')
+                      .collection(FirestoreConstants.classes)
                       .snapshots(),
                   builder: (context, snapshot) {
                     if (snapshot.connectionState == ConnectionState.waiting) {

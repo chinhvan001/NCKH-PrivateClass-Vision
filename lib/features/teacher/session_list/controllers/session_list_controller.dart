@@ -54,20 +54,14 @@ class SessionListController extends ChangeNotifier {
 
     try {
       final User? user = FirebaseAuth.instance.currentUser;
-      // Tạm thời để trống teacherId nếu chưa login để test dữ liệu mẫu
-      final String teacherId = user?.uid ?? '';
-
       _sessions = await _sessionService.getSessionsByTimeRange(
-        teacherId,
+        user?.uid ?? '',
         start,
         end,
       );
-
-      // ignore: avoid_print
       print('Đã tải ${_sessions.length} sessions');
     } catch (e) {
       _errorMessage = 'Không thể tải danh sách buổi dạy: $e';
-      // ignore: avoid_print
       print('Lỗi loadSessionsForRange: $e');
     } finally {
       _isLoading = false;

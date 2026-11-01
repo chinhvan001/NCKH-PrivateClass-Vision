@@ -1,5 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 
+import '../utils/firestore_parsers.dart';
+
 class StudentModel {
   final String id;
   final String name;
@@ -10,7 +12,11 @@ class StudentModel {
   final String birthday;
   final String parentId;
   final String parentEmail;
+  final String parentName;
+  final String parentPhone;
   final bool isStudying;
+  final bool isActive;
+  final String status;
 
   const StudentModel({
     required this.id,
@@ -22,10 +28,14 @@ class StudentModel {
     this.birthday = '',
     this.parentId = '',
     this.parentEmail = '',
+    this.parentName = '',
+    this.parentPhone = '',
     this.isStudying = true,
+    this.isActive = true,
+    this.status = 'active',
   });
 
-  /// Factory constructor parsing document with null-safety protection
+  /// Factory constructor parsing document from `students2` collection.
   factory StudentModel.fromFirestore(
     DocumentSnapshot doc, {
     int? row,
@@ -34,12 +44,12 @@ class StudentModel {
   }) {
     final data = doc.data() as Map<String, dynamic>? ?? {};
 
-    final String fullName =
-        (data['student_name'] ??
-                data['full_name'] ??
-                data['name'] ??
-                'Học sinh')
-            .toString();
+    // Typo-safe full-name with fallback chain
+    final String fullName = FirestoreParsers.string(
+      data,
+      ['fullname', 'full_name', 'student_name', 'name'],
+      'Học sinh',
+    );
 
     // Auto calculate short name if not provided
     final String shortName =
@@ -47,13 +57,14 @@ class StudentModel {
         (fullName.trim().isNotEmpty ? fullName.trim().split(' ').last : 'HS');
 
     String birthdayStr = '';
-    if (data['birthday'] != null) {
-      if (data['birthday'] is Timestamp) {
-        final DateTime dt = (data['birthday'] as Timestamp).toDate();
+    final rawBday = data['birthday'] ?? data['dob'];
+    if (rawBday != null) {
+      if (rawBday is Timestamp) {
+        final DateTime dt = rawBday.toDate();
         birthdayStr =
             '${dt.day.toString().padLeft(2, '0')}/${dt.month.toString().padLeft(2, '0')}/${dt.year}';
       } else {
-        birthdayStr = data['birthday'].toString();
+        birthdayStr = rawBday.toString();
       }
     }
 
@@ -67,11 +78,18 @@ class StudentModel {
       birthday: birthdayStr,
       parentId: data['parent_id']?.toString() ?? '',
       parentEmail: data['parent_email']?.toString() ?? '',
+      parentName: FirestoreParsers.string(data, ['parent_name']),
+      parentPhone: FirestoreParsers.string(
+        data,
+        ['parent_phonenumber', 'parent_phone_number', 'phone_number'],
+      ),
       isStudying: isStudying,
+      isActive: data['is_active'] != false,
+      status: data['status']?.toString() ?? 'active',
     );
   }
 
-  /// Create copy with updated enrollment properties
+  /// Create copy with updated properties
   StudentModel copyWith({
     String? id,
     String? name,
@@ -82,7 +100,11 @@ class StudentModel {
     String? birthday,
     String? parentId,
     String? parentEmail,
+    String? parentName,
+    String? parentPhone,
     bool? isStudying,
+    bool? isActive,
+    String? status,
   }) {
     return StudentModel(
       id: id ?? this.id,
@@ -94,7 +116,11 @@ class StudentModel {
       birthday: birthday ?? this.birthday,
       parentId: parentId ?? this.parentId,
       parentEmail: parentEmail ?? this.parentEmail,
+      parentName: parentName ?? this.parentName,
+      parentPhone: parentPhone ?? this.parentPhone,
       isStudying: isStudying ?? this.isStudying,
+      isActive: isActive ?? this.isActive,
+      status: status ?? this.status,
     );
   }
 }

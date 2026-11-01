@@ -10,7 +10,6 @@ class ClassStatsCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final int classSize = controller.classDetail?.students ?? 0;
     final int enrolled = controller.totalEnrolled;
     final int active = controller.activeStudentsCount;
     final int seated = controller.seatedStudentsCount;
@@ -21,7 +20,7 @@ class ClassStatsCard extends StatelessWidget {
         Expanded(
           child: _statItem(
             label: 'Sĩ số',
-            value: classSize > 0 ? '$enrolled/$classSize' : '$enrolled',
+            value: '$enrolled',
             subLabel: 'học sinh',
             icon: Icons.people_alt_outlined,
             iconColor: AppColors.brand,

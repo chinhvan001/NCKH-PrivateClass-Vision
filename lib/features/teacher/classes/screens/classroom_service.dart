@@ -1,5 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 
+import '../../../../core/constants/firestore_constants.dart';
+
 class ClassroomService {
   static final ClassroomService _instance = ClassroomService._internal();
   factory ClassroomService() => _instance;
@@ -7,7 +9,7 @@ class ClassroomService {
 
   final Map<String, String> _roomCache = {};
 
-  /// Lấy tên phòng từ classroom_id. Nếu có trong cache thì trả về ngay.
+  /// Lấy tên phòng từ camera_id. Nếu có trong cache thì trả về ngay.
   Future<String> getClassroomName(String? roomId) async {
     if (roomId == null || roomId.trim().isEmpty) {
       return 'Chưa cập nhật';
@@ -20,20 +22,21 @@ class ClassroomService {
     }
 
     try {
-      final doc = await FirebaseFirestore.instance
-          .collection('classrooms')
+      // Try cameras collection first (new schema)
+      final camDoc = await FirebaseFirestore.instance
+          .collection(FirestoreConstants.cameras)
           .doc(cleanId)
           .get();
 
-      if (doc.exists && doc.data() != null) {
-        final data = doc.data()!;
+      if (camDoc.exists && camDoc.data() != null) {
+        final data = camDoc.data()!;
         final String roomName =
-            data['classroom_name'] ?? data['name'] ?? cleanId;
+            data['classroom_name'] ?? data['camera_name'] ?? data['name'] ?? cleanId;
         _roomCache[cleanId] = roomName;
         return roomName;
       }
     } catch (e) {
-      // Nếu lỗi mạng hoặc truy vấn, dùng tạm ID
+      // fallback
     }
 
     _roomCache[cleanId] = cleanId;
