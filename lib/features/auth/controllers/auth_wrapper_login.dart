@@ -30,14 +30,14 @@ class AuthWrapper extends StatelessWidget {
     });
   }
 
-  // Hàm kiểm tra sự tồn tại của document trong Firestore
+  // Hàm kiểm tra tài khoản có trong Firestore và chưa bị khoá (is_active = false)
   Future<bool> _checkUserInCollection(String uid, String role) async {
     final collectionName = role == 'teacher' ? 'teachers' : 'parents';
     final doc = await FirebaseFirestore.instance
         .collection(collectionName)
         .doc(uid)
         .get();
-    return doc.exists;
+    return doc.exists && doc.data()?['is_active'] != false;
   }
 
   @override
@@ -69,7 +69,8 @@ class AuthWrapper extends StatelessWidget {
             }
 
             final selectedRole =
-                prefsSnapshot.data!.getString('selected_login_role') ?? 'teacher';
+                prefsSnapshot.data!.getString('selected_login_role') ??
+                'teacher';
 
             // Kiểm tra tài khoản có tồn tại trong collection tương ứng không
             return FutureBuilder<bool>(
@@ -93,10 +94,12 @@ class AuthWrapper extends StatelessWidget {
 
                 // Không tìm thấy tài khoản trong collection tương ứng
                 if (!exists) {
-                  final roleName = selectedRole == 'teacher' ? 'Giáo viên' : 'Phụ huynh';
+                  final roleName = selectedRole == 'teacher'
+                      ? 'Giáo viên'
+                      : 'Phụ huynh';
                   _handleInvalidAccount(
                     context,
-                    'Tài khoản không tồn tại trong danh sách $roleName. Vui lòng thử lại!',
+                    'Tài khoản không tồn tại hoặc đã bị khoá trong danh sách $roleName. Vui lòng thử lại!',
                   );
                   return const LoginScreen();
                 }
@@ -105,7 +108,7 @@ class AuthWrapper extends StatelessWidget {
                 if (selectedRole == 'teacher') {
                   return const MainScreen();
                 } else {
-                  return const HomeScreen();
+                  return HomeScreen(uid: user.uid, email: user.email);
                 }
               },
             );

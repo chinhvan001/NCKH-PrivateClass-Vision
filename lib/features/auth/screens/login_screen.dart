@@ -12,7 +12,8 @@ class LoginScreen extends StatefulWidget {
 
 class _LoginScreenState extends State<LoginScreen> {
   bool _isLoading = false;
-  String _selectedRole = 'teacher'; // Mặc định chọn Giáo viên ('teacher' hoặc 'parent')
+  String _selectedRole =
+      'teacher'; // Mặc định chọn Giáo viên ('teacher' hoặc 'parent')
 
   Future<void> _signInWithGoogle() async {
     setState(() => _isLoading = true);
@@ -88,10 +89,7 @@ class _LoginScreenState extends State<LoginScreen> {
                     ),
                   ],
                 ),
-                child: Image.asset(
-                  'assets/logo.png',
-                  fit: BoxFit.contain,
-                ),
+                child: Image.asset('assets/logo.png', fit: BoxFit.contain),
               ),
               const SizedBox(height: 24),
 
@@ -108,10 +106,7 @@ class _LoginScreenState extends State<LoginScreen> {
               const Text(
                 'Hệ thống quản lý lớp học riêng',
                 textAlign: TextAlign.center,
-                style: TextStyle(
-                  fontSize: 16,
-                  color: Colors.white,
-                ),
+                style: TextStyle(fontSize: 16, color: Colors.white),
               ),
               const SizedBox(height: 32),
 
@@ -143,10 +138,7 @@ class _LoginScreenState extends State<LoginScreen> {
                     const SizedBox(height: 4),
                     const Text(
                       'Vui lòng chọn vai trò trước khi đăng nhập',
-                      style: TextStyle(
-                        fontSize: 14,
-                        color: Colors.black54,
-                      ),
+                      style: TextStyle(fontSize: 14, color: Colors.black54),
                     ),
                     const SizedBox(height: 16),
 
@@ -155,7 +147,8 @@ class _LoginScreenState extends State<LoginScreen> {
                       children: [
                         Expanded(
                           child: GestureDetector(
-                            onTap: () => setState(() => _selectedRole = 'teacher'),
+                            onTap: () =>
+                                setState(() => _selectedRole = 'teacher'),
                             child: Container(
                               padding: const EdgeInsets.symmetric(vertical: 12),
                               decoration: BoxDecoration(
@@ -196,7 +189,8 @@ class _LoginScreenState extends State<LoginScreen> {
                         const SizedBox(width: 12),
                         Expanded(
                           child: GestureDetector(
-                            onTap: () => setState(() => _selectedRole = 'parent'),
+                            onTap: () =>
+                                setState(() => _selectedRole = 'parent'),
                             child: Container(
                               padding: const EdgeInsets.symmetric(vertical: 12),
                               decoration: BoxDecoration(
@@ -298,4 +292,4 @@ class _LoginScreenState extends State<LoginScreen> {
       ),
     );
   }
-} 
+}

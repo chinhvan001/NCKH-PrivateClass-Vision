@@ -2,8 +2,6 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_privateclass_vision/core/data/import.dart';
-import 'package:flutter_privateclass_vision/core/data/import_session.dart';
-import 'package:flutter_privateclass_vision/core/data/import_student.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 
 import '../../../../core/constants/app_colors.dart';
@@ -110,7 +108,10 @@ class AccountScreen extends StatelessWidget {
                       const Center(
                         child: Text(
                           'PrivateClass Vision · Phiên bản 2.4.0',
-                          style: TextStyle(fontSize: 12, color: AppColors.muted),
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: AppColors.muted,
+                          ),
                         ),
                       ),
                       const SizedBox(height: 24),
@@ -157,7 +158,7 @@ class AccountScreen extends StatelessWidget {
         ),
         Padding(
           padding: const EdgeInsets.only(top: 130, left: 16, right: 16),
-          child: ProfileCard(user: user), 
+          child: ProfileCard(user: user),
         ),
       ],
     );
@@ -188,11 +189,7 @@ class AccountScreen extends StatelessWidget {
       clipBehavior: Clip.antiAlias,
       child: Column(
         children: [
-          InfoRow(
-            icon: Icons.mail_outline,
-            label: 'Email',
-            value: user.email,
-          ),
+          InfoRow(icon: Icons.mail_outline, label: 'Email', value: user.email),
           const Divider(height: 1, color: AppColors.hair),
           InfoRow(
             icon: Icons.phone_outlined,

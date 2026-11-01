@@ -1,27 +1,17 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:flutter/material.dart';
+import 'package:google_sign_in/google_sign_in.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-Future<void> signOutAndResetRole(BuildContext context) async {
-  final user = FirebaseAuth.instance.currentUser;
-
-  if (user != null) {
-    try {
-      // 1. Xóa active_role trên Firestore để đăng nhập lần sau bắt buộc chọn lại
-      await FirebaseFirestore.instance
-          .collection('users')
-          .doc(user.uid)
-          .update({'active_role': FieldValue.delete()});
-    } catch (e) {
-      debugPrint("Lỗi xóa active_role: $e");
-    }
-  }
-
-  // 2. Xóa vai trò đã lưu trong bộ nhớ máy
+/// Đăng xuất dùng chung cho giáo viên và phụ huynh.
+/// AuthWrapper tự chuyển về LoginScreen khi trạng thái đăng nhập thay đổi.
+Future<void> signOutAndResetRole() async {
+  // 1. Xoá vai trò đã chọn (cùng key với LoginScreen và AuthWrapper)
   final prefs = await SharedPreferences.getInstance();
-  await prefs.remove('saved_active_role');
+  await prefs.remove('selected_login_role');
 
-  // 3. Thực hiện Đăng xuất khỏi Firebase Auth
+  // 2. Đăng xuất Google để lần sau được chọn lại tài khoản
+  await GoogleSignIn().signOut();
+
+  // 3. Đăng xuất Firebase Auth
   await FirebaseAuth.instance.signOut();
 }

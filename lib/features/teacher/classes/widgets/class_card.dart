@@ -117,10 +117,7 @@ class ClassCard extends StatelessWidget {
                     ],
                   ),
                 ),
-                const Icon(
-                  Icons.chevron_right,
-                  color: Colors.black26,
-                ),
+                const Icon(Icons.chevron_right, color: Colors.black26),
               ],
             ),
           ),

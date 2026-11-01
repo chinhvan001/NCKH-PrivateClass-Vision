@@ -23,7 +23,9 @@ class TeacherModel {
   }
 
   /// Khởi tạo UserModel từ document trong collection 'teachers'
-  factory TeacherModel.fromFirestore(DocumentSnapshot<Map<String, dynamic>> doc) {
+  factory TeacherModel.fromFirestore(
+    DocumentSnapshot<Map<String, dynamic>> doc,
+  ) {
     final data = doc.data() ?? {};
     return TeacherModel(
       uid: doc.id,

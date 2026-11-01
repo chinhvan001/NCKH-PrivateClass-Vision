@@ -7,11 +7,7 @@ class AttendanceDetailScreen extends StatelessWidget {
   const AttendanceDetailScreen({super.key});
 
   final List<Map<String, dynamic>> _absences = const [
-    {
-      'date': '10/05/2024',
-      'type': 'Vắng có phép',
-      'reason': 'Lý do: Ốm',
-    },
+    {'date': '10/05/2024', 'type': 'Vắng có phép', 'reason': 'Lý do: Ốm'},
     {
       'date': '03/05/2024',
       'type': 'Vắng có phép',
@@ -27,7 +23,11 @@ class AttendanceDetailScreen extends StatelessWidget {
         backgroundColor: Colors.white,
         elevation: 0,
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back_ios, color: AppColors.textPrimary, size: 20),
+          icon: const Icon(
+            Icons.arrow_back_ios,
+            color: AppColors.textPrimary,
+            size: 20,
+          ),
           onPressed: () => Navigator.pop(context),
         ),
         title: const Text('Chi tiết điểm danh', style: AppTextStyles.heading2),
@@ -52,9 +52,17 @@ class AttendanceDetailScreen extends StatelessWidget {
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceAround,
                 children: [
-                  _SummaryBox(label: 'Tổng số buổi', value: '20', color: AppColors.textPrimary),
+                  _SummaryBox(
+                    label: 'Tổng số buổi',
+                    value: '20',
+                    color: AppColors.textPrimary,
+                  ),
                   Container(width: 1, height: 40, color: AppColors.divider),
-                  _SummaryBox(label: 'Đã tham gia', value: '18', color: AppColors.green),
+                  _SummaryBox(
+                    label: 'Đã tham gia',
+                    value: '18',
+                    color: AppColors.green,
+                  ),
                 ],
               ),
             ),
@@ -63,63 +71,80 @@ class AttendanceDetailScreen extends StatelessWidget {
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceAround,
                 children: [
-                  _SummaryBox(label: 'Vắng có phép', value: '2', color: AppColors.orange),
+                  _SummaryBox(
+                    label: 'Vắng có phép',
+                    value: '2',
+                    color: AppColors.orange,
+                  ),
                   Container(width: 1, height: 40, color: AppColors.divider),
-                  _SummaryBox(label: 'Vắng không phép', value: '0', color: AppColors.red),
+                  _SummaryBox(
+                    label: 'Vắng không phép',
+                    value: '0',
+                    color: AppColors.red,
+                  ),
                 ],
               ),
             ),
             const SizedBox(height: 10),
             AppCard(
-              child: _SummaryBox(label: 'Đi muộn', value: '1', color: AppColors.primary),
+              child: _SummaryBox(
+                label: 'Đi muộn',
+                value: '1',
+                color: AppColors.primary,
+              ),
             ),
             const SizedBox(height: 16),
             // Absence list
             const Text('Danh sách vắng', style: AppTextStyles.heading3),
             const SizedBox(height: 10),
-            ..._absences.map((a) => Padding(
-                  padding: const EdgeInsets.only(bottom: 10),
-                  child: AppCard(
-                    child: Row(
-                      children: [
-                        Container(
-                          padding: const EdgeInsets.all(10),
-                          decoration: BoxDecoration(
-                            color: AppColors.orangeLight,
-                            shape: BoxShape.circle,
-                          ),
-                          child: const Icon(
-                            Icons.event_busy,
-                            color: AppColors.orange,
-                            size: 20,
-                          ),
+            ..._absences.map(
+              (a) => Padding(
+                padding: const EdgeInsets.only(bottom: 10),
+                child: AppCard(
+                  child: Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(10),
+                        decoration: BoxDecoration(
+                          color: AppColors.orangeLight,
+                          shape: BoxShape.circle,
                         ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                a['date'] as String,
-                                style: AppTextStyles.caption,
-                              ),
-                              const SizedBox(height: 3),
-                              Text(
-                                a['type'] as String,
-                                style: AppTextStyles.body2.copyWith(
-                                  fontWeight: FontWeight.w600,
-                                  color: AppColors.orange,
-                                ),
-                              ),
-                              const SizedBox(height: 2),
-                              Text(a['reason'] as String, style: AppTextStyles.caption),
-                            ],
-                          ),
+                        child: const Icon(
+                          Icons.event_busy,
+                          color: AppColors.orange,
+                          size: 20,
                         ),
-                      ],
-                    ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              a['date'] as String,
+                              style: AppTextStyles.caption,
+                            ),
+                            const SizedBox(height: 3),
+                            Text(
+                              a['type'] as String,
+                              style: AppTextStyles.body2.copyWith(
+                                fontWeight: FontWeight.w600,
+                                color: AppColors.orange,
+                              ),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              a['reason'] as String,
+                              style: AppTextStyles.caption,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
                   ),
-                )),
+                ),
+              ),
+            ),
           ],
         ),
       ),

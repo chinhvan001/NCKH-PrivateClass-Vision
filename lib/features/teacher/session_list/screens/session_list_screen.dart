@@ -282,6 +282,7 @@ class _SessionListScreenState extends State<SessionListScreen> {
                                       context,
                                       MaterialPageRoute(
                                         builder: (context) => SessionDetailScreen(
+                                          sessionId: item.id,  
                                           classId: item.classId,
                                           className: item.className,
                                           room: item.roomName,

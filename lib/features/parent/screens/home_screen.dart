@@ -1,16 +1,22 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_privateclass_vision/features/parent/controllers/parent_session.dart';
 import 'package:flutter_privateclass_vision/features/parent/screens/widgets/bottom_nav_bar.dart';
 import 'package:flutter_privateclass_vision/features/parent/screens/widgets/common_widgets.dart';
 import 'package:flutter_privateclass_vision/features/parent/utils/app_colors.dart';
 import 'package:flutter_privateclass_vision/features/parent/utils/app_text_styles.dart';
+
 import 'session_history_screen.dart';
 import 'notification_screen.dart';
 import 'profile_screen.dart';
 import 'daily_overview_screen.dart';
 import 'switch_account_screen.dart';
+import 'no_child_screen.dart';
 
 class HomeScreen extends StatefulWidget {
-  const HomeScreen({super.key});
+  final String uid;
+  final String? email;
+
+  const HomeScreen({super.key, required this.uid, this.email});
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
@@ -18,26 +24,63 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   int _currentIndex = 0;
+  final ParentSession _session = ParentSession.instance;
+
+  @override
+  void initState() {
+    super.initState();
+    // AuthWrapper chỉ mở HomeScreen khi đã đăng nhập và có document parents/{uid}
+    _session.attach(widget.uid, email: widget.email);
+  }
+
+  @override
+  void dispose() {
+    _session.detach();
+    super.dispose();
+  }
 
   Widget _buildBody() {
     switch (_currentIndex) {
-      case 0: return const _HomeContent();
-      case 1: return const SessionHistoryScreen();
-      case 2: return const NotificationScreen();
-      case 3: return const ProfileScreen();
-      default: return const _HomeContent();
+      case 0:
+        return const _HomeContent();
+      case 1:
+        return const SessionHistoryScreen();
+      case 2:
+        return const NotificationScreen();
+      case 3:
+        return const ProfileScreen();
+      default:
+        return const _HomeContent();
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: AppColors.backgroundGrey,
-      body: _buildBody(),
-      bottomNavigationBar: AppBottomNavBar(
-        currentIndex: _currentIndex,
-        onTap: (i) => setState(() => _currentIndex = i),
-      ),
+    return ListenableBuilder(
+      listenable: _session,
+      builder: (context, _) {
+        if (_session.isLoading) {
+          return const Scaffold(
+            body: Center(child: CircularProgressIndicator()),
+          );
+        }
+
+        if (!_session.hasChildren) {
+          return NoChildScreen(
+            errorMessage: _session.error,
+            onRetry: _session.reload,
+          );
+        }
+
+        return Scaffold(
+          backgroundColor: AppColors.backgroundGrey,
+          body: _buildBody(),
+          bottomNavigationBar: AppBottomNavBar(
+            currentIndex: _currentIndex,
+            onTap: (i) => setState(() => _currentIndex = i),
+          ),
+        );
+      },
     );
   }
 }
@@ -64,8 +107,7 @@ class _HomeContent extends StatelessWidget {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: const [
-                        Text('Lớp học của con',
-                            style: AppTextStyles.heading2),
+                        Text('Lớp học của con', style: AppTextStyles.heading2),
                       ],
                     ),
                   ),
@@ -88,57 +130,76 @@ class _HomeContent extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    // Student info + switch account
-                    Row(
-                      children: [
-                        const AvatarWidget(name: 'Minh Anh', size: 46),
-                        const SizedBox(width: 12),
-                        const Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text('Minh Anh', style: AppTextStyles.heading3),
-                              SizedBox(height: 2),
-                              Text(
-                                'Lớp 5A · Trường Tiểu học ABC',
-                                style: AppTextStyles.caption,
+                    // Student info + switch account (theo con đang chọn)
+                    ListenableBuilder(
+                      listenable: ParentSession.instance,
+                      builder: (context, _) {
+                        final session = ParentSession.instance;
+                        final child = session.selectedChild;
+                        return Row(
+                          children: [
+                            AvatarWidget(name: child?.name ?? '', size: 46),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    child?.name ?? '',
+                                    style: AppTextStyles.heading3,
+                                  ),
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    child?.classDisplay ?? '',
+                                    style: AppTextStyles.caption,
+                                  ),
+                                ],
                               ),
-                            ],
-                          ),
-                        ),
-                        _TapScaleWidget(
-                          onTap: () {
-                            showModalBottomSheet(
-                              context: context,
-                              isScrollControlled: true,
-                              backgroundColor: Colors.transparent,
-                              builder: (_) => const SwitchAccountScreen(),
-                            );
-                          },
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 10, vertical: 6),
-                            decoration: BoxDecoration(
-                              color: AppColors.accentLight,
-                              borderRadius: BorderRadius.circular(20),
                             ),
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: const [
-                                Text('Đổi',
-                                    style: TextStyle(
-                                      fontSize: 12,
-                                      fontWeight: FontWeight.w600,
-                                      color: AppColors.primary,
-                                    )),
-                                SizedBox(width: 2),
-                                Icon(Icons.swap_horiz_rounded,
-                                    color: AppColors.primary, size: 16),
-                              ],
-                            ),
-                          ),
-                        ),
-                      ],
+                            // Chỉ hiện nút "Đổi" khi phụ huynh có từ 2 con trở lên
+                            if (session.children.length > 1)
+                              _TapScaleWidget(
+                                onTap: () {
+                                  showModalBottomSheet(
+                                    context: context,
+                                    isScrollControlled: true,
+                                    backgroundColor: Colors.transparent,
+                                    builder: (_) => const SwitchAccountScreen(),
+                                  );
+                                },
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 10,
+                                    vertical: 6,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: AppColors.accentLight,
+                                    borderRadius: BorderRadius.circular(20),
+                                  ),
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: const [
+                                      Text(
+                                        'Đổi',
+                                        style: TextStyle(
+                                          fontSize: 12,
+                                          fontWeight: FontWeight.w600,
+                                          color: AppColors.primary,
+                                        ),
+                                      ),
+                                      SizedBox(width: 2),
+                                      Icon(
+                                        Icons.swap_horiz_rounded,
+                                        color: AppColors.primary,
+                                        size: 16,
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                          ],
+                        );
+                      },
                     ),
 
                     const SizedBox(height: 12),
@@ -146,21 +207,31 @@ class _HomeContent extends StatelessWidget {
                     // Info banner
                     Container(
                       padding: const EdgeInsets.symmetric(
-                          horizontal: 12, vertical: 9),
+                        horizontal: 12,
+                        vertical: 9,
+                      ),
                       decoration: BoxDecoration(
                         color: AppColors.accentLight,
                         borderRadius: BorderRadius.circular(10),
                       ),
                       child: Row(
                         children: [
-                          const Icon(Icons.trending_up_rounded,
-                              color: AppColors.primary, size: 18),
+                          const Icon(
+                            Icons.trending_up_rounded,
+                            color: AppColors.primary,
+                            size: 18,
+                          ),
                           const SizedBox(width: 8),
                           Expanded(
-                            child: Text(
-                              'Hôm nay Minh Anh tập trung tốt hơn 15% so với buổi trước.',
-                              style: AppTextStyles.caption
-                                  .copyWith(color: AppColors.primary),
+                            // TODO: số liệu tập trung sẽ nối Firestore ở tuần tích hợp buổi học
+                            child: ListenableBuilder(
+                              listenable: ParentSession.instance,
+                              builder: (context, _) => Text(
+                                'Hôm nay ${ParentSession.instance.selectedChild?.shortName ?? 'con'} tập trung tốt hơn 15% so với buổi trước.',
+                                style: AppTextStyles.caption.copyWith(
+                                  color: AppColors.primary,
+                                ),
+                              ),
                             ),
                           ),
                         ],
@@ -313,8 +384,11 @@ class _HomeContent extends StatelessWidget {
                           color: Colors.white.withValues(alpha: 0.18),
                           borderRadius: BorderRadius.circular(10),
                         ),
-                        child: const Icon(Icons.bar_chart_rounded,
-                            color: Colors.white, size: 26),
+                        child: const Icon(
+                          Icons.bar_chart_rounded,
+                          color: Colors.white,
+                          size: 26,
+                        ),
                       ),
                       const SizedBox(width: 14),
                       const Expanded(
@@ -333,7 +407,9 @@ class _HomeContent extends StatelessWidget {
                             Text(
                               'Tập trung & điểm danh chi tiết',
                               style: TextStyle(
-                                  fontSize: 12, color: Colors.white70),
+                                fontSize: 12,
+                                color: Colors.white70,
+                              ),
                             ),
                           ],
                         ),
@@ -344,8 +420,11 @@ class _HomeContent extends StatelessWidget {
                           color: Colors.white.withValues(alpha: 0.18),
                           shape: BoxShape.circle,
                         ),
-                        child: const Icon(Icons.arrow_forward_rounded,
-                            color: Colors.white, size: 18),
+                        child: const Icon(
+                          Icons.arrow_forward_rounded,
+                          color: Colors.white,
+                          size: 18,
+                        ),
                       ),
                     ],
                   ),
@@ -396,9 +475,13 @@ class _TapScaleWidgetState extends State<_TapScaleWidget>
   void initState() {
     super.initState();
     _ctrl = AnimationController(
-        vsync: this, duration: const Duration(milliseconds: 140));
-    _scale = Tween(begin: 1.0, end: 0.95)
-        .animate(CurvedAnimation(parent: _ctrl, curve: Curves.easeInOut));
+      vsync: this,
+      duration: const Duration(milliseconds: 140),
+    );
+    _scale = Tween(
+      begin: 1.0,
+      end: 0.95,
+    ).animate(CurvedAnimation(parent: _ctrl, curve: Curves.easeInOut));
   }
 
   @override
@@ -447,9 +530,13 @@ class _AnimatedButtonState extends State<_AnimatedButton>
   void initState() {
     super.initState();
     _ctrl = AnimationController(
-        vsync: this, duration: const Duration(milliseconds: 150));
-    _scale = Tween(begin: 1.0, end: 0.96)
-        .animate(CurvedAnimation(parent: _ctrl, curve: Curves.easeInOut));
+      vsync: this,
+      duration: const Duration(milliseconds: 150),
+    );
+    _scale = Tween(
+      begin: 1.0,
+      end: 0.96,
+    ).animate(CurvedAnimation(parent: _ctrl, curve: Curves.easeInOut));
     _color = ColorTween(
       begin: Colors.transparent,
       end: AppColors.primary.withValues(alpha: 0.08),
@@ -533,9 +620,13 @@ class _IconBadgeButtonState extends State<_IconBadgeButton>
   void initState() {
     super.initState();
     _ctrl = AnimationController(
-        vsync: this, duration: const Duration(milliseconds: 130));
-    _scale = Tween(begin: 1.0, end: 0.82)
-        .animate(CurvedAnimation(parent: _ctrl, curve: Curves.easeInOut));
+      vsync: this,
+      duration: const Duration(milliseconds: 130),
+    );
+    _scale = Tween(
+      begin: 1.0,
+      end: 0.82,
+    ).animate(CurvedAnimation(parent: _ctrl, curve: Curves.easeInOut));
   }
 
   @override
@@ -565,8 +656,7 @@ class _IconBadgeButtonState extends State<_IconBadgeButton>
                 color: AppColors.backgroundGrey,
                 shape: BoxShape.circle,
               ),
-              child: Icon(widget.icon,
-                  color: AppColors.textPrimary, size: 24),
+              child: Icon(widget.icon, color: AppColors.textPrimary, size: 24),
             ),
             if (widget.count > 0)
               Positioned(
@@ -643,11 +733,7 @@ class _VertDivider extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      width: 1,
-      height: 44,
-      color: AppColors.divider,
-    );
+    return Container(width: 1, height: 44, color: AppColors.divider);
   }
 }
 
@@ -711,12 +797,14 @@ class _FocusCard extends StatelessWidget {
             children: [
               Icon(icon, color: iconColor, size: 18),
               const SizedBox(height: 3),
-              Text(label,
-                  style: TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
-                    color: iconColor,
-                  )),
+              Text(
+                label,
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  color: iconColor,
+                ),
+              ),
             ],
           ),
         ],
@@ -763,9 +851,11 @@ class _AttendanceBadge extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 2),
-            Text(label,
-                style: AppTextStyles.small,
-                textAlign: TextAlign.center),
+            Text(
+              label,
+              style: AppTextStyles.small,
+              textAlign: TextAlign.center,
+            ),
           ],
         ),
       ),

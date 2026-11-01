@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_privateclass_vision/features/parent/utils/app_colors.dart';
 import 'package:flutter_privateclass_vision/features/parent/utils/app_text_styles.dart';
+
 import 'session_detail_screen.dart';
 
 class SessionHistoryScreen extends StatefulWidget {
@@ -96,13 +97,18 @@ class _SessionHistoryScreenState extends State<SessionHistoryScreen> {
         elevation: 0,
         leading: Navigator.canPop(context)
             ? IconButton(
-                icon: const Icon(Icons.arrow_back_ios_new_rounded,
-                    color: AppColors.textPrimary, size: 20),
+                icon: const Icon(
+                  Icons.arrow_back_ios_new_rounded,
+                  color: AppColors.textPrimary,
+                  size: 20,
+                ),
                 onPressed: () => Navigator.pop(context),
               )
             : null,
-        title: const Text('Lịch sử các buổi học',
-            style: AppTextStyles.heading2),
+        title: const Text(
+          'Lịch sử các buổi học',
+          style: AppTextStyles.heading2,
+        ),
         bottom: PreferredSize(
           preferredSize: const Size.fromHeight(1),
           child: Container(height: 1, color: AppColors.divider),
@@ -138,8 +144,11 @@ class _SessionHistoryScreenState extends State<SessionHistoryScreen> {
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
             child: Row(
               children: [
-                const Icon(Icons.event_note_rounded,
-                    size: 16, color: AppColors.textSecondary),
+                const Icon(
+                  Icons.event_note_rounded,
+                  size: 16,
+                  color: AppColors.textSecondary,
+                ),
                 const SizedBox(width: 6),
                 Text(
                   '${_filteredSessions.length} buổi học',
@@ -216,9 +225,13 @@ class _FilterChipState extends State<_FilterChip>
   void initState() {
     super.initState();
     _ctrl = AnimationController(
-        vsync: this, duration: const Duration(milliseconds: 120));
-    _scale = Tween(begin: 1.0, end: 0.92)
-        .animate(CurvedAnimation(parent: _ctrl, curve: Curves.easeInOut));
+      vsync: this,
+      duration: const Duration(milliseconds: 120),
+    );
+    _scale = Tween(
+      begin: 1.0,
+      end: 0.92,
+    ).animate(CurvedAnimation(parent: _ctrl, curve: Curves.easeInOut));
   }
 
   @override
@@ -294,9 +307,13 @@ class _SessionCardState extends State<_SessionCard>
   void initState() {
     super.initState();
     _ctrl = AnimationController(
-        vsync: this, duration: const Duration(milliseconds: 130));
-    _scale = Tween(begin: 1.0, end: 0.97)
-        .animate(CurvedAnimation(parent: _ctrl, curve: Curves.easeInOut));
+      vsync: this,
+      duration: const Duration(milliseconds: 130),
+    );
+    _scale = Tween(
+      begin: 1.0,
+      end: 0.97,
+    ).animate(CurvedAnimation(parent: _ctrl, curve: Curves.easeInOut));
   }
 
   @override
@@ -307,28 +324,40 @@ class _SessionCardState extends State<_SessionCard>
 
   Color _statusColor(String s) {
     switch (s) {
-      case 'present': return AppColors.green;
-      case 'absent': return AppColors.red;
-      case 'late': return AppColors.orange;
-      default: return AppColors.textSecondary;
+      case 'present':
+        return AppColors.green;
+      case 'absent':
+        return AppColors.red;
+      case 'late':
+        return AppColors.orange;
+      default:
+        return AppColors.textSecondary;
     }
   }
 
   String _statusLabel(String s) {
     switch (s) {
-      case 'present': return 'Có mặt';
-      case 'absent': return 'Vắng';
-      case 'late': return 'Đi muộn';
-      default: return '';
+      case 'present':
+        return 'Có mặt';
+      case 'absent':
+        return 'Vắng';
+      case 'late':
+        return 'Đi muộn';
+      default:
+        return '';
     }
   }
 
   IconData _statusIcon(String s) {
     switch (s) {
-      case 'present': return Icons.check_circle_rounded;
-      case 'absent': return Icons.cancel_rounded;
-      case 'late': return Icons.watch_later_rounded;
-      default: return Icons.help_outline;
+      case 'present':
+        return Icons.check_circle_rounded;
+      case 'absent':
+        return Icons.cancel_rounded;
+      case 'late':
+        return Icons.watch_later_rounded;
+      default:
+        return Icons.help_outline;
     }
   }
 
@@ -382,8 +411,7 @@ class _SessionCardState extends State<_SessionCard>
                       strokeWidth: 5,
                       strokeCap: StrokeCap.round,
                       backgroundColor: AppColors.divider,
-                      valueColor:
-                          AlwaysStoppedAnimation<Color>(pColor),
+                      valueColor: AlwaysStoppedAnimation<Color>(pColor),
                     ),
                     Text(
                       '$percent%',
@@ -403,8 +431,7 @@ class _SessionCardState extends State<_SessionCard>
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(s['date'] as String,
-                        style: AppTextStyles.caption),
+                    Text(s['date'] as String, style: AppTextStyles.caption),
                     const SizedBox(height: 3),
                     Text(
                       '${s['time']} · ${s['subject']}',
@@ -416,12 +443,13 @@ class _SessionCardState extends State<_SessionCard>
                     const SizedBox(height: 2),
                     Row(
                       children: [
-                        const Icon(Icons.meeting_room_outlined,
-                            size: 12,
-                            color: AppColors.textSecondary),
+                        const Icon(
+                          Icons.meeting_room_outlined,
+                          size: 12,
+                          color: AppColors.textSecondary,
+                        ),
                         const SizedBox(width: 3),
-                        Text(s['room'] as String,
-                            style: AppTextStyles.small),
+                        Text(s['room'] as String, style: AppTextStyles.small),
                       ],
                     ),
                   ],
@@ -434,7 +462,9 @@ class _SessionCardState extends State<_SessionCard>
                 children: [
                   Container(
                     padding: const EdgeInsets.symmetric(
-                        horizontal: 10, vertical: 5),
+                      horizontal: 10,
+                      vertical: 5,
+                    ),
                     decoration: BoxDecoration(
                       color: sColor.withValues(alpha: 0.10),
                       borderRadius: BorderRadius.circular(20),
@@ -442,8 +472,7 @@ class _SessionCardState extends State<_SessionCard>
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        Icon(_statusIcon(status),
-                            color: sColor, size: 13),
+                        Icon(_statusIcon(status), color: sColor, size: 13),
                         const SizedBox(width: 4),
                         Text(
                           _statusLabel(status),
@@ -457,8 +486,11 @@ class _SessionCardState extends State<_SessionCard>
                     ),
                   ),
                   const SizedBox(height: 8),
-                  const Icon(Icons.chevron_right_rounded,
-                      color: AppColors.textHint, size: 20),
+                  const Icon(
+                    Icons.chevron_right_rounded,
+                    color: AppColors.textHint,
+                    size: 20,
+                  ),
                 ],
               ),
             ],
@@ -485,15 +517,16 @@ class _EmptyState extends StatelessWidget {
               color: AppColors.accentLight,
               shape: BoxShape.circle,
             ),
-            child: const Icon(Icons.event_busy_rounded,
-                size: 44, color: AppColors.primary),
+            child: const Icon(
+              Icons.event_busy_rounded,
+              size: 44,
+              color: AppColors.primary,
+            ),
           ),
           const SizedBox(height: 14),
-          const Text('Không có buổi học nào',
-              style: AppTextStyles.heading3),
+          const Text('Không có buổi học nào', style: AppTextStyles.heading3),
           const SizedBox(height: 6),
-          const Text('Thử chọn bộ lọc khác',
-              style: AppTextStyles.caption),
+          const Text('Thử chọn bộ lọc khác', style: AppTextStyles.caption),
         ],
       ),
     );
