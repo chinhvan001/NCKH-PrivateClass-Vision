@@ -1,5 +1,3 @@
-// File: lib/core/models/session_model.dart
-
 import 'package:cloud_firestore/cloud_firestore.dart';
 
 class SessionModel {
@@ -34,6 +32,40 @@ class SessionModel {
     this.note = '',
     required this.status,
   });
+
+  SessionModel copyWith({
+    String? id,
+    String? classId,
+    String? teacherId,
+    String? classroomId,
+    String? className,
+    String? room,
+    String? date,
+    String? start,
+    String? end,
+    int? size,
+    int? presentStudent,
+    double? avgAttentionScore,
+    String? note,
+    String? status,
+  }) {
+    return SessionModel(
+      id: id ?? this.id,
+      classId: classId ?? this.classId,
+      teacherId: teacherId ?? this.teacherId,
+      classroomId: classroomId ?? this.classroomId,
+      className: className ?? this.className,
+      room: room ?? this.room,
+      date: date ?? this.date,
+      start: start ?? this.start,
+      end: end ?? this.end,
+      size: size ?? this.size,
+      presentStudent: presentStudent ?? this.presentStudent,
+      avgAttentionScore: avgAttentionScore ?? this.avgAttentionScore,
+      note: note ?? this.note,
+      status: status ?? this.status,
+    );
+  }
 
   factory SessionModel.fromFirestore(
     DocumentSnapshot doc, {
@@ -77,12 +109,11 @@ class SessionModel {
       computedStatus = 'Đang diễn ra';
     }
 
-    // Lấy mảng students nếu có
     final List dynamicStudents = data['students'] is List
         ? data['students']
         : [];
     final int presentCountFromList = dynamicStudents
-        .where((s) => s is Map && (s['is_present'] == true))
+        .where((s) => s is Map && (s['is_present'] == true) && (s['student_id']?.toString().trim() != ''))
         .length;
 
     final int presentCount =

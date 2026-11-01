@@ -143,6 +143,12 @@ class SessionDetailController extends ChangeNotifier {
 
               await _fetchStudentDetails();
 
+              // Filter out mock data or ghost students that don't exist in Firestore
+              _sessionStudents.removeWhere(
+                  (s) => s.studentId.trim().isEmpty || !_studentDetails.containsKey(s.studentId));
+              _originalSessionStudents.removeWhere(
+                  (s) => s.studentId.trim().isEmpty || !_studentDetails.containsKey(s.studentId));
+
               _isLoading = false;
               notifyListeners();
             } catch (e) {
@@ -162,7 +168,7 @@ class SessionDetailController extends ChangeNotifier {
   Future<void> _fetchStudentDetails() async {
     final List<String> studentIdsToFetch = _sessionStudents
         .map((s) => s.studentId)
-        .where((id) => id.isNotEmpty && !_studentDetails.containsKey(id))
+        .where((id) => id.trim().isNotEmpty && !_studentDetails.containsKey(id))
         .toList();
 
     if (studentIdsToFetch.isEmpty) return;
@@ -186,6 +192,26 @@ class SessionDetailController extends ChangeNotifier {
 
   StudentModel? getStudentInfo(String studentId) {
     return _studentDetails[studentId];
+  }
+
+  /// Đánh dấu tất cả học sinh là có mặt (chỉ cập nhật local, chờ saveChanges)
+  void markAllPresent() {
+    final updatedStudents = _sessionStudents
+        .map((s) => s.copyWith(isPresent: true, isAttention: true))
+        .toList();
+    _sessionStudents = updatedStudents;
+    _hasChanges = true;
+    notifyListeners();
+  }
+
+  /// Đánh dấu tất cả học sinh là vắng mặt (chỉ cập nhật local, chờ saveChanges)
+  void markAllAbsent() {
+    final updatedStudents = _sessionStudents
+        .map((s) => s.copyWith(isPresent: false, isAttention: false))
+        .toList();
+    _sessionStudents = updatedStudents;
+    _hasChanges = true;
+    notifyListeners();
   }
 
   void toggleAttendance(String studentId) {

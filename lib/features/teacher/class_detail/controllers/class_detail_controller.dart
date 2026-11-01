@@ -1,5 +1,6 @@
-import 'dart:async';
+﻿import 'dart:async';
 
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
 
@@ -236,13 +237,12 @@ class ClassDetailController extends ChangeNotifier {
   Future<void> _processEnrollmentDocs(List<QueryDocumentSnapshot> docs) async {
     try {
       final Map<String, Map<String, dynamic>> enrollmentMeta = {};
-      final List<String> studentIds = [];
 
       for (var doc in docs) {
         final data = doc.data() as Map<String, dynamic>? ?? {};
         final String? sId = data['student_id']?.toString();
         if (sId != null && sId.isNotEmpty) {
-          studentIds.add(sId);
+          // Nếu trùng student_id â†’ giữ enrollment mới nhất (ghi đè)
           enrollmentMeta[sId] = {
             'row': (data['row'] as num?)?.toInt(),
             'column': (data['column'] as num?)?.toInt(),
@@ -254,7 +254,10 @@ class ClassDetailController extends ChangeNotifier {
         }
       }
 
-      if (studentIds.isEmpty) {
+      // Lấy danh sách student_id duy nhất từ Map keys
+      final List<String> uniqueStudentIds = enrollmentMeta.keys.toList();
+
+      if (uniqueStudentIds.isEmpty) {
         _students = [];
         notifyListeners();
         return;
@@ -262,10 +265,10 @@ class ClassDetailController extends ChangeNotifier {
 
       final List<StudentModel> fetchedStudents = [];
 
-      for (var i = 0; i < studentIds.length; i += 30) {
-        final chunk = studentIds.sublist(
+      for (var i = 0; i < uniqueStudentIds.length; i += 30) {
+        final chunk = uniqueStudentIds.sublist(
           i,
-          i + 30 > studentIds.length ? studentIds.length : i + 30,
+          i + 30 > uniqueStudentIds.length ? uniqueStudentIds.length : i + 30,
         );
 
         final studentsSnap = await _firestore
@@ -288,6 +291,9 @@ class ClassDetailController extends ChangeNotifier {
 
       fetchedStudents.sort((a, b) => a.name.compareTo(b.name));
       _students = fetchedStudents;
+      if (_sessions.isNotEmpty) {
+        _sessions = _sessions.map((s) => s.copyWith(size: _classDetail?.students ?? _students.length)).toList();
+      }
       notifyListeners();
     } catch (e) {
       debugPrint('Lỗi _processEnrollmentDocs: $e');
@@ -296,9 +302,13 @@ class ClassDetailController extends ChangeNotifier {
 
   void _listenToSessions() {
     _sessionsSubscription?.cancel();
+    
+    final currentTeacherId = FirebaseAuth.instance.currentUser?.uid ?? '';
+    
     _sessionsSubscription = _firestore
         .collection('monitoring_sessions')
         .where('class_id', isEqualTo: classId)
+        .where('teacher_id', isEqualTo: currentTeacherId)
         .snapshots()
         .listen(
           (snapshot) {
@@ -325,6 +335,19 @@ class ClassDetailController extends ChangeNotifier {
 
   Future<void> refresh() async {
     init();
+  }
+
+  Future<bool> updateSessionNote(String sessionId, String newNote) async {
+    try {
+      await _firestore
+          .collection('monitoring_sessions')
+          .doc(sessionId)
+          .update({'note': newNote});
+      return true;
+    } catch (e) {
+      debugPrint('Lỗi cập nhật ghi chú buổi học: $e');
+      return false;
+    }
   }
 
   @override

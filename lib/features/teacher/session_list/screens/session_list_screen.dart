@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../../../../core/constants/app_colors.dart';
-import '../widgets/session_list_card.dart';
+import '../../shared/widgets/shared_session_card.dart';
 import '../../session_detail/screens/session_detail_screen.dart';
 import '../controllers/session_list_controller.dart';
 
@@ -18,6 +18,7 @@ class _SessionListScreenState extends State<SessionListScreen> {
   ViewPeriodMode _viewMode = ViewPeriodMode.week;
   int _offset = 0;
 
+  // --- Các biến quản lý dữ liệu thực ---
   final SessionListController _controller = SessionListController();
 
   final Map<int, String> _weekdayLabels = {
@@ -49,6 +50,30 @@ class _SessionListScreenState extends State<SessionListScreen> {
   }
 
   Future<void> _fetchData() async {
+    // Tạm thời bỏ lọc ngày để kiểm tra xem có dữ liệu trong DB không
+    // Nếu muốn bật lại lọc ngày, hãy bỏ comment đoạn code dưới đây
+    /*
+    final visibleDates = _getVisibleDates();
+    final startDate = DateTime(
+      visibleDates.first.year,
+      visibleDates.first.month,
+      visibleDates.first.day,
+      0,
+      0,
+      0,
+    );
+    final endDate = DateTime(
+      visibleDates.last.year,
+      visibleDates.last.month,
+      visibleDates.last.day,
+      23,
+      59,
+      59,
+    );
+    await _controller.loadSessionsForRange(startDate, endDate);
+    */
+
+    // Query toàn bộ sessions của teacher (hoặc toàn bộ nếu teacherId trống)
     await _controller.loadSessionsForRange(null, null);
   }
 
@@ -94,92 +119,67 @@ class _SessionListScreenState extends State<SessionListScreen> {
     final totalSessions = _getTotalCount(visibleDates);
 
     return Scaffold(
-      backgroundColor: const Color(0xFFF8FAFC),
-      body: SafeArea(
-        child: Column(
-          children: [
-            Container(
-              color: Colors.white,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  _buildHeader(),
-                  _buildSegmentedFilter(),
-                  const Divider(height: 1, color: Color(0xFFE2E8F0)),
-                  _buildFilterNavigator(),
-                ],
-              ),
+      backgroundColor: AppColors.appBg,
+      body: Column(
+        children: [
+          Container(
+            color: Colors.white,
+            child: Column(
+              children: [
+                _buildHeader(totalSessions),
+                Container(height: 1, color: AppColors.hair),
+                _buildFilterNavigator(),
+              ],
             ),
-            Expanded(
-              child: _controller.isLoading
-                  ? const Center(
-                      child: CircularProgressIndicator(color: AppColors.navy),
-                    )
-                  : (totalSessions == 0
+          ),
+          Expanded(
+            child: _controller.isLoading
+                ? const Center(
+                    child: CircularProgressIndicator(color: AppColors.navy),
+                  )
+                : (totalSessions == 0
                       ? Center(
-                          child: Padding(
-                            padding: const EdgeInsets.symmetric(horizontal: 24),
-                            child: Column(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                Icon(
-                                  Icons.calendar_month_outlined,
-                                  size: 72,
-                                  color: Colors.blueGrey.shade200,
-                                ),
-                                const SizedBox(height: 20),
-                                Text(
-                                  _viewMode == ViewPeriodMode.week
-                                      ? 'Không có phiên nào trong tuần này.'
-                                      : 'Không có phiên nào trong ngày này.',
-                                  textAlign: TextAlign.center,
-                                  style: const TextStyle(
-                                    fontSize: 18,
-                                    fontWeight: FontWeight.bold,
-                                    color: Color(0xFF1E293B),
-                                  ),
-                                ),
-                                const SizedBox(height: 8),
-                                Text(
-                                  'Dữ liệu các buổi học sẽ hiển thị tại đây khi có lịch diễn ra.',
-                                  textAlign: TextAlign.center,
-                                  style: TextStyle(
-                                    fontSize: 14,
-                                    color: Colors.grey.shade600,
-                                  ),
-                                ),
-                              ],
+                          child: Text(
+                            _viewMode == ViewPeriodMode.week
+                                ? 'Không có phiên nào trong tuần này.'
+                                : 'Không có phiên nào trong ngày này.',
+                            style: const TextStyle(
+                              fontSize: 14,
+                              color: AppColors.muted,
                             ),
                           ),
                         )
-                      : ListView.builder(
-                          padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
-                          itemCount: visibleDates.length,
-                          itemBuilder: (context, index) {
-                            final date = visibleDates[index];
-                            final dateStr = _formatDate(date);
-                            final dayLabel = _weekdayLabels[date.weekday] ?? '';
-                            final dayItems = _controller.sessions
-                                .where((h) => h.date == dateStr)
+                      : RefreshIndicator(
+                          onRefresh: _fetchData,
+                          child: ListView.builder(
+                            padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+                            itemCount: visibleDates.length,
+                            itemBuilder: (context, index) {
+                              final date = visibleDates[index];
+                              final dateStr = _formatDate(date);
+                              final dayLabel = _weekdayLabels[date.weekday] ?? '';
+                              final dayItems = _controller.sessions
+                                  .where((h) => h.date == dateStr)
                                 .toList();
 
-                            if (_viewMode == ViewPeriodMode.week && dayItems.isEmpty) {
+                            if (_viewMode == ViewPeriodMode.week &&
+                                dayItems.isEmpty) {
                               return const SizedBox.shrink();
                             }
 
                             return Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                const SizedBox(height: 14),
+                                const SizedBox(height: 12),
                                 Container(
                                   width: double.infinity,
                                   padding: const EdgeInsets.symmetric(
-                                    horizontal: 18,
-                                    vertical: 12,
+                                    horizontal: 16,
+                                    vertical: 8,
                                   ),
                                   decoration: BoxDecoration(
                                     color: AppColors.navy,
-                                    borderRadius: BorderRadius.circular(16),
+                                    borderRadius: BorderRadius.circular(20),
                                   ),
                                   child: Row(
                                     children: [
@@ -187,102 +187,98 @@ class _SessionListScreenState extends State<SessionListScreen> {
                                         child: Text(
                                           '$dayLabel, $dateStr',
                                           style: const TextStyle(
-                                            fontSize: 16,
-                                            fontWeight: FontWeight.bold,
+                                            fontSize: 13,
+                                            fontWeight: FontWeight.w700,
                                             color: Colors.white,
                                           ),
                                           textAlign: TextAlign.center,
                                         ),
                                       ),
-                                      Container(
-                                        padding: const EdgeInsets.symmetric(
-                                          horizontal: 10,
-                                          vertical: 3,
+                                      Text(
+                                        '${dayItems.length}',
+                                        style: const TextStyle(
+                                          fontSize: 13,
+                                          fontWeight: FontWeight.w700,
+                                          color: Colors.white,
                                         ),
-                                        decoration: BoxDecoration(
-                                          color: Colors.white24,
-                                          borderRadius: BorderRadius.circular(12),
-                                        ),
-                                        child: Text(
-                                          '${dayItems.length}',
-                                          style: const TextStyle(
-                                            fontSize: 14,
-                                            fontWeight: FontWeight.bold,
-                                            color: Colors.white,
-                                          ),
-                                        ),
+                                      ),
+                                      const SizedBox(width: 4),
+                                      const Icon(
+                                        Icons.keyboard_arrow_up,
+                                        size: 18,
+                                        color: Colors.white,
                                       ),
                                     ],
                                   ),
                                 ),
-                                const SizedBox(height: 10),
+                                const SizedBox(height: 8),
                                 ...dayItems.map(
-                                  (item) => SessionListCard(
-                                    item: item,
-                                    onTap: () {
-                                      Navigator.push(
-                                        context,
-                                        MaterialPageRoute(
-                                          builder: (context) =>
-                                              SessionDetailScreen(
-                                                sessionId: item.id,
-                                                classId: item.classId,
-                                                className: item.className,
-                                                room: item.room,
-                                                start: item.start,
-                                                end: item.end,
-                                                date: item.date,
-                                                status: item.status,
-                                              ),
-                                        ),
-                                      );
-                                    },
+                                  (item) => Padding(
+                                    padding: const EdgeInsets.only(bottom: 10),
+                                    child: SharedSessionCard(
+                                      session: item,
+                                      showClassInfo: true,
+                                      onTap: () {
+                                        Navigator.push(
+                                          context,
+                                          MaterialPageRoute(
+                                            builder: (context) =>
+                                                SessionDetailScreen(
+                                                  sessionId: item.id,
+                                                  classId: item.classId,
+                                                  className: item.className,
+                                                  room: item.room,
+                                                  start: item.start,
+                                                  end: item.end,
+                                                  date: item.date,
+                                                  status: item.status,
+                                                ),
+                                          ),
+                                        );
+                                      },
+                                    ),
                                   ),
                                 ),
                               ],
                             );
                           },
-                        )),
-            ),
-          ],
-        ),
+                        ),
+                      )),
+          ),
+        ],
       ),
     );
   }
 
-  // Tiêu đề to bản, đặt riêng ở trên cùng
-  Widget _buildHeader() {
-    return const Padding(
-      padding: EdgeInsets.fromLTRB(20, 16, 20, 12),
-      child: Text(
-        'Danh sách phiên',
-        style: TextStyle(
-          fontSize: 26,
-          fontWeight: FontWeight.w800,
-          color: AppColors.navy,
-          letterSpacing: -0.5,
-        ),
-      ),
-    );
-  }
-
-  // Thanh chuyển đổi Ngày / Tuần tách riêng 1 hàng to bản, dễ chạm
-  Widget _buildSegmentedFilter() {
+  Widget _buildHeader(int count) {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 0, 16, 14),
-      child: Container(
-        height: 44,
-        decoration: BoxDecoration(
-          color: const Color(0xFFF1F5F9),
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: const Color(0xFFE2E8F0)),
-        ),
-        child: Row(
-          children: [
-            Expanded(child: _buildModeTab('Theo Ngày', ViewPeriodMode.day)),
-            Expanded(child: _buildModeTab('Theo Tuần', ViewPeriodMode.week)),
-          ],
-        ),
+      padding: const EdgeInsets.fromLTRB(16, 56, 16, 16),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          const Text(
+            'Danh sách phiên',
+            style: TextStyle(
+              fontSize: 20, // Giảm nhẹ font size tiêu đề để tranh chấp không gian ở màn hình nhỏ
+              fontWeight: FontWeight.w800,
+              color: AppColors.navy,
+            ),
+          ),
+          Container(
+            padding: const EdgeInsets.all(3),
+            decoration: BoxDecoration(
+              color: AppColors.appBg,
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: AppColors.hair),
+            ),
+            child: Row(
+              children: [
+                _buildModeTab('Theo Ngày', ViewPeriodMode.day),
+                _buildModeTab('Theo Tuần', ViewPeriodMode.week),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -300,27 +296,17 @@ class _SessionListScreenState extends State<SessionListScreen> {
         }
       },
       child: Container(
-        alignment: Alignment.center,
-        margin: const EdgeInsets.all(3),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
         decoration: BoxDecoration(
           color: isSelected ? AppColors.navy : Colors.transparent,
-          borderRadius: BorderRadius.circular(10),
-          boxShadow: isSelected
-              ? [
-                  BoxShadow(
-                    color: Colors.black.withOpacity(0.08),
-                    blurRadius: 4,
-                    offset: const Offset(0, 2),
-                  ),
-                ]
-              : null,
+          borderRadius: BorderRadius.circular(8),
         ),
         child: Text(
           label,
           style: TextStyle(
-            fontSize: 16, // Chữ to rõ rệt
+            fontSize: 12,
             fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
-            color: isSelected ? Colors.white : const Color(0xFF64748B),
+            color: isSelected ? Colors.white : AppColors.muted,
           ),
         ),
       ),
@@ -355,7 +341,7 @@ class _SessionListScreenState extends State<SessionListScreen> {
     }
 
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
@@ -366,16 +352,15 @@ class _SessionListScreenState extends State<SessionListScreen> {
             },
             borderRadius: BorderRadius.circular(8),
             child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
               child: Row(
                 children: const [
-                  Icon(Icons.chevron_left, size: 24, color: AppColors.navy),
-                  SizedBox(width: 2),
+                  Icon(Icons.chevron_left, size: 20, color: AppColors.navy),
                   Text(
                     'Lùi',
                     style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w700,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
                       color: AppColors.navy,
                     ),
                   ),
@@ -383,17 +368,19 @@ class _SessionListScreenState extends State<SessionListScreen> {
               ),
             ),
           ),
+          // Bọc Expanded vào đây để Text tự căn giữa và co dãn linh hoạt, tránh tràn màn hình
           Expanded(
             child: Text(
               label,
               textAlign: TextAlign.center,
               style: const TextStyle(
-                fontSize: 15,
+                fontSize:
+                    12, // Giảm nhẹ font từ 13 xuống 12 để vừa màn hình nhỏ
                 fontWeight: FontWeight.bold,
-                color: Color(0xFF1E293B),
+                color: AppColors.navy,
               ),
               maxLines: 1,
-              overflow: TextOverflow.ellipsis,
+              overflow: TextOverflow.ellipsis, // Nếu màn hình quá bé sẽ hiển thị dấu ... thay vì bị nổ giao diện
             ),
           ),
           InkWell(
@@ -403,19 +390,18 @@ class _SessionListScreenState extends State<SessionListScreen> {
             },
             borderRadius: BorderRadius.circular(8),
             child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
               child: Row(
                 children: const [
                   Text(
                     'Tiếp',
                     style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w700,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
                       color: AppColors.navy,
                     ),
                   ),
-                  SizedBox(width: 2),
-                  Icon(Icons.chevron_right, size: 24, color: AppColors.navy),
+                  Icon(Icons.chevron_right, size: 20, color: AppColors.navy),
                 ],
               ),
             ),

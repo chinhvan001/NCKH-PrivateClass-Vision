@@ -3,6 +3,8 @@ import 'package:flutter/material.dart';
 import '../../../../core/constants/app_colors.dart';
 import '../../../../core/models/student_model.dart';
 import '../controllers/class_detail_controller.dart';
+import '../../shared/widgets/student_detail_bottom_sheet.dart';
+
 
 class StudentListWidget extends StatelessWidget {
   final ClassDetailController controller;
@@ -102,66 +104,80 @@ class StudentListWidget extends StatelessWidget {
                   separatorBuilder: (context, index) =>
                       const SizedBox(height: 8),
                   itemBuilder: (context, index) =>
-                      _item(students[index], index + 1),
+                      _item(context, students[index], index + 1),
                 ),
         ),
       ],
     );
   }
 
-  Widget _item(StudentModel s, int idx) {
+  Widget _item(BuildContext context, StudentModel s, int idx) {
     final hasSeat =
         s.row != null && s.row! > 0 && s.column != null && s.column! > 0;
     return Container(
-      padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(14),
         border: Border.all(color: AppColors.hair),
       ),
-      child: Row(
-        children: [
-          CircleAvatar(
-            radius: 18,
-            backgroundColor: AppColors.lightBlue,
-            child: Text(
-              s.short.isNotEmpty ? s.short : '$idx',
-              style: const TextStyle(
-                fontSize: 11,
-                fontWeight: FontWeight.bold,
-                color: AppColors.brand,
-              ),
-            ),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  s.name,
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: () {
+          StudentDetailBottomSheet.show(
+            context: context,
+            studentId: s.id,
+            classId: controller.classId,
+            studentModel: s,
+          );
+        },
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Row(
+            children: [
+              CircleAvatar(
+                radius: 18,
+                backgroundColor: AppColors.lightBlue,
+                child: Text(
+                  s.short.isNotEmpty ? s.short : '$idx',
                   style: const TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w700,
-                    color: AppColors.navy,
-                  ),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  hasSeat
-                      ? 'Hàng ${s.row}, Cột ${s.column}'
-                      : 'Chưa xếp chỗ ngồi',
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: hasSeat ? AppColors.brand : AppColors.muted,
+                    fontSize: 11,
+                    fontWeight: FontWeight.bold,
+                    color: AppColors.brand,
                   ),
                 ),
-              ],
-            ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      s.name,
+                      style: const TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w700,
+                        color: AppColors.navy,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      hasSeat
+                          ? 'Hàng ${s.row}, Cột ${s.column}'
+                          : 'Chưa xếp chỗ ngồi',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: hasSeat ? AppColors.brand : AppColors.muted,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const Icon(Icons.chevron_right, color: Colors.black26, size: 18),
+            ],
           ),
-        ],
+        ),
       ),
     );
   }

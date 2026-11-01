@@ -38,21 +38,20 @@ class ProfileScreen extends StatelessWidget {
   Widget _buildBody(BuildContext context) {
     final session = ParentSession.instance;
     final child = session.selectedChild;
-    final parent = session.parent;
 
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Student header
+          // Thẻ thông tin học sinh & lớp học
           AppCard(
             child: Row(
               children: [
                 Container(
                   width: 64,
                   height: 64,
-                  decoration: BoxDecoration(
+                  decoration: const BoxDecoration(
                     color: AppColors.accentLight,
                     shape: BoxShape.circle,
                   ),
@@ -70,7 +69,7 @@ class ProfileScreen extends StatelessWidget {
                       Text(child?.name ?? '', style: AppTextStyles.heading2),
                       const SizedBox(height: 4),
                       Text(
-                        child?.classDisplay ?? '',
+                        child?.classDisplay ?? 'Chưa xếp lớp',
                         style: AppTextStyles.caption,
                       ),
                     ],
@@ -80,7 +79,8 @@ class ProfileScreen extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 14),
-          // Personal info
+
+          // Thông tin chi tiết chuẩn theo Firestore thực tế
           AppCard(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -94,32 +94,27 @@ class ProfileScreen extends StatelessWidget {
                       : 'Chưa cập nhật',
                 ),
                 _ProfileRow(
-                  label: 'Giới tính',
-                  value: (child?.gender.isNotEmpty ?? false)
-                      ? child!.gender
-                      : 'Chưa cập nhật',
-                ),
-                _ProfileRow(
                   label: 'Giáo viên phụ trách',
                   value: child?.teacherDisplay ?? 'Chưa cập nhật',
                 ),
                 _ProfileRow(
                   label: 'Phụ huynh',
-                  value: parent?.name ?? 'Chưa cập nhật',
+                  value: (child?.parentName?.isNotEmpty ?? false)
+                      ? child!.parentName!
+                      : 'Chưa cập nhật',
                 ),
                 _ProfileRow(
                   label: 'SĐT liên hệ',
-                  value: parent?.phoneNumber ?? 'Chưa cập nhật',
-                ),
-                _ProfileRow(
-                  label: 'Email liên hệ',
-                  value: parent?.email ?? 'Chưa cập nhật',
+                  value: (child?.parentPhone?.isNotEmpty ?? false)
+                      ? child!.parentPhone!
+                      : 'Chưa cập nhật',
                 ),
               ],
             ),
           ),
           const SizedBox(height: 14),
-          // Report link
+
+          // Liên kết báo cáo
           AppCard(
             onTap: () {
               Navigator.push(
@@ -155,13 +150,14 @@ class ProfileScreen extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 20),
+
+          // Nút đăng xuất
           SizedBox(
             width: double.infinity,
             height: 48,
             child: ElevatedButton(
               onPressed: () async {
                 try {
-                  // AuthWrapper sẽ tự chuyển về LoginScreen khi state đăng xuất thay đổi
                   await signOutAndResetRole();
                 } catch (e) {
                   debugPrint('Lỗi đăng xuất: $e');
