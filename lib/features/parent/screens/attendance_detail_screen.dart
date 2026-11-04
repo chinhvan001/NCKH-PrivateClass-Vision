@@ -17,24 +17,30 @@ class _AttendanceDetailScreenState extends State<AttendanceDetailScreen> {
   final ParentService _parentService = ParentService();
   final ParentSession _session = ParentSession.instance;
 
-  late Future<AttendanceSummary> _summaryFuture;
+  Future<AttendanceSummary>? _summaryFuture;
+  String? _lastLoadedStudentId;
 
   @override
   void initState() {
     super.initState();
-    _loadData();
+    _fetchAttendance();
   }
 
-  void _loadData() {
+  void _fetchAttendance() {
     final currentChild = _session.selectedChild;
     if (currentChild != null) {
+      _lastLoadedStudentId = currentChild.id;
       final classId = currentChild.classes.isNotEmpty ? currentChild.classes.first.id : null;
-      _summaryFuture = _parentService.getAttendanceSummary(
-        studentId: currentChild.id,
-        classId: classId,
-      );
+      setState(() {
+        _summaryFuture = _parentService.getAttendanceSummary(
+          studentId: currentChild.id,
+          classId: classId,
+        );
+      });
     } else {
-      _summaryFuture = Future.value(const AttendanceSummary());
+      setState(() {
+        _summaryFuture = Future.value(const AttendanceSummary());
+      });
     }
   }
 
@@ -43,6 +49,10 @@ class _AttendanceDetailScreenState extends State<AttendanceDetailScreen> {
     final now = DateTime.now();
     final monthStr = 'Tháng ${now.month.toString().padLeft(2, '0')}/${now.year}';
     final currentChild = _session.selectedChild;
+
+    if (currentChild != null && currentChild.id != _lastLoadedStudentId) {
+      _fetchAttendance();
+    }
 
     return Scaffold(
       backgroundColor: AppColors.backgroundGrey,
@@ -61,167 +71,161 @@ class _AttendanceDetailScreenState extends State<AttendanceDetailScreen> {
       ),
       body: currentChild == null
           ? const Center(child: Text('Chưa có thông tin học sinh'))
-          : FutureBuilder<AttendanceSummary>(
-              future: _summaryFuture,
-              builder: (context, snapshot) {
-                if (snapshot.connectionState == ConnectionState.waiting) {
-                  return const Center(child: CircularProgressIndicator());
-                }
+          : RefreshIndicator(
+              onRefresh: () async => _fetchAttendance(),
+              child: FutureBuilder<AttendanceSummary>(
+                future: _summaryFuture,
+                builder: (context, snapshot) {
+                  if (snapshot.connectionState == ConnectionState.waiting) {
+                    return const Center(child: CircularProgressIndicator());
+                  }
 
-                if (snapshot.hasError) {
-                  return Center(child: Text('Lỗi tải dữ liệu: ${snapshot.error}'));
-                }
+                  if (snapshot.hasError) {
+                    return Center(child: Text('Lỗi tải dữ liệu: ${snapshot.error}'));
+                  }
 
-                final summary = snapshot.data ?? const AttendanceSummary();
+                  final summary = snapshot.data ?? const AttendanceSummary();
 
-                return SingleChildScrollView(
-                  padding: const EdgeInsets.all(16),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      // Header tháng hiện tại & tên con
-                      Container(
-                        width: double.infinity,
-                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(10),
+                  return SingleChildScrollView(
+                    physics: const AlwaysScrollableScrollPhysics(),
+                    padding: const EdgeInsets.all(16),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Text(monthStr, style: AppTextStyles.heading3),
+                              Text(
+                                currentChild.shortName,
+                                style: AppTextStyles.body2.copyWith(
+                                  color: AppColors.primary,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ],
+                          ),
                         ),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            Text(monthStr, style: AppTextStyles.heading3),
-                            Text(
-                              currentChild.shortName,
-                              style: AppTextStyles.body2.copyWith(
-                                color: AppColors.primary,
-                                fontWeight: FontWeight.bold,
+                        const SizedBox(height: 14),
+                        AppCard(
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceAround,
+                            children: [
+                              _SummaryBox(
+                                label: 'Tổng số buổi',
+                                value: summary.totalSessions.toString(),
+                                color: AppColors.textPrimary,
+                              ),
+                              Container(width: 1, height: 40, color: AppColors.divider),
+                              _SummaryBox(
+                                label: 'Đã tham gia',
+                                value: summary.attendedSessions.toString(),
+                                color: AppColors.green,
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                        AppCard(
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceAround,
+                            children: [
+                              _SummaryBox(
+                                label: 'Vắng có phép',
+                                value: summary.excusedAbsences.toString(),
+                                color: AppColors.orange,
+                              ),
+                              Container(width: 1, height: 40, color: AppColors.divider),
+                              _SummaryBox(
+                                label: 'Vắng không phép',
+                                value: summary.unexcusedAbsences.toString(),
+                                color: AppColors.red,
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                        AppCard(
+                          child: _SummaryBox(
+                            label: 'Đi muộn',
+                            value: summary.lateSessions.toString(),
+                            color: AppColors.primary,
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+                        const Text('Danh sách vắng & ghi chú', style: AppTextStyles.heading3),
+                        const SizedBox(height: 10),
+                        if (summary.absenceList.isEmpty)
+                          const Padding(
+                            padding: EdgeInsets.symmetric(vertical: 20),
+                            child: Center(
+                              child: Text(
+                                'Không có ghi nhận vắng trong kỳ',
+                                style: AppTextStyles.caption,
                               ),
                             ),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(height: 14),
-
-                      // Thống kê tổng số buổi & đã tham gia
-                      AppCard(
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceAround,
-                          children: [
-                            _SummaryBox(
-                              label: 'Tổng số buổi',
-                              value: summary.totalSessions.toString(),
-                              color: AppColors.textPrimary,
-                            ),
-                            Container(width: 1, height: 40, color: AppColors.divider),
-                            _SummaryBox(
-                              label: 'Đã tham gia',
-                              value: summary.attendedSessions.toString(),
-                              color: AppColors.green,
-                            ),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(height: 10),
-
-                      // Thống kê vắng
-                      AppCard(
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceAround,
-                          children: [
-                            _SummaryBox(
-                              label: 'Vắng có phép',
-                              value: summary.excusedAbsences.toString(),
-                              color: AppColors.orange,
-                            ),
-                            Container(width: 1, height: 40, color: AppColors.divider),
-                            _SummaryBox(
-                              label: 'Vắng không phép',
-                              value: summary.unexcusedAbsences.toString(),
-                              color: AppColors.red,
-                            ),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(height: 10),
-
-                      // Đi muộn
-                      AppCard(
-                        child: _SummaryBox(
-                          label: 'Đi muộn',
-                          value: summary.lateSessions.toString(),
-                          color: AppColors.primary,
-                        ),
-                      ),
-                      const SizedBox(height: 16),
-
-                      // Danh sách vắng / đi muộn
-                      const Text('Danh sách vắng & ghi chú', style: AppTextStyles.heading3),
-                      const SizedBox(height: 10),
-
-                      if (summary.absenceList.isEmpty)
-                        const Padding(
-                          padding: EdgeInsets.symmetric(vertical: 20),
-                          child: Center(
-                            child: Text(
-                              'Không có ghi nhận vắng trong kỳ',
-                              style: AppTextStyles.caption,
-                            ),
-                          ),
-                        )
-                      else
-                        ...summary.absenceList.map(
-                          (a) => Padding(
-                            padding: const EdgeInsets.only(bottom: 10),
-                            child: AppCard(
-                              child: Row(
-                                children: [
-                                  Container(
-                                    padding: const EdgeInsets.all(10),
-                                    decoration: BoxDecoration(
-                                      color: a.type == 'Đi muộn'
-                                          ? AppColors.primaryLight
-                                          : AppColors.orangeLight,
-                                      shape: BoxShape.circle,
+                          )
+                        else
+                          ...summary.absenceList.map(
+                            (a) => Padding(
+                              padding: const EdgeInsets.only(bottom: 10),
+                              child: AppCard(
+                                child: Row(
+                                  children: [
+                                    Container(
+                                      padding: const EdgeInsets.all(10),
+                                      decoration: BoxDecoration(
+                                        color: a.type == 'Đi muộn'
+                                            ? AppColors.primaryLight
+                                            : AppColors.orangeLight,
+                                        shape: BoxShape.circle,
+                                      ),
+                                      child: Icon(
+                                        a.type == 'Đi muộn' ? Icons.alarm : Icons.event_busy,
+                                        color: a.type == 'Đi muộn'
+                                            ? AppColors.primary
+                                            : AppColors.orange,
+                                        size: 20,
+                                      ),
                                     ),
-                                    child: Icon(
-                                      a.type == 'Đi muộn' ? Icons.alarm : Icons.event_busy,
-                                      color: a.type == 'Đi muộn'
-                                          ? AppColors.primary
-                                          : AppColors.orange,
-                                      size: 20,
-                                    ),
-                                  ),
-                                  const SizedBox(width: 12),
-                                  Expanded(
-                                    child: Column(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
-                                      children: [
-                                        Text(a.date, style: AppTextStyles.caption),
-                                        const SizedBox(height: 3),
-                                        Text(
-                                          a.type,
-                                          style: AppTextStyles.body2.copyWith(
-                                            fontWeight: FontWeight.w600,
-                                            color: a.type == 'Đi muộn'
-                                                ? AppColors.primary
-                                                : AppColors.orange,
+                                    const SizedBox(width: 12),
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        children: [
+                                          Text(a.date, style: AppTextStyles.caption),
+                                          const SizedBox(height: 3),
+                                          Text(
+                                            a.type,
+                                            style: AppTextStyles.body2.copyWith(
+                                              fontWeight: FontWeight.w600,
+                                              color: a.type == 'Đi muộn'
+                                                  ? AppColors.primary
+                                                  : AppColors.orange,
+                                            ),
                                           ),
-                                        ),
-                                        const SizedBox(height: 2),
-                                        Text(a.reason, style: AppTextStyles.caption),
-                                      ],
+                                          const SizedBox(height: 2),
+                                          Text(a.reason, style: AppTextStyles.caption),
+                                        ],
+                                      ),
                                     ),
-                                  ),
-                                ],
+                                  ],
+                                ),
                               ),
                             ),
                           ),
-                        ),
-                    ],
-                  ),
-                );
-              },
+                      ],
+                    ),
+                  );
+                },
+              ),
             ),
     );
   }
@@ -232,7 +236,7 @@ class _SummaryBox extends StatelessWidget {
   final String value;
   final Color color;
 
-  const _SummaryBox({
+const _SummaryBox({
     required this.label,
     required this.value,
     required this.color,
