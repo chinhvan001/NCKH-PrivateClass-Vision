@@ -1,86 +1,185 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 
-class ParentModel {
-  final String uid;
-  final String name;
-  final String email;
-  final String phoneNumber;
-  final bool isActive;
-
-  const ParentModel({
-    required this.uid,
-    required this.name,
-    required this.email,
-    required this.phoneNumber,
-    this.isActive = true,
-  });
-
-  /// Khởi tạo từ document trong collection 'parents' (doc id = uid Firebase Auth)
-  factory ParentModel.fromFirestore(DocumentSnapshot<Map<String, dynamic>> doc) {
-    final data = doc.data() ?? {};
-    return ParentModel(
-      uid: doc.id,
-      name: data['name'] ?? 'Chưa cập nhật',
-      email: data['email'] ?? 'Chưa cập nhật',
-      phoneNumber: data['phone_number'] ?? 'Chưa cập nhật',
-      isActive: data['is_active'] != false,
-    );
-  }
-}
-
-/// Một lớp mà học sinh đang theo học (lấy qua enrollments -> classes -> teachers)
+/// Model thông tin lớp học của học sinh (lấy từ classes2 và teachers)
 class ChildClass {
   final String id;
   final String name;
   final String schoolYear;
   final String teacherName;
 
-  const ChildClass({
+  ChildClass({
     required this.id,
     required this.name,
-    this.schoolYear = '',
+    required this.schoolYear,
     this.teacherName = '',
   });
+
+  String get display {
+    if (name.isNotEmpty && schoolYear.isNotEmpty) {
+      return '$name · Năm học $schoolYear';
+    }
+    return name.isNotEmpty ? name : 'Chưa xếp lớp';
+  }
 }
 
-/// Học sinh được liên kết với phụ huynh qua students.parent_id (hoặc parent_email)
+/// Model học sinh được liên kết với phụ huynh (lấy từ students2)
 class LinkedChild {
   final String id;
   final String name;
   final String birthday;
   final String gender;
   final List<ChildClass> classes;
+  final String? parentName;
+  final String? parentPhone;
 
-  const LinkedChild({
+  LinkedChild({
     required this.id,
     required this.name,
-    this.birthday = '',
-    this.gender = '',
-    this.classes = const [],
+    required this.birthday,
+    required this.gender,
+    required this.classes,
+    this.parentName,
+    this.parentPhone,
   });
 
-  /// Tên gọi ngắn (từ cuối của họ tên), dùng trong câu thông báo
   String get shortName {
     final parts = name.trim().split(' ');
-    return parts.isEmpty ? name : parts.last;
+    return parts.isNotEmpty ? parts.last : name;
   }
 
-  /// Ví dụ: "12A1 · Năm học 2026-2027" hoặc "12A1, 10B2"
-  String get classDisplay {
-    if (classes.isEmpty) return 'Chưa xếp lớp';
-    if (classes.length == 1) {
-      final c = classes.first;
-      return c.schoolYear.isNotEmpty ? '${c.name} · Năm học ${c.schoolYear}' : c.name;
-    }
-    return classes.map((c) => c.name).join(', ');
+  String get classDisplay =>
+      classes.isNotEmpty ? classes.first.display : 'Chưa xếp lớp';
+
+  String get teacherDisplay =>
+      classes.isNotEmpty && classes.first.teacherName.isNotEmpty
+          ? classes.first.teacherName
+          : 'Chưa cập nhật';
+}
+
+/// Model hồ sơ phụ huynh (lấy từ collection parents / parent)
+class ParentModel {
+  final String id;
+  final String name;
+  final String email;
+  final String phoneNumber;
+  final bool isActive;
+
+  ParentModel({
+    required this.id,
+    required this.name,
+    required this.email,
+    required this.phoneNumber,
+    this.isActive = true,
+  });
+
+  factory ParentModel.fromFirestore(DocumentSnapshot doc) {
+    final data = (doc.data() as Map<String, dynamic>?) ?? {};
+    return ParentModel(
+      id: doc.id,
+      name: (data['name'] ?? '').toString(),
+      email: (data['email'] ?? '').toString(),
+      phoneNumber: (data['phone_number'] ?? data['parent_phonenumber'] ?? '').toString(),
+      isActive: data['is_active'] as bool? ?? true,
+    );
   }
 
-  /// Danh sách giáo viên phụ trách các lớp của con (không trùng lặp)
-  String get teacherDisplay {
-    final names = classes
-        .map((c) => c.teacherName)
-        .where((n) => n.isNotEmpty)
-        .toSet();
-    return names.isEmpty ? 'Chưa cập nhật' : names.join(', ');
+  Map<String, dynamic> toMap() {
+    return {
+      'name': name,
+      'email': email,
+      'phone_number': phoneNumber,
+      'is_active': isActive,
+    };
   }
+}
+
+/// Model thông tin buổi học (lấy từ collection sessions)
+class SessionInfo {
+  final String id;
+  final String classId;
+  final String sessionDate;
+  final String subject;
+  final String room;
+  final int period;
+  final String sessionType;
+  final String status;
+
+  const SessionInfo({
+    required this.id,
+    required this.classId,
+    required this.sessionDate,
+    required this.subject,
+    required this.room,
+    required this.period,
+    required this.sessionType,
+    required this.status,
+  });
+
+  factory SessionInfo.fromFirestore(DocumentSnapshot doc) {
+    final d = (doc.data() as Map<String, dynamic>?) ?? {};
+    return SessionInfo(
+      id: doc.id,
+      classId: (d['class_id'] ?? '').toString(),
+      sessionDate: (d['session_date'] ?? '').toString(),
+      subject: (d['subject'] ?? 'Môn học').toString(),
+      room: (d['room'] ?? '').toString(),
+      period: (d['period'] is num) ? (d['period'] as num).toInt() : 1,
+      sessionType: (d['session_type'] ?? '').toString(),
+      status: (d['status'] ?? '').toString(),
+    );
+  }
+}
+
+/// Model kết quả buổi học của học sinh (lấy từ session_results -> result_map)
+class StudentSessionResult {
+  final String sessionId;
+  final String seatId;
+  final int concentration;
+  final int interaction;
+  final String status;
+  final DateTime? capturedAt;
+
+  const StudentSessionResult({
+    required this.sessionId,
+    required this.seatId,
+    this.concentration = 0,
+    this.interaction = 0,
+    this.status = 'unknown',
+    this.capturedAt,
+  });
+}
+
+/// Model tổng hợp số liệu điểm danh cho AttendanceDetailScreen & HomeScreen
+class AttendanceSummary {
+  final int totalSessions;
+  final int attendedSessions;
+  final int excusedAbsences;
+  final int unexcusedAbsences;
+  final int lateSessions;
+  final List<AbsenceRecord> absenceList;
+
+  const AttendanceSummary({
+    this.totalSessions = 0,
+    this.attendedSessions = 0,
+    this.excusedAbsences = 0,
+    this.unexcusedAbsences = 0,
+    this.lateSessions = 0,
+    this.absenceList = const [],
+  });
+
+  double get attendanceRate =>
+      totalSessions > 0 ? (attendedSessions / totalSessions) * 100 : 0.0;
+}
+
+/// Model bản ghi vắng / đi muộn
+class AbsenceRecord {
+  final String date;
+  final String type;
+  final String reason;
+
+  const AbsenceRecord({
+    required this.date,
+    required this.type,
+    required this.reason,
+  });
 }
