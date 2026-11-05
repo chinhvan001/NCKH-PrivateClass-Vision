@@ -243,6 +243,163 @@ class ParentService {
     }
   }
 
+  /// Lấy danh sách thông báo cho học sinh trực tiếp từ collection sessions
+  Future<List<ParentNotification>> getNotificationsForStudent({
+    required String studentId,
+    String? classId,
+  }) async {
+    try {
+      debugPrint('--> [Notification] Quét sessions: studentId=$studentId, classId=$classId');
+
+      String? targetSeatId;
+      if (classId != null && classId.isNotEmpty) {
+        targetSeatId = await getSeatIdForStudent(classId: classId, studentId: studentId);
+      }
+
+      Query query = _db.collection('sessions');
+      if (classId != null && classId.isNotEmpty) {
+        query = query.where('class_id', isEqualTo: classId);
+      }
+
+      final querySnapshot = await query.get();
+      final List<ParentNotification> notifications = [];
+
+      for (final doc in querySnapshot.docs) {
+        final data = doc.data() as Map<String, dynamic>;
+
+        DateTime sessionTime = DateTime.now();
+        if (data['end_time'] is Timestamp) {
+          sessionTime = (data['end_time'] as Timestamp).toDate();
+        } else if (data['created_at'] is Timestamp) {
+          sessionTime = (data['created_at'] as Timestamp).toDate();
+        } else if (data['session_date'] is Timestamp) {
+          sessionTime = (data['session_date'] as Timestamp).toDate();
+        }
+
+        final dateFormatted =
+            '${sessionTime.day.toString().padLeft(2, '0')}/${sessionTime.month.toString().padLeft(2, '0')}/${sessionTime.year}';
+
+        String subject = data['subject']?.toString() ?? '';
+        if (subject.isEmpty) {
+          final docIdLower = doc.id.toLowerCase();
+          if (docIdLower.contains('toan')) {
+            subject = 'Toán';
+          } else if (docIdLower.contains('van')) {
+            subject = 'Ngữ văn';
+          } else if (docIdLower.contains('anh')) {
+            subject = 'Tiếng Anh';
+          } else {
+            subject = 'Buổi học';
+          }
+        }
+
+        final rawMonitored = data['monitored_students'] ?? data['mnoitored_student'];
+        if (rawMonitored == null) continue;
+        final monitoredStudents = Map<String, dynamic>.from(rawMonitored as Map);
+
+        for (final entry in monitoredStudents.entries) {
+          final seatId = entry.key;
+          final seatData = entry.value;
+          if (seatData is! Map) continue;
+
+          final sId = seatData['student_id']?.toString() ?? '';
+
+          final bool isMatched = (sId == studentId) ||
+              (targetSeatId != null && seatId.toUpperCase() == targetSeatId.toUpperCase());
+
+          if (!isMatched) continue;
+
+          final isPresent = seatData['is_present'] == true;
+          final isAttention = seatData['is_attention'] == true;
+          final double attentionScore = (seatData['attention_score'] is num)
+              ? (seatData['attention_score'] as num).toDouble()
+              : 0.0;
+          final note = seatData['note']?.toString() ?? '';
+
+          // 1. Điểm danh
+          if (!isPresent) {
+            notifications.add(
+              ParentNotification(
+                id: '${doc.id}_${seatId}_absent',
+                sessionId: doc.id,
+                title: 'Cảnh báo vắng mặt',
+                message: 'Bé vắng mặt trong buổi học môn $subject ngày $dateFormatted.',
+                type: NotificationType.attendance,
+                timestamp: sessionTime,
+                isPresent: false,
+                attentionScore: attentionScore,
+              ),
+            );
+          } else {
+            notifications.add(
+              ParentNotification(
+                id: '${doc.id}_${seatId}_present',
+                sessionId: doc.id,
+                title: 'Điểm danh buổi học',
+                message: 'Bé đã có mặt đầy đủ trong tiết $subject ngày $dateFormatted.',
+                type: NotificationType.attendance,
+                timestamp: sessionTime,
+                isPresent: true,
+                attentionScore: attentionScore,
+              ),
+            );
+
+            // 2. Mức độ tập trung
+            if (!isAttention || attentionScore < 50) {
+              notifications.add(
+                ParentNotification(
+                  id: '${doc.id}_${seatId}_att_warn',
+                  sessionId: doc.id,
+                  title: 'Nhắc nhở chú ý',
+                  message: 'Mức độ tập trung của bé trong tiết $subject đạt $attentionScore%, cần chú ý hơn.',
+                  type: NotificationType.attentionWarning,
+                  timestamp: sessionTime,
+                  isPresent: true,
+                  attentionScore: attentionScore,
+                ),
+              );
+            } else if (attentionScore >= 80) {
+              notifications.add(
+                ParentNotification(
+                  id: '${doc.id}_${seatId}_att_praise',
+                  sessionId: doc.id,
+                  title: 'Khen ngợi học tập',
+                  message: 'Bé rất tập trung trong tiết $subject (đạt $attentionScore%). Tinh thần học tập rất tốt!',
+                  type: NotificationType.attentionPraise,
+                  timestamp: sessionTime,
+                  isPresent: true,
+                  attentionScore: attentionScore,
+                ),
+              );
+            }
+          }
+
+          // 3. Ghi chú buổi học
+          if (note.trim().isNotEmpty && note != '""') {
+            notifications.add(
+              ParentNotification(
+                id: '${doc.id}_${seatId}_note',
+                sessionId: doc.id,
+                title: 'Ghi chú buổi học',
+                message: 'Lời nhắn: "$note" ($subject - $dateFormatted)',
+                type: NotificationType.note,
+                timestamp: sessionTime,
+                isPresent: isPresent,
+                attentionScore: attentionScore,
+              ),
+            );
+          }
+        }
+      }
+
+      notifications.sort((a, b) => b.timestamp.compareTo(a.timestamp));
+      return notifications;
+    } catch (e) {
+      debugPrint('--> [Notification] Lỗi trích xuất thông báo: $e');
+      return [];
+    }
+  }
+
   String _formatDate(dynamic value) {
     if (value is Timestamp) {
       final d = value.toDate();

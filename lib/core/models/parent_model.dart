@@ -183,3 +183,29 @@ class AbsenceRecord {
     required this.reason,
   });
 }
+
+/// Loại thông báo phụ huynh
+enum NotificationType { attendance, attentionWarning, attentionPraise, note }
+
+/// Model thông báo phụ huynh (trích xuất từ sessions)
+class ParentNotification {
+  final String id;
+  final String sessionId;
+  final String title;
+  final String message;
+  final NotificationType type;
+  final DateTime timestamp;
+  final bool isPresent;
+  final double attentionScore;
+
+  const ParentNotification({
+    required this.id,
+    required this.sessionId,
+    required this.title,
+    required this.message,
+    required this.type,
+    required this.timestamp,
+    required this.isPresent,
+    required this.attentionScore,
+  });
+}
