@@ -61,26 +61,60 @@ const AccountManagementPanel = ({
     "Thể dục",
   ];
 
-  // Map dữ liệu, sắp xếp A - Z theo tên tiếng Việt và gắn STT cố định (originalIndex)
-  const teachers = useMemo(() => {
-    const mapped = users.map((user) => ({
-      id: user.id,
-      uid: user.uid || null,
-      email: user.email || "Chưa có email",
-      name: user.name || "Chưa cập nhật",
-      phone_number: user.phone_number || "",
-      subject: user.subject || "",
-      create_date: user.create_date || null,
-      is_active: user.is_active !== false,
-      auth_provider: user.auth_provider || "google",
-      auth_status: user.auth_status || "pending",
-    })).sort((a, b) => a.name.localeCompare(b.name, 'vi', { sensitivity: 'base' }));
+  // Map dữ liệu và sắp xếp A - Z chuẩn theo TÊN CHÍNH (từ cuối cùng của Họ và Tên)
+const teachers = useMemo(() => {
+  const mapped = users.map((user) => ({
+    id: user.id,
+    uid: user.uid || null,
+    email: user.email || "Chưa có email",
+    name: user.name || "Chưa cập nhật",
+    phone_number: user.phone_number || "",
+    subject: user.subject || "",
+    create_date: user.create_date || null,
+    is_active: user.is_active !== false,
+    auth_provider: user.auth_provider || "google",
+    auth_status: user.auth_status || "pending",
+  }));
 
-    return mapped.map((teacher, index) => ({
-      ...teacher,
-      originalIndex: index + 1
-    }));
-  }, [users]);
+  // Hàm bổ trợ lấy tên chính (từ cuối cùng) và phần Họ + Tên lót
+  const parseFullName = (fullName) => {
+    const trimmed = (fullName || "").trim();
+    if (!trimmed || trimmed === "Chưa cập nhật") {
+      return { firstName: "zzz", fullName: trimmed };
+    }
+    const parts = trimmed.split(/\s+/);
+    const firstName = parts[parts.length - 1]; // Từ cuối cùng (Tên)
+    return { firstName, fullName: trimmed };
+  };
+
+  mapped.sort((a, b) => {
+    const personA = parseFullName(a.name);
+    const personB = parseFullName(b.name);
+
+    // 1. So sánh TÊN CHÍNH trước (Dung vs Hùng, An vs Bình...)
+    const compareFirstName = personA.firstName.localeCompare(
+      personB.firstName,
+      'vi',
+      { sensitivity: 'accent', numeric: true }
+    );
+
+    if (compareFirstName !== 0) {
+      return compareFirstName;
+    }
+
+    // 2. Nếu TÊN CHÍNH trùng nhau (ví dụ cùng tên Dung), so sánh toàn bộ Họ & Tên Lót
+    return personA.fullName.localeCompare(
+      personB.fullName,
+      'vi',
+      { sensitivity: 'accent', numeric: true }
+    );
+  });
+
+  return mapped.map((teacher, index) => ({
+    ...teacher,
+    originalIndex: index + 1
+  }));
+}, [users]);
 
   const subjects = SUBJECT_OPTIONS;
 

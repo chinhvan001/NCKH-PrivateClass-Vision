@@ -4,17 +4,25 @@ from routes.test_helpers import db, server_timestamp
 class SessionRepository:
     @staticmethod
     def get_all_sessions():
-        return [
-            {"id": doc.id, **(doc.to_dict() or {})}
-            for doc in db.collection("sessions").stream()
-        ]
+        try:
+            return [
+                {"id": doc.id, **(doc.to_dict() or {})}
+                for doc in db.collection("sessions").stream()
+            ]
+        except Exception as e:
+            print(f"Error fetching sessions: {e}")
+            return []
 
     @staticmethod
     def get_all_classes():
-        return [
-            {"id": doc.id, **(doc.to_dict() or {})}
-            for doc in db.collection("classes2").stream()
-        ]
+        try:
+            return [
+                {"id": doc.id, **(doc.to_dict() or {})}
+                for doc in db.collection("classes2").stream()
+            ]
+        except Exception as e:
+            print(f"Error fetching classes: {e}")
+            return []
 
     @staticmethod
     def get_all_teachers():
@@ -57,30 +65,44 @@ class SessionRepository:
 
     @staticmethod
     def get_session_by_id(session_id):
-        doc_ref = db.collection("sessions").document(session_id)
-        doc = doc_ref.get()
-        return doc_ref, doc
+        try:
+            doc_ref = db.collection("sessions").document(session_id)
+            doc = doc_ref.get()
+            return doc_ref, doc
+        except Exception as e:
+            print(f"Error getting session by ID {session_id}: {e}")
+            return None, None
 
     @staticmethod
     def create_batch_sessions(sessions_payloads):
-        batch = db.batch()
-        created_ids = []
-        for payload in sessions_payloads:
-            doc_ref = db.collection("sessions").document()
-            payload["created_at"] = server_timestamp()
-            payload["status"] = "scheduled"
-            batch.set(doc_ref, payload)
-            created_ids.append(doc_ref.id)
-        batch.commit()
-        return created_ids
+        try:
+            batch = db.batch()
+            created_ids = []
+            for payload in sessions_payloads:
+                doc_ref = db.collection("sessions").document()
+                payload["created_at"] = server_timestamp()
+                payload["status"] = "scheduled"
+                batch.set(doc_ref, payload)
+                created_ids.append(doc_ref.id)
+            batch.commit()
+            return created_ids
+        except Exception as e:
+            print(f"Error creating batch sessions: {e}")
+            return []
 
     @staticmethod
     def get_class_exists(class_id):
-        return db.collection("classes2").document(class_id).get().exists
+        try:
+            return db.collection("classes2").document(class_id).get().exists
+        except Exception:
+            return False
 
     @staticmethod
     def get_teacher_exists(teacher_id):
-        return (
-            db.collection("teachers").document(teacher_id).get().exists or
-            db.collection("users").document(teacher_id).get().exists
-        )
+        try:
+            return (
+                db.collection("teachers").document(teacher_id).get().exists or
+                db.collection("users").document(teacher_id).get().exists
+            )
+        except Exception:
+            return False

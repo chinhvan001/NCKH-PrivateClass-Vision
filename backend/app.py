@@ -1,27 +1,5 @@
-import ctypes
-import sys
-import os
-
-def is_admin():
-    try:
-        return ctypes.windll.shell32.IsUserAnAdmin()
-    except:
-        return False
-
-# Nếu chưa có quyền Admin, tự động bật bảng yêu cầu quyền Administrator
-if not is_admin():
-    # Khởi động lại chính script hiện tại với quyền Administrator
-    script = os.path.abspath(sys.argv[0])
-    params = ' '.join([f'"{arg}"' for arg in sys.argv[1:]])
-    try:
-        ctypes.windll.shell32.ShellExecuteW(None, "runas", sys.executable, f'"{script}" {params}', None, 1)
-    except Exception as e:
-        print(f"Không thể cấp quyền Admin: {e}")
-    sys.exit()
-
 from flask import Flask, jsonify
 from flask_cors import CORS
-
 
 from routes.auth_routes import auth_bp
 from routes.admin_routes import admin_bp
@@ -32,7 +10,7 @@ from routes.classroom_routes import classroom_bp
 from routes.evaluation_routes import evaluation_bp
 from routes.student_routes import student_bp
 from routes.dashboard_routes import dashboard_bp
-from routes.ldlplayer_routes import ld_blueprint
+from routes.report_routes import report_bp
 
 app = Flask(__name__)
 
@@ -47,7 +25,8 @@ app.register_blueprint(classroom_bp)
 app.register_blueprint(evaluation_bp)
 app.register_blueprint(student_bp)
 app.register_blueprint(dashboard_bp)
-app.register_blueprint(ld_blueprint)
+app.register_blueprint(report_bp)
+
 
 @app.route("/", methods=["GET"])
 def home():

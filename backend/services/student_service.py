@@ -2,26 +2,30 @@ from repositories.student_repository import StudentRepository
 
 class StudentService:
     @staticmethod
+    def _parse_status(is_active):
+        """Hàm phụ trợ chuẩn hóa trạng thái học sinh"""
+        if is_active is True or is_active == "Đang học":
+            return "Đang học"
+        elif is_active == 'paused' or is_active == "Tạm nghỉ":
+            return "Tạm nghỉ"
+        else:
+            return "Đã thôi học"
+
+    @staticmethod
     def get_students_overview(query_params):
         raw_students = StudentRepository.get_all_students()
         
         total = len(raw_students)
-        active_count = sum(1 for s in raw_students if s.get('is_active') is True)
-        paused_count = sum(1 for s in raw_students if s.get('is_active') == 'paused')
-        dropped_count = sum(1 for s in raw_students if s.get('is_active') is False)
+        active_count = sum(1 for s in raw_students if s.get('is_active') is True or s.get('is_active') == "Đang học")
+        paused_count = sum(1 for s in raw_students if s.get('is_active') == 'paused' or s.get('is_active') == "Tạm nghỉ")
+        dropped_count = sum(1 for s in raw_students if s.get('is_active') is False or s.get('is_active') == "Đã thôi học")
 
         result_list = []
         for s in raw_students:
             student_id = s.get('id')
             class_id, current_class = StudentRepository.get_current_class_id_and_name(student_id)
             
-            is_active = s.get('is_active', True)
-            if is_active is True:
-                status_str = "Đang học"
-            elif is_active == 'paused':
-                status_str = "Tạm nghỉ"
-            else:
-                status_str = "Đã thôi học"
+            status_str = StudentService._parse_status(s.get('is_active'))
 
             result_list.append({
                 "id": student_id,
@@ -61,6 +65,9 @@ class StudentService:
 
         gender_val = student.get('gender')
         student['gender'] = "Nam" if gender_val in ['male', 'Nam'] else "Nữ"
+        
+        # Đồng bộ hóa trạng thái chi tiết khớp tuyệt đối với danh sách chung
+        student['status'] = StudentService._parse_status(student.get('is_active'))
         
         return {"success": True, "data": student}
 

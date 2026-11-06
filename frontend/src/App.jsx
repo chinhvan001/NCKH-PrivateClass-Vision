@@ -8,6 +8,7 @@ import CameraManagement from "./pages/CameraManagement";
 import ClassManagement from "./pages/ClassManagement";
 import EvaluationManagement from "./pages/EvaluationManagement";
 import StudentManagement from "./pages/StudentManagement";
+import ReportManagement from "./pages/ReportManagement"; // <-- Thêm import trang Quản lý báo cáo
 
 import { getAdminSession, clearAdminSession } from "./utils/AuthSession";
 
@@ -95,6 +96,16 @@ function App() {
         element={
           <ProtectedRoute>
             <EvaluationManagement />
+          </ProtectedRoute>
+        }
+      />
+
+      {/* Thêm Route cho Quản lý báo cáo */}
+      <Route
+        path="/report-management"
+        element={
+          <ProtectedRoute>
+            <ReportManagement />
           </ProtectedRoute>
         }
       />

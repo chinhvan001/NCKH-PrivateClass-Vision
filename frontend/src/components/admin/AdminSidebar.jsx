@@ -51,6 +51,12 @@ const navigationItems = [
     group: "BÁO CÁO & THỐNG KÊ",
     enabled: true,
   },
+  {
+    label: "Quản lý báo cáo",
+    icon: "fileText", // Sử dụng icon báo cáo vừa định nghĩa
+    path: "/report-management",
+    enabled: true,
+  },
 
   {
     label: "Nhật ký hoạt động",
