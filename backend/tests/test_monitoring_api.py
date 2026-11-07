@@ -1,6 +1,6 @@
-"""API giám sát và báo cáo của web admin trên hợp đồng Firestore với edge node
-(camera-ai/docs/web_admin_integration.md): bắt đầu, tạm dừng, kết thúc tiết; xem trực tiếp;
-xử lý cảnh báo; báo cáo theo học sinh."""
+"""API giám sát và báo cáo của web admin trên hợp đồng với edge node (camera-ai/docs/web_admin_integration.md):
+bắt đầu, tạm dừng, kết thúc tiết; xem trực tiếp; xử lý cảnh báo; báo cáo theo học sinh. Edge node chạy cùng máy,
+trao đổi qua file trong edge-data/ (fixture edge_files)."""
 
 from datetime import datetime, timedelta, timezone
 
@@ -10,6 +10,7 @@ from conftest import TOKENS
 from services import monitoring_service
 
 NOW = datetime(2026, 10, 5, 2, 0, tzinfo=timezone.utc)
+HEARTBEAT = "edge_nodes/CAM-1.json"
 
 
 @pytest.fixture(autouse=True)
@@ -17,8 +18,24 @@ def clock(monkeypatch):
     monkeypatch.setattr(monitoring_service, "utc_now", lambda: NOW)
 
 
-def seed(db, *, edge_age_sec=5):
-    """Lớp 2x2 có An ngồi S01, tiết s1 đã lên lịch, edge node của lớp gửi heartbeat edge_age_sec giây trước."""
+@pytest.fixture
+def heartbeat(edge_files):
+    """Ghi heartbeat của edge node CAM-1 như camera AI ghi (camera-ai/src/sync/local_store.py)."""
+
+    def write(age_sec=5, **fields):
+        data = {"online": True, "status": "idle", "session_id": None, "fps": 0.0, "camera_ok": None}
+        data["last_frame_at"] = None
+        edge_files.write(HEARTBEAT, {**data, "updated_at": NOW - timedelta(seconds=age_sec), **fields})
+
+    return write
+
+
+def seed(db, heartbeat=None, *, edge_age_sec=5):
+    """Lớp 2x2 có An ngồi S01, ô ghế đã vẽ cho camera CAM-1 của lớp, tiết s1 đã lên lịch, edge node của lớp gửi
+    heartbeat edge_age_sec giây trước."""
+    db.document("seat_regions/CAM-1").set(
+        {"class_id": "c1", "image_width": 1280, "image_height": 720, "seats": {"S01": [0, 0, 400, 400]}}
+    )
     db.document("classes2/c1").set({
         "class_name": "11B2",
         "camera_id": "CAM-1",
@@ -33,10 +50,8 @@ def seed(db, *, edge_age_sec=5):
     db.document("sessions/s1").set(
         {"class_id": "c1", "teacher_id": "t1", "subject": "Toán", "end_time": "07:45", "status": "scheduled"}
     )
-    if edge_age_sec is not None:
-        db.document("edge_nodes/CAM-1").set(
-            {"class_id": "c1", "online": True, "status": "idle", "updated_at": NOW - timedelta(seconds=edge_age_sec)}
-        )
+    if heartbeat is not None:
+        heartbeat(edge_age_sec)
 
 
 def set_status(client, headers, status, session_id="s1", **extra):
@@ -74,8 +89,8 @@ def test_a_new_class_gets_the_seat_ids_the_edge_node_uses_on_first_load(client, 
     assert seats[0][0] == "S01" and seats[-1][0] == "S06"
 
 
-def test_start_freezes_the_seat_plan_and_completion_keeps_the_timetable(client, db, admin):
-    seed(db)
+def test_start_freezes_the_seat_plan_and_completion_keeps_the_timetable(client, db, admin, heartbeat, edge_files):
+    seed(db, heartbeat)
     response = set_status(client, admin, "running")
     assert response.status_code == 200, response.get_json()
     session = db.docs["sessions/s1"]
@@ -85,6 +100,16 @@ def test_start_freezes_the_seat_plan_and_completion_keeps_the_timetable(client, 
     assert db.docs["sessions/s1/monitored_students/S01"] == {"student_id": "st1", "row": 1, "column": 1}
     assert [path for path in db.docs if "/monitored_students/" in path] == ["sessions/s1/monitored_students/S01"]
     assert "student" not in str(session)
+    # Tiết giao cho camera AI cùng máy: sơ đồ và ô ghế chốt lúc bắt đầu, không có mã học sinh
+    order = edge_files.read("camera_sessions/CAM-1.json")
+    assert order == {
+        "session_id": "s1",
+        "status": "running",
+        "class_id": "c1",
+        "row_count": 2,
+        "column_count": 2,
+        "seat_regions": {"image_width": 1280, "image_height": 720, "seats": {"S01": [0, 0, 400, 400]}},
+    }
 
     # Đổi chỗ sau khi tiết bắt đầu: sơ đồ của tiết vẫn theo bản chốt
     seat_map = db.docs["classes2/c1"]["seat_map"]
@@ -99,9 +124,11 @@ def test_start_freezes_the_seat_plan_and_completion_keeps_the_timetable(client, 
     ]
 
     assert set_status(client, admin, "paused").status_code == 200
+    assert edge_files.read("camera_sessions/CAM-1.json")["status"] == "paused"
     assert set_status(client, admin, "running").status_code == 200  # tiếp tục: không kiểm tra lại
     assert db.docs["sessions/s1"]["started_at"] == session["started_at"]
     assert set_status(client, admin, "completed").status_code == 200
+    assert edge_files.read("camera_sessions/CAM-1.json") == {**order, "status": "completed"}
     session = db.docs["sessions/s1"]
     assert session["status"] == "completed" and isinstance(session["ended_at"], datetime)
     assert session["end_time"] == "07:45"
@@ -134,48 +161,55 @@ def test_recurring_lessons_keep_their_timetable_times(client, db, admin):
 
 
 @pytest.mark.parametrize("change, code", [
-    (lambda db: db.document("classes2/c1").update({"row_count": 0}), "no_seat_plan"),
-    (lambda db: db.document("classes2/c1").update({"column_count": 51}), "no_seat_plan"),
-    (lambda db: db.document("classes2/c1").delete(), "no_seat_plan"),
-    (lambda db: db.document("edge_nodes/CAM-1").update({"updated_at": NOW - timedelta(seconds=31)}), "edge_offline"),
-    (lambda db: db.document("edge_nodes/CAM-1").update({"online": False}), "edge_offline"),
-    (lambda db: db.document("edge_nodes/CAM-1").delete(), "edge_offline"),
-    (lambda db: db.document("sessions/s0").set({"class_id": "c1", "status": "paused"}), "class_busy"),
+    (lambda db, heartbeat, root: db.document("classes2/c1").update({"row_count": 0}), "no_seat_plan"),
+    (lambda db, heartbeat, root: db.document("classes2/c1").update({"column_count": 51}), "no_seat_plan"),
+    (lambda db, heartbeat, root: db.document("classes2/c1").delete(), "no_seat_plan"),
+    (lambda db, heartbeat, root: heartbeat(31), "edge_offline"),
+    (lambda db, heartbeat, root: heartbeat(online=False), "edge_offline"),
+    (lambda db, heartbeat, root: (root / HEARTBEAT).unlink(), "edge_offline"),
+    (lambda db, heartbeat, root: db.document("sessions/s0").set({"class_id": "c1", "status": "paused"}), "class_busy"),
+    (lambda db, heartbeat, root: db.document("seat_regions/CAM-1").delete(), "no_seat_regions"),
+    # ô ghế vẽ cho lớp cũ của camera
+    (lambda db, heartbeat, root: db.document("seat_regions/CAM-1").update({"class_id": "c9"}), "no_seat_regions"),
 ])
-def test_start_is_refused_with_a_reason(client, db, admin, change, code):
-    seed(db)
-    change(db)
+def test_start_is_refused_with_a_reason(client, db, admin, heartbeat, edge_files, change, code):
+    seed(db, heartbeat)
+    change(db, heartbeat, edge_files.root)
     response = set_status(client, admin, "running")
     assert response.status_code == 409
     assert response.get_json()["code"] == code
     assert db.docs["sessions/s1"]["status"] == "scheduled"
     assert not any("/monitored_students/" in path for path in db.docs)
+    assert edge_files.read("camera_sessions/CAM-1.json") is None  # camera AI không nhận tiết
 
 
-def test_force_starts_without_an_online_edge_node_but_never_without_a_seat_plan(client, db, admin):
+def test_force_starts_without_an_online_edge_node_but_never_without_a_seat_plan(client, db, admin, edge_files):
+    seed(db, edge_age_sec=None)
+    db.document("seat_regions/CAM-1").delete()
+    assert set_status(client, admin, "running", force=True).get_json()["code"] == "no_seat_regions"
     seed(db, edge_age_sec=None)
     assert set_status(client, admin, "running", force=True).status_code == 200
+    assert edge_files.read("camera_sessions/CAM-1.json")["status"] == "running"  # camera AI nhận tiết khi chạy lại
     db.document("sessions/s2").set({"class_id": "c2", "status": "scheduled"})
     assert set_status(client, admin, "running", session_id="s2", force=True).get_json()["code"] == "no_seat_plan"
 
 
-def test_live_view_and_dashboard_show_the_edge_output_and_alerts_can_be_handled(client, db, admin):
-    seed(db)
+def test_live_view_and_dashboard_show_the_edge_output_and_alerts_can_be_handled(
+    client, db, admin, heartbeat, edge_files
+):
+    seed(db, heartbeat)
     set_status(client, admin, "running")
-    # Các document edge node ghi (camera-ai/src/privacy/session_output.py, alert_event.py, sync/firestore_sink.py)
-    db.document("edge_nodes/CAM-1").update({"status": "monitoring", "session_id": "s1", "fps": 4.5, "camera_ok": True})
-    db.document("session_results/s1").set({
+    # Các file edge node ghi (camera-ai/src/privacy/session_output.py, alert_event.py, sync/local_store.py)
+    heartbeat(status="monitoring", session_id="s1", fps=4.5, camera_ok=True)
+    edge_files.write("sessions/s1/result.json", {
         "session_id": "s1",
         "camera_id": "CAM-1",
         "captured_at": NOW,
         "monitoring_status": "running",
         "result_map": {"S01": {"concentration": 40, "interaction": 0, "status": "drowsy"}},
-        "expire_at": NOW + timedelta(days=30),
     })
-    for i in range(25):
-        db.document(f"sessions/s1/alerts/a{i}").set(
-            {"session_id": "s1", "seat_id": "S01", "type": "head_drop", "start_sec": i * 10.0, "duration_sec": 8.0}
-        )
+    alert = {"session_id": "s1", "seat_id": "S01", "type": "head_drop", "duration_sec": 8.0}
+    edge_files.append("sessions/s1/alerts.jsonl", *[{"id": f"a{i}", **alert, "start_sec": i * 10.0} for i in range(25)])
 
     data = client.get("/api/admin/schedules/s1/monitoring", headers=admin).get_json()["data"]
     assert data["session"]["status"] == "running"
@@ -188,9 +222,10 @@ def test_live_view_and_dashboard_show_the_edge_output_and_alerts_can_be_handled(
         return client.put(f"/api/admin/schedules/s1/alerts/{alert_id}", json={"status": status}, headers=admin)
 
     assert handle("a24", "acknowledged").status_code == 200
-    alert = db.docs["sessions/s1/alerts/a24"]
-    assert (alert["status"], alert["handled_by"], alert["type"]) == ("acknowledged", "admin-1", "head_drop")
-    assert isinstance(alert["handled_at"], datetime)
+    alert = client.get("/api/admin/schedules/s1/monitoring", headers=admin).get_json()["data"]["alerts"][0]
+    assert (alert["id"], alert["status"], alert["handled_by"]) == ("a24", "acknowledged", "admin-1")
+    assert alert["handled_at"] == NOW.isoformat()
+    assert len(edge_files.lines("sessions/s1/alerts.jsonl")) == 25  # file của camera AI giữ nguyên
     assert handle("a24", "open").status_code == 400
     assert handle("x", "dismissed").status_code == 404
     assert client.get("/api/admin/schedules/x/monitoring", headers=admin).status_code == 404
@@ -207,7 +242,7 @@ def test_live_view_and_dashboard_show_the_edge_output_and_alerts_can_be_handled(
     assert [a["title"] for a in dashboard["activities"]] == ["Bắt đầu giám sát"]
 
 
-def test_reports_weight_by_observed_time_and_follow_each_sessions_roster(client, db, admin):
+def test_reports_weight_by_observed_time_and_follow_each_sessions_roster(client, db, admin, edge_files):
     seed(db)
     db.document("students2/st2").set({"full_name": "Trần Thị Bình"})
     # s1: An ở S01. s2: chốt khi Bình ngồi S01 và An chuyển sang S02.
@@ -217,22 +252,23 @@ def test_reports_weight_by_observed_time_and_follow_each_sessions_roster(client,
     db.document("sessions/s2/monitored_students/S01").set({"student_id": "st2", "row": 1, "column": 1})
     db.document("sessions/s2/monitored_students/S02").set({"student_id": "st1", "row": 1, "column": 2})
 
-    def evaluation(session_id, seat_id, score, observed_sec):
-        db.document(f"session_evaluations/{session_id}_{seat_id}").set({
-            "session_id": session_id,
-            "seat_id": seat_id,
-            "captured_at": NOW,
-            "concentration": score,
-            "avg_concentration": score,
-            "distraction": 0,
-            "observed_sec": observed_sec,
+    def evaluations(session_id, *seats):
+        edge_files.write(f"sessions/{session_id}/evaluations.json", {
+            seat_id: {
+                "session_id": session_id,
+                "seat_id": seat_id,
+                "captured_at": NOW,
+                "concentration": score,
+                "avg_concentration": score,
+                "distraction": 0,
+                "observed_sec": observed_sec,
+            }
+            for seat_id, score, observed_sec in seats
         })
 
-    evaluation("s1", "S01", 90, 2400)  # An, 40 phút
-    evaluation("s1", "S03", 20, 30)  # người đi ngang qua: không tính
-    evaluation("s2", "S01", 60, 2400)  # Bình
-    evaluation("s2", "S02", 60, 1200)  # An, 20 phút
-    evaluation("s2", "S04", 75, 600)  # ghế chưa xếp học sinh
+    # s1: An 40 phút, người đi ngang qua S03 (không tính). s2: Bình; An 20 phút; S04 chưa xếp học sinh.
+    evaluations("s1", ("S01", 90, 2400), ("S03", 20, 30))
+    evaluations("s2", ("S01", 60, 2400), ("S02", 60, 1200), ("S04", 75, 600))
 
     detail = client.get("/api/v1/evaluations/classes/c1/details", headers=admin).get_json()["data"]
     assert (detail["class_name"], detail["subject"]) == ("11B2", "Toán")

@@ -1,7 +1,8 @@
 """Demo web admin + camera AI trên một máy, không cần Firebase, camera hay model.
 
 Backend chạy trên FakeFirestore (như conftest.py), EdgeRuntime thật của camera-ai chạy trong một thread
-với camera và pose giả lập, job báo cáo phụ huynh chạy 15 s/lần. Dữ liệu chỉ nằm trong RAM.
+với camera và pose giả lập, job báo cáo phụ huynh chạy 15 s/lần. Dữ liệu Firestore chỉ nằm trong RAM; file hai
+bên trao đổi (edge-data/) nằm trong một thư mục tạm, xóa khi tắt demo.
 
     camera-ai/venv/Scripts/python backend/tests/demo_server.py
     cd frontend; npm run dev        # rồi mở http://localhost:5173/api/demo-login
@@ -13,8 +14,11 @@ Script, không phải test (pytest chỉ chạy test_*.py).
 """
 
 import argparse
+import atexit
 import json
 import os
+import shutil
+import tempfile
 import threading
 import time
 from datetime import datetime, timedelta, timezone
@@ -27,14 +31,14 @@ import numpy as np
 
 import conftest  # thay firebase_admin bằng FakeFirestore, thêm backend và camera-ai vào sys.path
 import fake_firestore
+from services import edge_store
 from src.capture import CaptureConfig, CaptureWorker, Frame
-from src.config import LocalPipelineConfig, load_class_seat_grid
+from src.config import LocalPipelineConfig
 from src.detection.pose_detector import COCO_KEYPOINT_NAMES, PersonPose
-from src.main import pose_detector
-from src.pipeline import EdgeRuntime
+from src.main import edge_runtime, pose_detector, web_sessions
 from src.privacy.alert_event import make_alert_event
 from src.privacy.session_output import SeatEvaluation, SeatResult, SessionResult
-from src.sync import FirestoreSink
+from src.sync import LocalSink
 from test_local_config import valid_config
 
 DB, TOKENS = conftest.DB, conftest.TOKENS
@@ -54,7 +58,7 @@ STUDENTS = {
     "S10": ("minh", "Đặng Quang Minh"),
     "S11": ("nga", "Ngô Thanh Nga"),
 }
-# Vị trí ghế trong ảnh 1280x720: 4 ghế góc nằm trong cấu hình edge, các ghế khác edge tự nội suy
+# Vị trí ghế trong ảnh 1280x720 (vai của học sinh giả lập); ô ghế vẽ sẵn cho CAM-1 bao quanh các điểm này
 SEAT_XY = {
     f"S{(row - 1) * COLUMNS + column:02d}": (200.0 + (column - 1) * 200, 150.0 + (row - 1) * 180)
     for row in range(1, ROWS + 1)
@@ -150,12 +154,10 @@ def seed(video=None):
     DB.document("cameras/CAM-2").set(
         {"camera_name": "CAM-2", "room_name": "P202", "ip_address": "192.168.1.104", "rtsp_port": "554"}
     )
-    # Như admin đã thêm CAM-1 ở "Thêm camera": lớp 11B2 nhận camera_id, URL RTSP chỉ nằm ở camera_configs
+    # Như admin đã thêm CAM-1 ở "Thêm camera": lớp 11B2 nhận camera_id, URL RTSP chỉ nằm trong file trên máy
     # (trang camera không bao giờ trả URL)
     DB.document("classes2/CLASS-1").update({"camera_id": "CAM-1"})
-    DB.document("camera_configs/CAM-1").set(
-        {"source": str(video) if video else "rtsp://admin:matkhau@192.168.1.103:554/stream", "updated_by": "admin-1"}
-    )
+    edge_store.save_camera("CAM-1", "frontal", str(video) if video else "rtsp://admin:matkhau@192.168.1.103:554/stream")
     # Ô ghế như admin đã vẽ ở "Xác định chỗ ngồi" (ảnh /api/demo/snapshot.png), quanh vai học sinh giả lập.
     # Với --video thì không khớp người trong video: admin vẽ lại trên ảnh lấy từ video.
     if not video:
@@ -199,19 +201,15 @@ def past_session(session_id, days_ago, scores, monitoring_status):
         DB.document(f"sessions/{session_id}/monitored_students/{seat}").set(
             {"student_id": student[0], "row": row + 1, "column": column + 1}
         )
+    sink = LocalSink(edge_store.ROOT, "CAM-1")  # ghi như camera AI ghi
     seats = tuple(SeatResult(seat, score, 0, "focused" if score >= 60 else "drowsy") for seat, score in scores.items())
-    DB.document(f"session_results/{session_id}").set(
-        SessionResult(session_id, "CAM-1", ended, monitoring_status, seats).to_dict()
+    sink.set_result(SessionResult(session_id, "CAM-1", ended, monitoring_status, seats))
+    sink.set_evaluations(
+        SeatEvaluation(session_id, seat, ended, score, score, 2 if seat == "S01" else 0, observed)
+        for seat, score in scores.items()
     )
-    for seat, score in scores.items():
-        alerts = 2 if seat == "S01" else 0
-        DB.document(f"session_evaluations/{session_id}_{seat}").set(
-            SeatEvaluation(session_id, seat, ended, score, score, alerts, observed).to_dict()
-        )
     for index in range(2):
-        DB.collection(f"sessions/{session_id}/alerts").add(
-            make_alert_event(session_id, "S01", "head_drop", 300 + index * 600, 40).to_dict()
-        )
+        sink.add_alert(make_alert_event(session_id, "S01", "head_drop", 300 + index * 600, 40))
 
 
 def report_loop():
@@ -220,6 +218,8 @@ def report_loop():
     while True:
         with LOCK:
             built = report_service.build_pending_reports()
+            DB.reads.clear()  # FakeFirestore ghi lại mọi lần đọc/ghi cho test; demo chạy lâu thì đầy RAM
+            DB.commits.clear()
         if built:
             print("Báo cáo phụ huynh đã tạo:", built, flush=True)
         time.sleep(15)
@@ -283,49 +283,28 @@ class Camera:
         self.is_alive = False
 
     def get(self, timeout=None):
+        time.sleep(0.2)  # 5 khung hình/giây như camera thật, không chiếm hết CPU
         self.index += 1
         return Frame(np.full((720, 1280, 3), 128, np.uint8), time.time(), self.index)
 
 
 def edge_loop(video=None):
+    """Edge node của CAM-1 như python -m src.main chạy: tiết, ô ghế và kết quả qua thư mục chung với backend."""
     data = valid_config()
     data["sampling"]["inference_every_n_frames"] = 1
     data["schedule"]["windows"] = [
         {"days": ["mon", "tue", "wed", "thu", "fri", "sat", "sun"], "start": "00:00", "end": "23:59"}
     ]
-    last = f"S{ROWS * COLUMNS:02d}"
-    corners = {
-        "first_row_first_column": list(SEAT_XY["S01"]),
-        "first_row_last_column": list(SEAT_XY[f"S{COLUMNS:02d}"]),
-        "last_row_last_column": list(SEAT_XY[last]),
-        "last_row_first_column": list(SEAT_XY[f"S{(ROWS - 1) * COLUMNS + 1:02d}"]),
-    }
-    data["seating"]["corner_seats"] = None if video else corners  # video: chỉ dùng ô ghế admin vẽ
     config = LocalPipelineConfig.from_dict(data)
     provider, capture = Classroom(), Camera
     if video:
         provider = pose_detector(str(MODEL), config.thresholds)
         provider.open()
         capture = partial(
-            CaptureWorker, CaptureConfig(str(video), target_fps=config.sampling.capture_fps, live_video=True)
+            CaptureWorker,
+            CaptureConfig(str(video), target_fps=config.sampling.capture_fps, live_video="://" not in str(video)),
         )
-    sink = FirestoreSink(DB, "CAM-1", retention_days=30)
-    runtime = EdgeRuntime(
-        config,
-        provider,
-        lambda class_id: load_class_seat_grid(DB, class_id, config.seating.corner_seats, "CAM-1"),
-        sink,
-        capture,
-        poll_sec=0.0,
-    )
-    sink.watch_sessions("CLASS-1", runtime.on_sessions)
-    while True:
-        runtime.step()  # ngoài LOCK: YOLO (--video) chạy lâu, web không phải chờ; lệnh FakeFirestore tự khóa
-        with LOCK:
-            DB.reads.clear()  # FakeFirestore ghi lại mọi lần đọc/ghi cho test; demo chạy lâu thì đầy RAM
-            DB.commits.clear()
-        sink.flush()
-        time.sleep(0.2)
+    edge_runtime(edge_store.ROOT, config, provider, capture).run(web_sessions(edge_store.ROOT, "CAM-1"))
 
 
 FIREBASE_STUB = """import { initializeApp } from "firebase/app";
@@ -341,8 +320,23 @@ export const googleProvider = new GoogleAuthProvider();
 def main():
     parser = argparse.ArgumentParser(description="Demo web admin + camera AI, không cần Firebase hay camera.")
     parser.add_argument("--video", type=Path, help="Video lớp học thay cho camera và pose giả lập (YOLO thật).")
-    video = parser.parse_args().video
-    if video:
+    parser.add_argument(
+        "--camera-env", metavar="BIEN", help="Camera thật (YOLO thật): tên biến trong .env gốc chứa URL RTSP, vd CAMERA_SOURCE."
+    )
+    args = parser.parse_args()
+    edge_store.ROOT = Path(tempfile.mkdtemp(prefix="edutrack-demo-"))  # không lẫn với edge-data/ thật
+    atexit.register(shutil.rmtree, edge_store.ROOT, ignore_errors=True)
+    video = args.video
+    if args.camera_env:
+        env = dict(
+            line.strip().split("=", 1) for line in (conftest.ROOT / ".env").read_text(encoding="utf-8").splitlines()
+            if "=" in line and not line.lstrip().startswith("#")
+        )
+        video = env.get(args.camera_env, "").strip().strip('"')  # URL có mật khẩu: không in, không ghi log
+        if not video:
+            raise SystemExit(f"Không có {args.camera_env} trong .env.")
+        os.environ["CAMERA_SNAPSHOT"] = "1"
+    elif video:
         if not video.is_file():
             raise SystemExit(f"Không tìm thấy video: {video}")
         video = video.resolve()
@@ -356,7 +350,7 @@ def main():
     threading.Thread(target=edge_loop, args=(video,), daemon=True).start()
     if video:
         print(
-            f"Camera AI dùng video {video} thay cho CAM-1. Trước khi bắt đầu tiết 11B2: Quản lý camera -> CAM-1 ->"
+            f"Camera AI dùng {args.camera_env or video} cho CAM-1. Trước khi bắt đầu tiết 11B2: Quản lý camera -> CAM-1 ->"
             " Xác định chỗ ngồi -> Lấy ảnh từ camera, vẽ ô cho từng chỗ ngồi rồi lưu.",
             flush=True,
         )
@@ -381,7 +375,7 @@ def main():
 
     @app.get("/api/demo/db/<path:path>")
     def demo_db(path):
-        """Xem "Firestore" của demo: đường dẫn collection (vd session_results) hoặc document."""
+        """Xem "Firestore" của demo: đường dẫn collection (vd sessions) hoặc document."""
         try:
             if path.count("/") % 2 == 0:
                 return jsonify([json_document(doc) for doc in DB.collection(path).stream()])
@@ -389,6 +383,16 @@ def main():
         except ValueError:
             abort(400)
         return jsonify(json_document(doc)) if doc.exists else abort(404)
+
+    @app.get("/api/demo/edge/<path:path>")
+    def demo_edge(path):
+        """Xem file hai bên trao đổi (edge-data/), vd sessions/s1/result.json hoặc sessions/s1/alerts.jsonl."""
+        target = (edge_store.ROOT / path).resolve()
+        if edge_store.ROOT.resolve() not in target.parents or not target.is_file():
+            abort(404)
+        text = target.read_text(encoding="utf-8")  # nguyên nội dung file, thời gian giữ dạng ISO
+        rows = [json.loads(line) for line in text.splitlines()] if target.suffix == ".jsonl" else json.loads(text)
+        return jsonify(rows)
 
     @app.get("/api/demo/snapshot.png")
     def demo_snapshot():
@@ -403,7 +407,8 @@ def main():
         return Response(cv2.imencode(".png", image)[1].tobytes(), mimetype="image/png")
 
     print("Frontend: cd frontend; npm run dev  ->  http://localhost:5173/api/demo-login", flush=True)
-    print("Dữ liệu: http://localhost:5173/api/demo/db/session_results (hoặc sessions/s1/alerts, ...)", flush=True)
+    print("Firestore: http://localhost:5173/api/demo/db/sessions (classes2, students2/an/reports...)", flush=True)
+    print("Camera AI: http://localhost:5173/api/demo/edge/sessions/s1/result.json (alerts.jsonl...)", flush=True)
     print("Ảnh lớp trống để vẽ ô ghế: http://localhost:5173/api/demo/snapshot.png", flush=True)
     app.run(host="127.0.0.1", port=5000, threaded=True, use_reloader=False, load_dotenv=False)
 

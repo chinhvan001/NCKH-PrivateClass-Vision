@@ -3,7 +3,7 @@ import { AlertTriangle, Ban, Camera, Pause, Play, RefreshCw, Square, Trash2, X }
 
 import { getAuthHeaders } from "../../../utils/AuthSession";
 
-// Edge node camera-ai ghi session_results 10 giây/lần (camera-ai/docs/web_admin_integration.md).
+// Edge node camera-ai ghi kết quả 10 giây/lần (camera-ai/docs/web_admin_integration.md).
 const POLL_MS = 10000;
 
 const SESSION_STATUS = {
@@ -42,7 +42,7 @@ const EDGE_STATUS = {
   paused: "Tạm dừng",
   unavailable: "Tạm thời không khả dụng",
   outside_schedule: "Ngoài khung giờ giám sát",
-  unconfigured: "Chờ thêm camera trên web",
+  unconfigured: "Camera chưa gắn lớp",
 };
 
 const ALERT_TYPES = {

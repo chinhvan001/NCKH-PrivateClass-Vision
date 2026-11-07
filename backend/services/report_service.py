@@ -2,7 +2,7 @@
 
 Job jobs/parent_reports.py gọi build_pending_reports() định kỳ: mỗi tiết kết thúc trong LOOKBACK_DAYS
 ngày gần nhất được tạo báo cáo một lần, khi camera AI đã chốt kết quả, rồi đánh dấu reports_at và
-report_count trong sessions/{s} (edge node nhận lại document tiết qua listener, chỉ thêm 1 lần đọc).
+report_count trong sessions/{s}.
 Một báo cáo chỉ có thông tin tiết học và kết quả của chính học sinh đó, không có seat_id hay học sinh khác.
 """
 
@@ -10,7 +10,7 @@ from collections import Counter
 from datetime import timedelta
 
 from routes.test_helpers import commit_writes, db, server_timestamp
-from services import monitoring_service, scoring_service
+from services import edge_store, monitoring_service, scoring_service
 from services.evaluation_service import level, usable
 
 LOOKBACK_DAYS = 7
@@ -34,20 +34,12 @@ def build_session_reports(session_id, force=False):
     if seats is None:  # tiết bắt đầu trước khi có bản chốt: chốt sơ đồ hiện tại để báo cáo tạo lại vẫn như cũ
         monitoring_service.freeze_roster(session_id, class_data)
         seats = monitoring_service.seat_assignments(class_data)
-    evaluations = {}
-    for doc in db.collection("session_evaluations").where("session_id", "==", session_id).stream():
-        evaluation = doc.to_dict() or {}
-        evaluations[evaluation.get("seat_id")] = evaluation
-
+    evaluations = {evaluation.get("seat_id"): evaluation for evaluation in edge_store.evaluations(session_id)}
     if not evaluations:
-        windows = [d.to_dict() for d in db.collection("session_windows").where("session_id", "==", session_id).stream() if d.to_dict()]
+        windows = edge_store.windows(session_id)
         if windows:
-            _, evals = scoring_service.compute_session_scores(windows)
-            evaluations = evals
-    alerts = Counter()
-    for doc in db.collection("sessions").document(session_id).collection("alerts").stream():
-        alert = doc.to_dict() or {}
-        alerts[(alert.get("seat_id"), alert.get("type"))] += 1
+            _, evaluations = scoring_service.compute_session_scores(windows)
+    alerts = Counter((alert.get("seat_id"), alert.get("type")) for alert in edge_store.alerts(session_id))
 
     writes = []
     for seat, student_id in seats.items():

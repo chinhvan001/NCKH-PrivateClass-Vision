@@ -1,21 +1,5 @@
 {
-  "schema_version": 2,
-  "camera": {
-    "camera_id": "Camera 201",
-    "class_id": null,
-    "source_env": null,
-    "width": 1280,
-    "height": 720,
-    "angle_type": "frontal"
-  },
-  "seating": {
-    "corner_seats": {
-      "first_row_first_column": [130, 650],
-      "first_row_last_column": [1150, 650],
-      "last_row_last_column": [950, 260],
-      "last_row_first_column": [330, 260]
-    }
-  },
+  "schema_version": 3,
   "sampling": {
     "capture_fps": 10,
     "inference_every_n_frames": 2
@@ -35,7 +19,7 @@
   "schedule": {
     "timezone": "Asia/Ho_Chi_Minh",
     "windows": [
-      {"days": ["mon", "tue", "wed", "thu", "fri"], "start": "07:00", "end": "17:30"}
+      {"days": ["mon", "tue", "wed", "thu", "fri", "sat"], "start": "06:30", "end": "18:00"}
     ]
   },
   "privacy": {

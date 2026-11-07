@@ -6,18 +6,18 @@ from flask import Blueprint, Response, jsonify, request
 from firebase_admin import firestore
 from firebase_config import db
 from routes.test_helpers import json_value, require_admin, server_timestamp
-from services import monitoring_service
+from services import edge_store, monitoring_service
 
 
 camera_bp = Blueprint("camera_bp", __name__)
 
-# Camera theo sơ đồ đã chốt: cameras/{camera_id} giữ tên phòng, tên camera, IP, cổng (để hiển thị); camera_id
-# là camera_id trong cấu hình camera AI, cũng là ID heartbeat edge_nodes/{camera_id} mà camera AI gửi 10 s/lần
-# (tình trạng camera lấy từ đây). Lớp camera theo dõi là classes2/{lớp}.camera_id. URL RTSP (kèm tài khoản,
-# mật khẩu) nằm riêng ở camera_configs/{camera_id}: Rules chặn mọi client, API không bao giờ trả URL; chỉ
-# camera AI đó đọc.
+# Camera theo sơ đồ đã chốt: cameras/{camera_id} giữ tên phòng, tên camera, IP, cổng, góc (để hiển thị); camera_id
+# là tên camera camera AI dùng, cũng là tên file heartbeat camera AI ghi 10 s/lần (tình trạng camera lấy từ đây).
+# Lớp camera theo dõi là classes2/{lớp}.camera_id. URL RTSP (kèm tài khoản, mật khẩu) không lên Firestore: nó nằm
+# trong edge-data/cameras/{camera_id}.json trên máy chạy cả web và camera AI (services/edge_store.py); API không
+# bao giờ trả URL.
 CAMERAS = "cameras"
-CAMERA_CONFIGS = "camera_configs"
+CAMERA_CONFIGS = "camera_configs"  # nơi lưu URL trước đây: chỉ còn đọc để chuyển sang file, rồi xóa
 # IPv4 hoặc tên máy: không cho chèn "user:pass@", cổng hay đường dẫn vào URL
 HOST = re.compile(r"[A-Za-z0-9.-]{1,253}")
 STREAM_TIMEOUT_MS = 10000  # như camera AI: OpenCV mặc định chờ ~90 s khi camera không trả lời
@@ -109,12 +109,12 @@ def link_class(camera_id, class_id):
         classes.document(class_id).update({"camera_id": camera_id, "updated_at": server_timestamp()})
 
 
-def edge_summary(heartbeat, class_names):
+def edge_summary(heartbeat, class_id, class_names):
     return {
         "online": monitoring_service.is_online(heartbeat),
         "status": heartbeat.get("status"),
-        "class_id": heartbeat.get("class_id"),
-        "class_name": class_names.get(heartbeat.get("class_id"), ""),
+        "class_id": class_id,
+        "class_name": class_names.get(class_id, ""),
         "session_id": heartbeat.get("session_id"),
         "fps": heartbeat.get("fps"),
         "camera_ok": heartbeat.get("camera_ok"),
@@ -123,28 +123,46 @@ def edge_summary(heartbeat, class_names):
 
 
 def build_camera_data(camera_id, data, edge, class_id=None, class_names=None):
-    """data: cameras/{camera_id}, None khi camera AI gửi heartbeat nhưng chưa được thêm trên web."""
-    declared = data is not None
-    data = data or {}
+    """data: cameras/{camera_id}. Camera AI chạy một edge node cho mỗi camera thêm ở đây."""
     rtsp_port = data.get("rtsp_port", "")
 
     return {
         "id": camera_id,
         "camera_id": camera_id,
-        "camera_name": camera_id,  # camera_id trong cấu hình camera AI, khóa của seat_regions
+        "camera_name": camera_id,  # tên camera camera AI dùng, khóa của seat_regions và edge_nodes
         "name": str(data.get("camera_name") or camera_id).strip(),
-        "declared": declared,
         "room_name": data.get("room_name") or "",
         "ip_address": data.get("ip_address", ""),
         "rtsp_port": str(rtsp_port) if rtsp_port else "",
+        "angle_type": data.get("angle_type") or "frontal",
         # lớp có classes2.camera_id là camera này; URL RTSP không bao giờ trả về
         "configured": class_id is not None,
         "class_id": class_id,
         "class_name": (class_names or {}).get(class_id, ""),
-        "snapshot": snapshot_enabled() and declared and class_id is not None,
+        "snapshot": snapshot_enabled() and class_id is not None,
         "status": "online" if edge and edge["online"] else "offline",
         "edge": edge,
     }
+
+
+def current_source(camera_id):
+    """URL đang lưu của camera; camera thêm trước khi URL chuyển khỏi Firestore thì lấy ở camera_configs."""
+    stored = (edge_store.camera(camera_id) or {}).get("source")
+    if stored:
+        return stored
+    config_doc = db.collection(CAMERA_CONFIGS).document(camera_id).get()
+    return ((config_doc.to_dict() or {}).get("source") or "") if config_doc.exists else ""
+
+
+def class_is_live(class_id):
+    """Lớp đang có tiết running/paused: camera AI đang hoặc sắp giám sát."""
+    sessions = db.collection("sessions").where("class_id", "==", class_id).stream() if class_id else []
+    return any((doc.to_dict() or {}).get("status") in monitoring_service.LIVE_STATUSES for doc in sessions)
+
+
+# Góc đặt camera: frontal (phía trước lớp, nhìn thẳng học sinh) hay top_down (từ trên cao). Camera AI chỉ
+# báo quay lưng với frontal; đổi góc thì camera AI khởi động lại edge node của camera trong 30 giây.
+ANGLE_TYPES = ("frontal", "top_down")
 
 
 def camera_fields(data, uid):
@@ -173,8 +191,8 @@ def create_camera():
         room_name = str(data.get("room_name") or "").strip()
         class_id = str(data.get("class_id") or "").strip()
 
-        if not camera_id or "/" in camera_id:
-            return error("Thiếu tên camera (trùng camera_id trong cấu hình camera AI, không chứa '/').", 400)
+        if not edge_store.valid_camera_id(camera_id):
+            return error('Thiếu tên camera, hoặc tên có ký tự không dùng được (\\ / : * ? " < > |).', 400)
 
         if not room_name:
             return error("Thiếu phòng học.", 400)
@@ -183,6 +201,11 @@ def create_camera():
 
         if problem:
             return error(problem, 400)
+
+        angle = data.get("angle_type") or "frontal"
+
+        if angle not in ANGLE_TYPES:
+            return error("Góc đặt camera không hợp lệ.", 400)
 
         problem = class_problem(class_id, camera_id)
 
@@ -195,16 +218,16 @@ def create_camera():
         if any(db.collection(CAMERAS).where("room_name", "==", room_name).limit(1).stream()):
             return error("Phòng học này đã có camera.", 409)
 
-        camera = {"camera_name": camera_id, "room_name": room_name, **camera_fields(data, uid)}
+        camera = {"camera_name": camera_id, "room_name": room_name, "angle_type": angle, **camera_fields(data, uid)}
+        edge_store.save_camera(camera_id, angle, source)
+        db.collection(CAMERA_CONFIGS).document(camera_id).delete()  # URL lưu kiểu cũ, nếu camera từng được thêm
         db.collection(CAMERAS).document(camera_id).set(camera)
-        db.collection(CAMERA_CONFIGS).document(camera_id).set(
-            {"source": source, "updated_at": server_timestamp(), "updated_by": uid}
-        )
         link_class(camera_id, class_id)
 
         return jsonify({
             "success": True,
-            "message": "Thêm camera thành công. Camera AI nhận lớp trong vòng 1 phút.",
+            "message": "Thêm camera thành công. Camera AI bắt đầu theo dõi camera này trong vòng 30 giây; "
+            "hãy xác định chỗ ngồi trước tiết đầu tiên.",
             "camera": build_camera_data(camera_id, camera, None, class_id),
         }), 201
 
@@ -231,14 +254,18 @@ def update_camera(camera_id):
         if not camera_doc.exists:
             return error("Không tìm thấy camera.", 404)
 
-        config_ref = db.collection(CAMERA_CONFIGS).document(camera_id)
-        config_doc = config_ref.get()
         # URL cũ chỉ đọc ở đây để giữ tài khoản, mật khẩu admin không nhập lại; không trả về
-        current = ((config_doc.to_dict() or {}).get("source") or "") if config_doc.exists else ""
+        current = current_source(camera_id)
         source, problem = rtsp_source(data, current)
 
         if problem:
             return error(problem, 400)
+
+        stored = camera_doc.to_dict() or {}
+        angle = data.get("angle_type") or stored.get("angle_type") or "frontal"
+
+        if angle not in ANGLE_TYPES:
+            return error("Góc đặt camera không hợp lệ.", 400)
 
         class_id = str(data.get("class_id") or "").strip()
         problem = class_problem(class_id, camera_id)
@@ -246,16 +273,20 @@ def update_camera(camera_id):
         if problem:
             return error(*problem)
 
-        fields = camera_fields(data, uid)
+        if angle != (stored.get("angle_type") or "frontal") and class_is_live(camera_class(camera_id)):
+            return error("Lớp đang có tiết giám sát: đổi góc camera sau khi tiết kết thúc.", 409)
+
+        fields = {**camera_fields(data, uid), "angle_type": angle}
+        # Camera AI đọc lại URL mỗi lần mở camera; lớp mới có hiệu lực từ tiết bắt đầu sau
+        edge_store.save_camera(camera_id, angle, source)
+        db.collection(CAMERA_CONFIGS).document(camera_id).delete()  # URL lưu kiểu cũ trên Firestore
         camera_ref.update(fields)
-        # Camera AI đọc lại lớp giữa các tiết và URL mỗi lần mở camera
-        config_ref.set({"source": source, "updated_at": server_timestamp(), "updated_by": uid})
         link_class(camera_id, class_id)
 
         return jsonify({
             "success": True,
             "message": "Đã lưu camera. Camera AI áp dụng từ tiết giám sát tiếp theo.",
-            "camera": build_camera_data(camera_id, {**(camera_doc.to_dict() or {}), **fields}, None, class_id),
+            "camera": build_camera_data(camera_id, {**stored, **fields}, None, class_id),
         }), 200
 
     except Exception as e:
@@ -272,7 +303,7 @@ def get_cameras():
         if error_response:
             return error_response
 
-        heartbeats = {doc.id: doc.to_dict() or {} for doc in db.collection("edge_nodes").stream()}
+        heartbeats = edge_store.heartbeats()
         class_names, class_of_camera = {}, {}
         for doc in db.collection("classes2").select(["class_name", "camera_id"]).stream():
             data = doc.to_dict() or {}
@@ -289,14 +320,9 @@ def get_cameras():
                 # Dữ liệu cũ: URL RTSP kèm mật khẩu không được nằm trong collection app đọc được
                 db.collection(CAMERAS).document(doc.id).update({"rtsp_url": firestore.DELETE_FIELD})
 
-            heartbeat = heartbeats.pop(doc.id, None)
-            edge = edge_summary(heartbeat, class_names) if heartbeat is not None else None
-            cameras.append(build_camera_data(doc.id, data, edge, class_of_camera.get(doc.id), class_names))
-
-        # Camera AI đang gửi heartbeat nhưng chưa được thêm trên trang camera
-        for camera_id, heartbeat in heartbeats.items():
-            edge = edge_summary(heartbeat, class_names)
-            cameras.append(build_camera_data(camera_id, None, edge, class_of_camera.get(camera_id), class_names))
+            heartbeat, class_id = heartbeats.pop(doc.id, None), class_of_camera.get(doc.id)
+            edge = edge_summary(heartbeat, class_id, class_names) if heartbeat is not None else None
+            cameras.append(build_camera_data(doc.id, data, edge, class_id, class_names))
 
         return jsonify({
             "success": True,
@@ -323,8 +349,10 @@ def delete_camera(camera_id):
         if not camera_ref.get().exists:
             return error("Không tìm thấy camera.", 404)
 
-        # Bỏ lớp và URL RTSP (có mật khẩu): camera AI chuyển về "chờ thêm camera trên web"
+        # Bỏ lớp và URL RTSP (có mật khẩu): camera AI dừng edge node của camera
         link_class(camera_id, None)
+        if edge_store.valid_camera_id(camera_id):
+            edge_store.delete_camera(camera_id)
         db.collection(CAMERA_CONFIGS).document(camera_id).delete()
         camera_ref.delete()
 
@@ -353,15 +381,12 @@ def camera_snapshot(camera_id):
         return error_response
 
     try:
-        config_doc = db.collection(CAMERA_CONFIGS).document(camera_id).get()
-        source = ((config_doc.to_dict() or {}).get("source") or "") if config_doc.exists else ""
+        source = (edge_store.camera(camera_id) or {}).get("source") or ""
 
         if not source or not db.collection(CAMERAS).document(camera_id).get().exists:
             return error("Không tìm thấy camera hoặc camera chưa được thêm.", 404)
 
-        class_id = camera_class(camera_id)
-        sessions = db.collection("sessions").where("class_id", "==", class_id).stream() if class_id else []
-        if any((doc.to_dict() or {}).get("status") in monitoring_service.LIVE_STATUSES for doc in sessions):
+        if class_is_live(camera_class(camera_id)):
             return error("Lớp đang có tiết giám sát: không xem ảnh camera trong giờ học.", 409)
 
         image = grab_jpeg(source)

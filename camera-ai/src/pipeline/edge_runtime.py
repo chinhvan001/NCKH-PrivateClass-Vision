@@ -1,23 +1,18 @@
 """Vong doi edge node theo phien giam sat (UC02, UC04), chay boi ``python -m src.main``.
 
-Listener Firestore chi luu ``{session_id: state}`` (``on_sessions``). Moi quyet
-dinh nam trong ``step()`` tren thread chinh: bat/tat CaptureWorker theo trang
-thai phien va lich trong config, xu ly frame, heartbeat, ket qua phien.
+``run()`` doc lai tiet hien tai cua camera (file web admin ghi, ``src/sync``) moi ``SESSION_POLL_SEC``
+va chi luu ``{session_id: state}`` (``on_sessions``). Moi quyet dinh nam trong ``step()``: bat/tat
+CaptureWorker theo trang thai phien va lich trong config, xu ly frame, heartbeat, ket qua phien.
 Camera chi mo khi phien ``active`` va dang trong cua so lich.
 
-Ket qua theo dong ho phien (giay da giam sat): ``session_results`` va 1 document
-``session_windows`` (thoi gian moi ghe o tung trang thai tu the, de backend web tinh diem)
-moi ``RESULT_INTERVAL_SEC``, ``session_evaluations`` moi ``EVALUATION_INTERVAL_SEC``
-va lan cuoi khi het phien; record tung ghe khong roi edge.
-
-Config de ``class_id`` null: lop la lop admin gan cho camera tren trang Quan ly camera,
-doc lai khi khong co phien; doi lop thi ``run()`` nghe phien cua lop moi.
+Ket qua theo dong ho phien (giay da giam sat): ket qua phien va 1 window (thoi gian moi ghe o tung
+trang thai tu the, de backend web tinh diem) moi ``RESULT_INTERVAL_SEC``, tong hop tung ghe moi
+``EVALUATION_INTERVAL_SEC`` va lan cuoi khi het phien; record tung ghe khong roi edge.
 """
 
 from __future__ import annotations
 
 import logging
-import threading
 import time
 import uuid
 from collections import Counter, defaultdict
@@ -41,7 +36,7 @@ from src.privacy import (
     dispose_frame,
 )
 from src.seating import SeatGrid, SeatGridError
-from src.sync import EdgeHeartbeat, FirestoreSink
+from src.sync import EdgeHeartbeat, LocalSink
 
 logger = logging.getLogger("camera_ai.runtime")
 
@@ -50,13 +45,9 @@ MAX_FRAME_GAP_SEC = 5.0  # pause/mat camera chi lam dong ho phien tien toi da ch
 CAMERA_TIMEOUT_SEC = 5.0  # khong co frame lau hon -> camera tam khong kha dung
 CAMERA_RETRY_SEC = 10.0
 LAYOUT_RETRY_SEC = 10.0  # chua nap duoc so do lop -> thu lai sau
-RESUBSCRIBE_SEC = 30.0
+SESSION_POLL_SEC = 1.0  # web bat dau/tam dung/ket thuc tiet: edge phan ung trong chung nay
 RESULT_INTERVAL_SEC = 10.0
 EVALUATION_INTERVAL_SEC = 300.0
-# ponytail: hoi lai lop tren web theo chu ky khi ranh (<= 1440 lan doc/ngay); listener document
-# camera_configs/{camera_id} neu so edge node lam vuot quota doc.
-CLASS_CHECK_SEC = 60.0
-UNCONFIGURED_CHECK_SEC = 15.0  # camera chua duoc them tren web: hoi nhanh hon de admin khoi doi
 
 
 @dataclass
@@ -68,7 +59,7 @@ class _Session:
     resumed: bool  # phien da co ket qua tu lan chay truoc -> so lieu chi la mot phan
     clock_sec: float = 0.0  # giay da giam sat; pause va mat camera khong tinh (MAX_FRAME_GAP_SEC)
     last_frame_ts: float | None = None
-    result_at: float = 0.0  # clock_sec lan ghi session_results gan nhat
+    result_at: float = 0.0  # clock_sec lan ghi ket qua phien gan nhat
     evaluation_at: float = 0.0
     distraction: Counter = field(default_factory=Counter)  # seat_id -> so alert
     interaction: Counter = field(default_factory=Counter)  # seat_id -> so alert side_conversation
@@ -77,20 +68,10 @@ class _Session:
     window_alerts: defaultdict = field(default_factory=lambda: defaultdict(Counter))  # seat_id -> loai -> so
 
 
-class _NoWatch:
-    """Camera chua co lop: khong nghe phien nao."""
-
-    is_active = True
-
-    def unsubscribe(self) -> None:
-        pass
-
-
 class EdgeRuntime:
-    """``seat_grid(class_id)`` nap so do ghe cua lop (``config.load_class_seat_grid``), goi luc
+    """``seat_grid(session_id)`` nap so do ghe cua tiet (``config.session_seat_grid``), goi luc
     bat dau phien va chot cho ca phien. ``capture_factory`` tao CaptureWorker moi moi lan bat
-    camera; nem ``CameraOpenError`` thi camera tam khong kha dung. ``web_class`` (khi config de
-    ``class_id`` null) doc lop admin gan cho camera tren web. ``now``/``monotonic`` duoc thay
+    camera; nem ``CameraOpenError`` thi camera tam khong kha dung. ``now``/``monotonic`` duoc thay
     trong test."""
 
     def __init__(
@@ -98,10 +79,9 @@ class EdgeRuntime:
         config: LocalPipelineConfig,
         pose_provider: PoseProvider,
         seat_grid: Callable[[str], SeatGrid],
-        sink: FirestoreSink,
+        sink: LocalSink,
         capture_factory: Callable[[], CaptureWorker],
         *,
-        web_class: Callable[[], str | None] | None = None,
         now: Callable[[], datetime] = lambda: datetime.now(timezone.utc),
         monotonic: Callable[[], float] = time.monotonic,
         heartbeat_interval_sec: float = 10.0,
@@ -117,7 +97,6 @@ class EdgeRuntime:
         self._heartbeat_interval_sec = heartbeat_interval_sec
         self._poll_sec = poll_sec
         self._states: dict[str, Any] = {}
-        self._changed = threading.Event()
         self._session: _Session | None = None
         self._worker: CaptureWorker | None = None
         self._in_schedule = False
@@ -131,18 +110,13 @@ class EdgeRuntime:
         self._heartbeat_mono = monotonic()
         self._layout_failed = False  # co phien song nhung chua nap duoc so do lop
         self._layout_retry_at = 0.0
-        self._class_id = config.camera.class_id
-        self._web_class = web_class
-        self._class_check_at = 0.0
 
     def on_sessions(self, states: dict[str, Any]) -> None:
-        """Callback cua listener (thread khac): chi thay snapshot ``{session_id: state}``."""
+        """Trang thai moi nhat cua cac phien cua camera: ``{session_id: state}``."""
         self._states = dict(states)
-        self._changed.set()
 
     def step(self) -> None:
-        """1 vong: lop tren web -> dong bo phien -> bat/tat camera -> xu ly toi da 1 frame -> heartbeat."""
-        self._check_web_class()
+        """1 vong: dong bo phien -> bat/tat camera -> xu ly toi da 1 frame -> heartbeat."""
         states = self._states
         if self._session and states.get(self._session.session_id) not in LIVE_STATES:
             # "ended": giao vien ket thuc. Document bi xoa/trang thai la: phien dut ngang (UC04).
@@ -167,8 +141,7 @@ class EdgeRuntime:
             (self._session.alerts.resume if capture else self._session.alerts.pause)()
 
         if self._worker is None:
-            self._changed.wait(self._poll_sec)
-            self._changed.clear()
+            time.sleep(self._poll_sec)
         else:
             frame = self._worker.buffer.get(timeout=self._poll_sec)
             if frame is not None:
@@ -176,64 +149,26 @@ class EdgeRuntime:
             self._camera_ok = self._mono() - self._last_frame_mono < CAMERA_TIMEOUT_SEC
         self._heartbeat()
 
-    def run(
-        self,
-        subscribe: Callable[[str, Callable[[dict[str, Any]], None]], Any],
-        should_stop: Callable[[], bool] = lambda: False,
-    ) -> None:
-        """Vong lap chinh. ``subscribe(class_id, on_sessions)`` tra ve watch co ``unsubscribe()``;
-        lop tren web doi thi huy watch cu va nghe lop moi.
-
-        Watch Firestore chet han (``is_active`` False) khi loi quyen, va ca khi mat
-        mang: google-api-core mo lai ket noi de quy toi RecursionError roi thread
-        listener thoat. Chi dang ky lai khi sink vua ghi duoc (da co mang), neu
-        khong moi lan thu se in hang nghin dong traceback. Trong luc do edge giu
-        trang thai phien cuoi cung biet duoc."""
-        watch, watched = self._subscribe(subscribe), self._class_id
-        resubscribe_at = 0.0
+    def run(self, sessions: Callable[[], dict[str, Any]], should_stop: Callable[[], bool] = lambda: False) -> None:
+        """Vong lap chinh. ``sessions()`` tra ``{session_id: state}`` cua camera, doc lai moi
+        ``SESSION_POLL_SEC``; doc loi (file sua tay hong) thi giu trang thai cuoi cung biet duoc."""
+        poll_at, failed = 0.0, False
         try:
             while not should_stop():
+                if self._mono() >= poll_at:
+                    poll_at = self._mono() + SESSION_POLL_SEC
+                    try:
+                        self.on_sessions(sessions())
+                        failed = False
+                    except (OSError, ValueError) as error:
+                        if not failed:
+                            logger.warning(
+                                "Khong doc duoc tiet cua camera (%s), giu trang thai cu.", type(error).__name__
+                            )
+                        failed = True
                 self.step()
-                if self._class_id != watched:
-                    watch.unsubscribe()
-                    watch, watched = self._subscribe(subscribe), self._class_id
-                elif (
-                    not getattr(watch, "is_active", True)
-                    and self._sink.failures == 0
-                    and self._mono() >= resubscribe_at
-                ):
-                    logger.warning("Listener phien Firestore da dung, dang ky lai.")
-                    watch.unsubscribe()
-                    watch, resubscribe_at = self._subscribe(subscribe), self._mono() + RESUBSCRIBE_SEC
         finally:
-            watch.unsubscribe()
             self.close()
-
-    def _subscribe(self, subscribe: Callable[[str, Callable[[dict[str, Any]], None]], Any]) -> Any:
-        class_id = self._class_id
-        if class_id is None:
-            return _NoWatch()
-
-        def on_sessions(states: dict[str, Any]) -> None:
-            if class_id == self._class_id:  # bo snapshot den tre cua listener lop cu
-                self.on_sessions(states)
-
-        return subscribe(class_id, on_sessions)
-
-    def _check_web_class(self) -> None:
-        """Lop admin gan cho camera tren web, chi doc lai khi khong co phien."""
-        if self._web_class is None or self._session is not None or self._mono() < self._class_check_at:
-            return
-        self._class_check_at = self._mono() + (CLASS_CHECK_SEC if self._class_id else UNCONFIGURED_CHECK_SEC)
-        try:
-            class_id = self._web_class()
-        except ClassLayoutError as error:  # Firestore loi: giu lop dang nghe
-            logger.warning("%s Giu lop hien tai.", error)
-            return
-        if class_id != self._class_id:
-            logger.info("Lop cua camera tren web doi: %s -> %s.", self._class_id, class_id)
-            self._class_id, self._states, self._layout_failed = class_id, {}, False
-            self._heartbeat_status = None  # gui heartbeat ngay: web kiem tra truoc tiet theo lop trong heartbeat
 
     def close(self) -> None:
         """Tat edge node: phien dang chay bi danh dau incomplete, heartbeat bao offline."""
@@ -243,7 +178,7 @@ class EdgeRuntime:
 
     def _start_session(self, session_id: str) -> None:
         try:
-            grid = self._seat_grid(self._class_id)
+            grid = self._seat_grid(session_id)
         except (ClassLayoutError, SeatGridError) as error:  # message khong chua du lieu lop
             self._layout_failed, self._layout_retry_at = True, self._mono() + LAYOUT_RETRY_SEC
             logger.warning(
@@ -330,7 +265,7 @@ class EdgeRuntime:
                 self._config.camera.camera_id,
                 session.run,
                 session.window_seq,
-                session.result_at,  # window ghi cung luc voi session_results, ke ca lan ghi dau luc bat dau phien
+                session.result_at,  # window ghi cung luc voi ket qua phien, ke ca lan ghi dau luc bat dau phien
                 session.clock_sec,
                 self._now(),
                 monitoring_status,
@@ -348,7 +283,7 @@ class EdgeRuntime:
 
     def _start_capture(self) -> None:
         try:
-            worker = self._capture_factory()  # nguon camera tren web: chua them camera hoac Firestore loi
+            worker = self._capture_factory()  # nguon camera tren web: chua them camera hoac file loi
             worker.start()
         except CameraOpenError as error:  # message da an credential (redact_source)
             self._camera_ok, self._camera_retry_at = False, self._mono() + CAMERA_RETRY_SEC
@@ -378,7 +313,7 @@ class EdgeRuntime:
             session.clock_sec,
             self._pose,
             session.engine,
-            lambda record: None,  # record tung ghe chi dung noi bo; Firestore nhan ket qua tong hop ben duoi
+            lambda record: None,  # record tung ghe chi dung noi bo; web nhan ket qua tong hop ben duoi
             session.alerts,
             lambda alert: self._on_alert(session, alert),
         )
@@ -390,8 +325,6 @@ class EdgeRuntime:
             self._publish_evaluations(session)
 
     def _status(self) -> str:
-        if self._class_id is None:
-            return "unconfigured"
         if self._session is None:
             return "unavailable" if self._layout_failed else "idle"
         if self._states.get(self._session.session_id) == "paused":
@@ -408,7 +341,6 @@ class EdgeRuntime:
             return
         self._sink.set_heartbeat(
             EdgeHeartbeat(
-                class_id=self._class_id,
                 online=online,
                 status=status,
                 session_id=self._session.session_id if self._session else None,

@@ -1,7 +1,7 @@
-"""Hợp đồng web admin <-> edge node chạy thật trên cùng một FakeFirestore.
+"""Hợp đồng web admin <-> edge node chạy thật trên cùng một thư mục edge-data/, như khi cả hai chạy trên một máy.
 
-Backend đổi status của tiết qua API; EdgeRuntime của camera-ai (listener, sơ đồ lớp, FirestoreSink)
-phản ứng và ghi kết quả; backend đọc lại đúng các document đó. Lệch tên collection, field, mã ghế
+Backend đổi status của tiết qua API và giao tiết cho camera (file camera_sessions/); EdgeRuntime của camera-ai,
+nối như src/main.py nối, phản ứng và ghi kết quả; backend đọc lại đúng các file đó. Lệch tên file, field, mã ghế
 hay giá trị status giữa hai bên thì test này hỏng.
 """
 
@@ -10,16 +10,22 @@ from datetime import datetime, timezone
 import numpy as np
 import pytest
 
+import src.main as edge_main
 from services import monitoring_service, report_service
 from src.capture import Frame
-from src.config import LocalPipelineConfig, load_camera_class, load_camera_setting, load_class_seat_grid
-from src.pipeline import EdgeRuntime
-from src.pipeline.edge_runtime import UNCONFIGURED_CHECK_SEC
-from src.sync import FirestoreSink
+from src.config import EdgeSettings, LocalPipelineConfig
+from src.sync import camera_source
 from test_end_to_end_pipeline import _person
 from test_local_config import valid_config
 
 NOW = datetime(2026, 10, 5, 2, 0, tzinfo=timezone.utc)  # thứ Hai 09:00 Asia/Ho_Chi_Minh, trong lịch của valid_config
+# Ảnh chụp cùng cỡ khung camera 320x240: S01 quanh An (x=90), S02 quanh Bình (x=230)
+REGIONS = {
+    "class_id": "CLASS-1",
+    "image_width": 320,
+    "image_height": 240,
+    "seats": {"S01": [60, 70, 120, 130], "S02": [200, 70, 260, 130]},
+}
 
 
 class Camera:
@@ -47,34 +53,27 @@ class Classroom:
 
 
 @pytest.fixture
-def edge(db, monkeypatch):
+def edge(db, monkeypatch, edge_files):
+    """Edge node của camera CAM-1 trên thư mục chung; mỗi bước đọc lại tiết camera được giao, như run()."""
     monkeypatch.setattr(monitoring_service, "utc_now", lambda: NOW)
-    data = valid_config()  # camera CAM-1 của lớp CLASS-1, 4 ghế góc (90,100) (230,100) (230,300) (90,300)
+    data = valid_config()  # camera CAM-1
     data["sampling"]["inference_every_n_frames"] = 1
     config = LocalPipelineConfig.from_dict(data)
-    sink = FirestoreSink(db, "CAM-1", retention_days=30, now=lambda: NOW)
-    runtime = EdgeRuntime(
-        config,
-        Classroom(),
-        lambda class_id: load_class_seat_grid(db, class_id, config.seating.corner_seats, "CAM-1"),
-        sink,
-        Camera,
-        now=lambda: NOW,
-        poll_sec=0.0,
-    )
-    sink.watch_sessions("CLASS-1", runtime.on_sessions)
+    runtime = edge_main.edge_runtime(edge_files.root, config, Classroom(), Camera, now=lambda: NOW, poll_sec=0.0)
+    sessions = edge_main.web_sessions(edge_files.root, "CAM-1")
 
     def run(steps):
         for _ in range(steps):
+            runtime.on_sessions(sessions())
             runtime.step()
-        assert sink.flush()
 
     return run
 
 
-def test_admin_starts_and_ends_a_session_that_the_edge_node_monitors(client, db, admin, edge):
+def test_admin_starts_and_ends_a_session_that_the_edge_node_monitors(client, db, admin, edge, edge_files):
     db.document("classes2/CLASS-1").set({
         "class_name": "11B2",
+        "camera_id": "CAM-1",
         "row_count": 2,
         "column_count": 2,
         "seat_map": {
@@ -85,10 +84,14 @@ def test_admin_starts_and_ends_a_session_that_the_edge_node_monitors(client, db,
     db.document("students2/an").set({"full_name": "Nguyễn Văn An"})
     db.document("students2/binh").set({"full_name": "Trần Thị Bình"})
     db.document("sessions/s1").set({"class_id": "CLASS-1", "subject": "Toán", "status": "scheduled"})
+    assert client.put("/api/admin/seat-regions/CAM-1", json=REGIONS, headers=admin).status_code == 200
 
     edge(1)  # heartbeat đầu tiên: edge node idle, trực tuyến
     status = client.put("/api/admin/schedules/s1/status", json={"status": "running"}, headers=admin)
     assert status.status_code == 200, status.get_json()
+    # Tiết giao cho camera: sơ đồ và ô ghế, không bao giờ seat_map (ghế -> học sinh)
+    order = edge_files.read("camera_sessions/CAM-1.json")
+    assert set(order) == {"session_id", "status", "class_id", "row_count", "column_count", "seat_regions"}
 
     edge(90)  # 90 giây giám sát
     live = client.get("/api/admin/schedules/s1/monitoring", headers=admin).get_json()["data"]
@@ -110,20 +113,17 @@ def test_admin_starts_and_ends_a_session_that_the_edge_node_monitors(client, db,
 
     assert client.put("/api/admin/schedules/s1/status", json={"status": "paused"}, headers=admin).status_code == 200
     edge(1)
-    assert db.docs["edge_nodes/CAM-1"]["status"] == "paused"
+    assert edge_files.read("edge_nodes/CAM-1.json")["status"] == "paused"
     assert client.put("/api/admin/schedules/s1/status", json={"status": "running"}, headers=admin).status_code == 200
     assert client.put("/api/admin/schedules/s1/status", json={"status": "completed"}, headers=admin).status_code == 200
     edge(1)
-    assert db.docs["session_results/s1"]["monitoring_status"] == "completed"
-    assert db.docs["edge_nodes/CAM-1"]["status"] == "idle"
-    assert db.docs[f"sessions/s1/alerts/{alert_id}"]["status"] == "acknowledged"
+    assert edge_files.read("sessions/s1/result.json")["monitoring_status"] == "completed"
+    assert edge_files.read("edge_nodes/CAM-1.json")["status"] == "idle"
+    live = client.get("/api/admin/schedules/s1/monitoring", headers=admin).get_json()["data"]
+    assert [(a["id"], a["status"]) for a in live["alerts"]] == [(alert_id, "acknowledged")]
     # Window 10 s cho backend tính điểm (gói A): window cuối mang trạng thái kết thúc của tiết
-    windows = sorted(
-        (doc["run"], doc["seq"], doc["monitoring_status"])
-        for path, doc in db.docs.items()
-        if path.startswith("session_windows/s1_")
-    )
-    assert windows[-1][2] == "completed" and {status for *_, status in windows[:-1]} <= {"running"}
+    windows = [window["monitoring_status"] for window in edge_files.lines("sessions/s1/windows.jsonl")]
+    assert windows[-1] == "completed" and set(windows[:-1]) == {"running"}
 
     report = client.get("/api/v1/evaluations/classes/CLASS-1/details", headers=admin).get_json()["data"]["students"]
     scores = {student["name"]: (student["attention_score"], student["status"]) for student in report}
@@ -133,22 +133,26 @@ def test_admin_starts_and_ends_a_session_that_the_edge_node_monitors(client, db,
     sessions = client.get("/api/v1/evaluations/classes/CLASS-1/details", headers=admin).get_json()["data"]["sessions"]
     assert [(row["id"], row["data_status"], row["seats"]) for row in sessions] == [("s1", "complete", 2)]
 
-    # Job báo cáo phụ huynh, rồi xóa tiết: không còn document nào của tiết, kể cả do edge node ghi
+    # Job báo cáo phụ huynh, rồi xóa tiết: không còn dữ liệu nào của tiết, kể cả do edge node ghi
     assert report_service.build_pending_reports() == {"s1": 2}
     binh = db.docs["students2/binh/reports/s1"]
     assert (binh["avg_concentration"], binh["level"], binh["partial"]) == (100, "good", False)
     assert db.docs["students2/an/reports/s1"]["alerts"]["head_drop"] == 1
     assert client.delete("/api/admin/schedules/s1", headers=admin).status_code == 200
     edge(1)
-    assert [path for path in db.docs if any(part == "s1" or part.startswith("s1_") for part in path.split("/"))] == []
-    assert db.docs["edge_nodes/CAM-1"]["status"] == "idle"
+    assert [path for path in db.docs if "s1" in path.split("/")] == []
+    assert not (edge_files.root / "sessions" / "s1").exists()
+    assert edge_files.read("edge_nodes/CAM-1.json")["status"] == "idle"
+    # Firestore chỉ còn dữ liệu của web và app: không có collection nào camera AI từng ghi
+    edge_collections = ("session_results", "session_evaluations", "session_windows", "edge_nodes", "camera_configs")
+    assert not [path for path in db.docs if path.startswith(edge_collections) or "/alerts/" in path]
 
 
-def test_seat_regions_drawn_on_the_camera_page_decide_who_sits_where(client, db, admin, edge):
-    db.document("classes2/CLASS-1").set({"class_name": "11B2", "row_count": 2, "column_count": 2})
+def test_seat_regions_drawn_on_the_camera_page_decide_who_sits_where(client, db, admin, edge, edge_files):
+    db.document("classes2/CLASS-1").set({"class_name": "11B2", "camera_id": "CAM-1", "row_count": 2, "column_count": 2})
     db.document("sessions/s1").set({"class_id": "CLASS-1", "subject": "Toán", "status": "scheduled"})
-    # Ảnh chụp 1280x960, gấp 4 khung hình 320x240 của camera. Ô S01 vẽ quanh Bình (x=230), S02 quanh An
-    # (x=90): ngược với 4 ghế góc trong cấu hình, nên kết quả chỉ đúng khi edge node dùng ô vẽ trên web.
+    # Ảnh chụp 1280x960, gấp 4 khung hình 320x240 của camera. Ô S01 vẽ quanh Bình (x=230), S02 quanh An (x=90):
+    # kết quả chỉ đúng khi edge node dùng ô vẽ trên web và co chúng về khung hình.
     regions = {
         "class_id": "CLASS-1",
         "image_width": 1280,
@@ -160,68 +164,65 @@ def test_seat_regions_drawn_on_the_camera_page_decide_who_sits_where(client, db,
 
     edge(1)
     assert client.put("/api/admin/schedules/s1/status", json={"status": "running"}, headers=admin).status_code == 200
+    # Vẽ lại ô ghế giữa tiết: tiết đang chạy giữ ô ghế lúc bắt đầu
+    assert client.put("/api/admin/seat-regions/CAM-1", json=REGIONS, headers=admin).status_code == 200
     edge(90)
-    result = db.docs["session_results/s1"]["result_map"]
+    result = edge_files.read("sessions/s1/result.json")["result_map"]
     assert (set(result), result["S01"]["status"], result["S02"]["status"]) == ({"S01", "S02"}, "focused", "drowsy")
 
 
-def test_camera_added_on_the_web_admin_gives_the_edge_node_its_class_and_stream(client, db, admin, monkeypatch):
-    """Config của camera AI để class_id và source_env là null: admin thêm camera trên trang camera là đủ."""
+def test_camera_added_on_the_web_admin_gives_the_edge_node_everything_it_needs(
+    client, db, admin, monkeypatch, edge_files
+):
+    """Như src/main.py: edge node của camera không có config riêng; camera, địa chỉ, tiết và ô ghế lấy từ web."""
     monkeypatch.setattr(monitoring_service, "utc_now", lambda: NOW)
-    data = valid_config()
-    data["camera"].update(class_id=None, source_env=None)
-    data["sampling"]["inference_every_n_frames"] = 1
-    config = LocalPipelineConfig.from_dict(data)
-    sink = FirestoreSink(db, "CAM-1", retention_days=30, now=lambda: NOW)
-    opened, clock = [], [0.0]
-
-    def camera():  # như src/main.py: nguồn đọc lại trên web mỗi lần mở camera
-        opened.append(config.to_capture_config(load_camera_setting(db, "CAM-1", "source")).source)
-        return Camera()
-
-    runtime = EdgeRuntime(
-        config,
-        Classroom(),
-        lambda class_id: load_class_seat_grid(db, class_id, config.seating.corner_seats, "CAM-1"),
-        sink,
-        camera,
-        web_class=lambda: load_camera_class(db, "CAM-1"),
-        now=lambda: NOW,
-        monotonic=lambda: clock[0],
-        poll_sec=0.0,
-    )
+    root = edge_files.root
     db.document("classes2/CLASS-1").set({"class_name": "11B2", "row_count": 2, "column_count": 2})
     db.document("sessions/s1").set({"class_id": "CLASS-1", "subject": "Toán", "status": "scheduled"})
+    assert edge_main.list_cameras(root) == {}  # chưa có camera nào: camera AI chưa chạy edge node nào
+
+    added = client.post("/api/admin/cameras", headers=admin, json={
+        "room_name": "P201",
+        "camera_name": "CAM-1",
+        "class_id": "CLASS-1",
+        "angle_type": "top_down",
+        "ip_address": "192.168.1.103",
+        "rtsp_port": "554",
+        "stream_path": "/cam/realmonitor?channel=1&subtype=0",
+        "username": "admin",
+        "password": "p@ss",
+    })
+    assert added.status_code == 201, added.get_json()
+    assert edge_main.list_cameras(root) == {"CAM-1": "top_down"}  # supervisor bật edge node cho camera
+
+    config = EdgeSettings.default().for_camera("CAM-1", "top_down")
+    opened, clock = [], [0.0]
+
+    def camera():  # như src/main.py camera_node: địa chỉ đọc lại trên web mỗi lần mở camera
+        opened.append(config.to_capture_config(camera_source(root, "CAM-1")).source)
+        return Camera()
+
+    runtime = edge_main.edge_runtime(
+        root, config, Classroom(), camera, now=lambda: NOW, monotonic=lambda: clock[0], poll_sec=0.0
+    )
+
+    def start():
+        return client.put("/api/admin/schedules/s1/status", json={"status": "running"}, headers=admin)
 
     def scenario():
-        yield
-        assert sink.flush()
-        cameras = client.get("/api/admin/cameras", headers=admin).get_json()["cameras"]
-        assert [(c["name"], c["declared"], c["edge"]["status"]) for c in cameras] == [("CAM-1", False, "unconfigured")]
-        added = client.post("/api/admin/cameras", headers=admin, json={
-            "room_name": "P201",
-            "camera_name": "CAM-1",
-            "class_id": "CLASS-1",
-            "ip_address": "192.168.1.103",
-            "rtsp_port": "554",
-            "stream_path": "/cam/realmonitor?channel=1&subtype=0",
-            "username": "admin",
-            "password": "p@ss",
-        })
-        assert added.status_code == 201, added.get_json()
-        clock[0] += UNCONFIGURED_CHECK_SEC
-        yield  # camera AI nhận lớp trên web và nghe các tiết của lớp đó
-        assert sink.flush()
-        started = client.put("/api/admin/schedules/s1/status", json={"status": "running"}, headers=admin)
-        assert started.status_code == 200, started.get_json()  # heartbeat có lớp: qua kiểm tra edge_offline
-        for _ in range(30):
+        yield  # heartbeat đầu tiên: idle
+        assert edge_files.read("edge_nodes/CAM-1.json")["status"] == "idle"
+        assert start().get_json()["code"] == "no_seat_regions"  # chưa vẽ ô ghế: camera AI không biết ai ngồi đâu
+        assert client.put("/api/admin/seat-regions/CAM-1", json=REGIONS, headers=admin).status_code == 200
+        started = start()
+        assert started.status_code == 200, started.get_json()  # heartbeat của camera: qua kiểm tra edge_offline
+        for _ in range(60):
+            clock[0] += 1.0  # run() đọc lại tiết của camera mỗi giây
             yield
-        assert sink.flush()
 
     steps = scenario()
-    runtime.run(sink.watch_sessions, lambda: next(steps, True) is True)
-    assert sink.flush()
+    runtime.run(edge_main.web_sessions(root, "CAM-1"), lambda: next(steps, True) is True)
     assert opened == ["rtsp://admin:p%40ss@192.168.1.103:554/cam/realmonitor?channel=1&subtype=0"]
-    result = db.docs["session_results/s1"]
+    result = edge_files.read("sessions/s1/result.json")
     assert (result["camera_id"], result["monitoring_status"]) == ("CAM-1", "incomplete")  # run() thoát giữa tiết
-    assert set(result["result_map"]) == {"S01", "S02"}
+    assert (result["result_map"]["S01"]["status"], result["result_map"]["S02"]["status"]) == ("drowsy", "focused")

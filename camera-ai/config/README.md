@@ -1,44 +1,40 @@
-# Local config schema
+# Camera AI settings
 
-Copy `local_pipeline.example.json` to a local file (for example `local_pipeline.json`; every JSON file here except the example is gitignored) and set `camera.camera_id`. The camera's class and RTSP URL are added on the web admin's camera page, so the example leaves `camera.class_id` and `camera.source_env` at `null`. Then start the edge node with `python -m src.main --config config/local_pipeline.json` (`docs/edge_node.md`, Connect the camera).
+Camera AI needs no file per camera. Each camera, with its class, address, angle and seats, is added on the web admin (`docs/edge_node.md`, Connect the camera). This folder holds the optional settings file that every camera on the machine shares.
 
-To keep them on the edge node instead, set `camera.class_id`, and put the source in the environment variable named by `camera.source_env`; the JSON never holds the source itself:
+## Settings file
 
-```powershell
-$env:CAMERA_ROOM_201_SOURCE = "rtsp://..."
-```
+Without `--settings`, camera AI uses the defaults in `src/config/local_schema.py` (`DEFAULT_SETTINGS`), which are the values in `settings.example.json`. To change them:
 
-Sections (`schema_version` 2):
+1. Copy the example to a local file, for example `settings.json`. Every JSON file here except the example is gitignored.
+2. Start camera AI with `python -m src.main --settings config/settings.json`.
 
-- `camera`: `camera_id` (for example `Camera 201`, also the name of the heartbeat document `edge_nodes/{camera_id}` and of the camera on the web admin), `class_id` (the `classes2` document of the class taught in this room, or `null` for the class set on the web admin), resolution, the **name** of the environment variable holding the camera source (or `null` for the URL entered on the web admin), and `angle_type` (`frontal` or `top_down`; back-turn detection runs only for `frontal`).
-- `seating.corner_seats`: pixel position, in the camera image, of the centre of the four corner seats, or `null` when an admin draws the seats on the web admin's camera page (see below).
-- `sampling`: capture FPS, and run pose inference on every n-th frame.
+Sections (`schema_version` 3):
+
+- `sampling`: the capture FPS, and how often pose inference runs: on every n-th frame. Use 1 on a GPU (`docs/edge_node.md`, GPU).
 - `thresholds`: pose and alert thresholds.
-- `schedule`: an IANA timezone and the weekday/time windows in which the camera may be opened. Outside them the edge node keeps the camera closed even if a session is running. The timezone is validated at load; on Windows this needs the `tzdata` package from `requirements.txt`.
-- `privacy`: a buffer of exactly one frame, no persistent output, and `retention_days`, which sets `expire_at` on every session document the edge node writes (Firestore TTL deletes them after that).
+- `schedule`: an IANA timezone, and the weekday and time windows in which a camera may be opened. Outside them, the edge node keeps the camera closed even if a session is running.
+  - The default is Monday to Saturday, 06:30 to 18:00. The web timetable has Saturday lessons, and its periods run from 07:00 to 17:25.
+  - The timezone is checked when the file loads. On Windows this needs the `tzdata` package from `requirements.txt`.
+- `privacy`: a buffer of exactly one frame, no persistent output, and `retention_days`. Camera AI deletes a session's data in `edge-data/sessions/` once it is older than that, at start and then daily.
 
-The schema rejects unknown keys such as `rtsp_url`, `student_id`, `name`, face models or embeddings, so that data cannot slip into the config by accident.
+The schema rejects unknown keys such as `camera`, `rtsp_url`, `student_id`, `name`, face models or embeddings, so that such data cannot slip in by accident. A per-camera config from before November 2026 (`schema_version` 2, with `camera` and `seating` sections) is refused with a hint to add the camera on the web admin instead.
 
 ## Seat positions
 
-Firestore only knows how many rows and columns the class has (`row_count`, `column_count` on `classes2/{class_id}`). Where each seat appears in the image depends on how the camera is mounted. When a session starts, the edge node takes the seat positions from:
+Firestore only knows how many rows and columns the class has (`row_count`, `column_count` on `classes2/{class_id}`). Where each seat appears in the image depends on how the camera is mounted, so an admin draws the seats on the web admin's camera page.
 
-1. **Seats drawn on the web admin** (`seat_regions/{camera_id}`), when an admin drew them for this config's `camera.class_id`. On the camera page, "Xác định chỗ ngồi" lets an admin drag one rectangle per seat over a snapshot of the camera. The snapshot is opened from the admin's own computer and stays in the browser: only the rectangles are saved, in pixels of the snapshot together with its size. The edge node scales them if its frames have another resolution, and counts a person for a seat only when their shoulder midpoint is inside that seat's rectangle. Seats without a rectangle are not tracked. The web camera's name must be this config's `camera.camera_id`.
-2. **The four corner seats** below, otherwise.
+When a session starts, the web admin copies the seats drawn for the camera's class (`seat_regions/{camera_id}`) into the session it gives the camera (`edge-data/camera_sessions/{camera_id}.json`), and refuses to start a lesson until they are drawn. A running session keeps those seats even if they are redrawn.
 
-Take the snapshot when the classroom is empty, from the same stream and angle the edge node uses (for example VLC: open the RTSP stream, then Video → Take Snapshot), and draw each rectangle around where a seated student's shoulders and upper body appear. Redraw whenever the camera moves.
+1. On the camera page, open "Xác định chỗ ngồi" on the camera's row.
+2. Drag one rectangle per seat over a snapshot of the camera. The snapshot stays in the admin's browser: only the rectangles are saved, in pixels of the snapshot, together with its size.
 
-## Corner seats
+How the edge node uses the rectangles:
 
-Without drawn seats, give the image position of the four corner seats, at shoulder height of a seated student, keyed by their row and column labels in the class seating plan:
+- It scales them if its frames have another resolution.
+- It counts a person for a seat only when the midpoint of their shoulders is inside that seat's rectangle.
+- It does not track seats without a rectangle.
 
-| Key | Seat |
-|---|---|
-| `first_row_first_column` | row 1, column 1 |
-| `first_row_last_column` | row 1, last column |
-| `last_row_last_column` | last row, last column |
-| `last_row_first_column` | last row, column 1 |
+Take the snapshot when the classroom is empty, from the same stream and angle camera AI uses. Use "Lấy ảnh từ camera" when the backend has `CAMERA_SNAPSHOT=1`, or VLC: open the RTSP stream, then Video, Take Snapshot. Draw each rectangle around where a seated student's shoulders and upper body appear. Redraw whenever the camera moves.
 
-The edge node maps every other seat through a perspective transform of this quadrilateral, so seats farther from the camera sit closer together, as they do in the image. The four points must form a convex quadrilateral in this order, otherwise the session's seat layout is rejected and the heartbeat reports `unavailable`.
-
-To find the points, mount the camera as it will stay, have someone sit in each corner seat during setup, and read their shoulder midpoint from the anonymized preview of `tests/demo_camera_ai.py` (nothing is saved unless `--allow-persistent-output` is passed). Recalibrate whenever the camera moves.
+The edge node no longer uses the four-corner-seat layout (`seating.corner_seats` in `LocalPipelineConfig.from_dict`, `src/seating/seat_layout.py`); only its own tests do.

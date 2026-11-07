@@ -6,9 +6,8 @@ numpy==2.5.2
 # and opencv-python-headless all ship the same cv2 module and overwrite each
 # other. No contrib module is used. CI uses opencv-python-headless.
 opencv-python==4.11.0.86
-# Pulls torch/torchvision; install a CUDA build of torch first if you need GPU.
+# Pulls torch/torchvision (CPU build); for an NVIDIA GPU install the CUDA build, see docs/edge_node.md "GPU".
 ultralytics==8.4.150
-firebase-admin==6.5.0
 python-dotenv==1.0.1
 # IANA timezone data for zoneinfo (schedule.timezone); Windows has no system tz database.
 tzdata==2026.5

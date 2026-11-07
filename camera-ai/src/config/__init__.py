@@ -1,23 +1,23 @@
 """Schema config cuc bo va so do ghe cua lop cho pipeline camera an danh."""
 
-from .class_layout import (
-    CLASS_COLLECTION,
-    ClassLayoutError,
-    load_camera_class,
-    load_camera_setting,
-    load_class_seat_grid,
-    seat_id,
+from .class_layout import ClassLayoutError, seat_id, session_seat_grid
+from .local_schema import (
+    CAMERA_ANGLE_TYPES,
+    SCHEMA_VERSION,
+    SETTINGS_VERSION,
+    EdgeSettings,
+    LocalConfigError,
+    LocalPipelineConfig,
 )
-from .local_schema import LocalConfigError, LocalPipelineConfig, SCHEMA_VERSION
 
 __all__ = [
-    "CLASS_COLLECTION",
+    "CAMERA_ANGLE_TYPES",
     "ClassLayoutError",
+    "EdgeSettings",
     "LocalConfigError",
     "LocalPipelineConfig",
     "SCHEMA_VERSION",
-    "load_camera_class",
-    "load_camera_setting",
-    "load_class_seat_grid",
+    "SETTINGS_VERSION",
     "seat_id",
+    "session_seat_grid",
 ]

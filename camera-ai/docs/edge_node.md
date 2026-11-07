@@ -1,51 +1,89 @@
 # Edge Node
 
-One edge node serves one camera, in the room of one class. It waits for a monitoring session of that class in Firestore and processes the camera only while that session is running and inside the configured schedule. It writes live seat states, per-seat evaluations, alerts and a heartbeat, all on the team's Firestore schema. This page covers running it and its side of the Firestore contract. Paths and delivery guarantees are in `src/sync/README.md`; the contract with the web admin and the app, including what they still have to build, is in `docs/web_admin_integration.md`.
+Camera AI runs once on the machine that also runs the web admin, and keeps one edge node for each camera added on the web admin's camera page. Each edge node serves one camera, in the room of one class. It waits until the web admin gives its camera a monitoring session, and processes the camera only while that session is running and inside the schedule. It writes live seat states, per-seat evaluations, posture windows, alerts and a heartbeat.
+
+Camera AI and the web admin exchange all of this as JSON files in `edge-data/` on that machine, not through Firestore. Camera AI needs no Firebase account, and its writes every 10 s cost nothing against the Firebase project's daily quota. Only the web backend talks to Firestore.
+
+This page covers running camera AI and its side of the contract with the web admin. File layout and write guarantees are in `src/sync/README.md`. The whole contract, including what the web admin and the app still have to build, is in `docs/web_admin_integration.md`.
 
 ## Run
 
 From `camera-ai/`:
 
 ```powershell
-$env:GOOGLE_APPLICATION_CREDENTIALS = "C:/secrets/edge-room-201.json"  # service account key, kept outside the repo
-python -m src.main --config config/local_pipeline.json
+python -m src.main
 ```
 
-The variable can also go in a `.env` file (gitignored) in `camera-ai/` or at the repository root; variables already set in the shell take precedence. The camera and its class are added on the web admin ([Connect the camera](#connect-the-camera)).
+Start camera AI once, for example when the machine starts, from the same checkout as the web backend: both find `edge-data/` at the repository root. It needs no file per camera: cameras are added on the web admin ([Connect the camera](#connect-the-camera)).
+
+Every 30 s it reads the cameras the web admin saved in `edge-data/cameras/`. It keeps one edge node per camera, each on a thread named after the camera, which appears in every log line. All edge nodes share one pose model.
+
+| Change on the web admin | Camera AI |
+|---|---|
+| A camera is added | Its edge node starts within 30 s. |
+| A camera is deleted | Its edge node stops, and a running session is closed as `incomplete`. |
+| A camera's angle changes | Its edge node restarts. The web admin refuses the change while the class has a session. |
+
+An edge node that stops on an error starts again at the next check. At start and then once a day, camera AI also deletes the data of sessions older than `privacy.retention_days`.
 
 | Option | Meaning |
 |---|---|
-| `--config` | Local config, see `config/README.md`. Required. |
+| `--settings FILE` | Settings shared by every camera: sampling, thresholds, schedule and retention. See `config/README.md`. Without it, the values in `config/settings.example.json` apply. |
 | `--model` | YOLOv8-pose weights. Default `models/yolov8n-pose.pt`. |
-| `--check-camera [SECONDS]` | Only read the camera for 5 s (or `SECONDS`), print its resolution and frame rate, then exit. See [Connect the camera](#connect-the-camera). |
-| `--video FILE` | Use a video file instead of the camera. See [Test with a video](#test-with-a-video-instead-of-the-camera). |
+| `--camera NAME` | Run only this camera of the web admin, for example in a test. |
+| `--check-camera [SECONDS]` | Only read every camera for 5 s (or `SECONDS`), print each one's resolution and frame rate, then exit. See [Connect the camera](#connect-the-camera). |
+| `--video FILE` | Use a video file instead of the cameras' streams. See [Test with a video](#test-with-a-video-instead-of-the-camera). |
 
-Exit code 2 means the config is invalid, the camera source variable it names is unset, or the `--video` file does not exist. Exit code 1 means credentials or the model are missing, or, with `--check-camera`, that the camera has not been added on the web admin, could not be opened or sent no frame. Ctrl+C or SIGTERM closes a running session as `incomplete` and marks the heartbeat offline.
+Exit codes:
+
+- **2:** the settings file is invalid, or the `--video` file does not exist.
+- **1:** the model is missing. With `--check-camera`, it also means the web admin has no camera, or a camera could not be opened or sent no frame.
+
+Ctrl+C or SIGTERM closes running sessions as `incomplete` and marks the heartbeats offline.
+
+### GPU
+
+On a machine with an NVIDIA GPU, install the CUDA build of PyTorch in the venv. Pick a CUDA version the driver supports; the header of `nvidia-smi` shows it.
+
+```powershell
+pip install torch==2.14.0+cu130 torchvision==0.29.0+cu130 --index-url https://download.pytorch.org/whl/cu130
+```
+
+The edge node then runs pose inference on the GPU without any setting, and logs the device when the model loads: `Da nap YOLOv8-pose tu '...' tren GPU NVIDIA GeForce RTX 3050 Laptop GPU`. To force the CPU, set `CUDA_VISIBLE_DEVICES=-1`.
+
+Measured on 1 November on the RTX 3050 Laptop GPU (4 GB), with the default settings (1280x720 frames, `image_size` 960, two tiles of 960):
+
+- **Speed:** 43 ms a frame, against 184–357 ms on the laptop's CPU.
+- **Detections:** the same people and confidences as on the CPU.
+- **Memory:** about 170 MB of GPU memory for the one model all cameras share.
+- **Capacity:** the GPU keeps up with every frame of a 10 fps camera, so a `--settings` file can set `sampling.inference_every_n_frames` to 1. The cameras take turns on the model: about four cameras at 5 inferences a second, or two at 10.
+
+The edge node stays in FP32. Half precision (FP16) was no faster on this model and missed a person at confidence 0.53.
 
 ## Connect the camera
 
-### On the web admin
-
-Leave `camera.class_id` and `camera.source_env` at `null` in the local config, as in `config/local_pipeline.example.json`, and set `camera.camera_id`. Start the edge node: it shows up on the web admin's camera page as "Chờ thêm camera trên web" (heartbeat status `unconfigured`). Press "Thêm" on that row, or "Thêm camera" with the same camera name, and fill in:
+Everything is set on the web admin's camera page. Press "Thêm camera" and fill in:
 
 | Field | Value |
 |---|---|
 | Phòng học | An existing room, or the name of a new one. |
-| Tên camera | The edge node's `camera.camera_id`. |
+| Tên camera | Any name that can be a file name: none of `\ / : * ? " < >` or a vertical bar. It becomes the camera's ID and the name of its files in `edge-data/`, and cannot be changed later. |
 | Lớp theo dõi | The class whose sessions the camera monitors. A class has at most one camera. |
+| Góc đặt camera | "Phía trước lớp" (`frontal`): in front of the class, facing the students. Only this angle can raise back-turn alerts. "Từ trên cao" (`top_down`): looking down from above. |
 | Hãng camera, Địa chỉ IP, RTSP Port, Đường dẫn luồng | The camera's address. The brand fills in the stream path from the table below. |
 | Tài khoản camera, Mật khẩu camera | The camera's own account. |
 
-The web backend stores the camera's room and name in `cameras/{camera_id}`, and percent-encodes the account into an RTSP URL in `camera_configs/{camera_id}`. Rules deny `camera_configs` to every client, admins included, and the API never returns the URL; only the edge node reads it. The class gets `classes2/{class_id}.camera_id`, and the edge node finds its class with a query on that field which asks for nothing else.
+Where the web backend stores it:
 
-The edge node picks a new camera up within 15 s and a class change within a minute, always between sessions: a running session keeps its class. It reads the URL again each time it opens the camera, so a changed address or password applies from the next session. To change them, right-click the camera on the web admin and choose "Chỉnh sửa thông tin".
+- **Firestore `cameras/{camera_id}`:** the camera's room, name and angle, for the web admin and the app.
+- **`edge-data/cameras/{camera_id}.json`:** the angle, and the account percent-encoded into an RTSP URL. It never goes to Firestore, and the API never returns it. Logs and error messages hide everything between `://` and the last `@`.
+- **Firestore `classes2/{class_id}.camera_id`:** the class's camera. When a session of the class starts, the web admin gives it to this camera.
 
-### On the edge node
+Camera AI starts the camera's edge node within 30 s. Then draw the seats: "Xác định chỗ ngồi" on the camera's row (`config/README.md`, Seat positions). The web admin refuses to start a lesson of the class until they are drawn.
 
-A field set in the local config takes precedence over the web admin. `camera.class_id` fixes the class. `camera.source_env` names an environment variable that holds the source:
+The edge node reads the URL each time it opens the camera, so a changed address or password applies from the next session. A changed class applies from the next session that starts. To change them, right-click the camera on the web admin and choose "Chỉnh sửa thông tin".
 
-- USB webcam: its index, `0` for the first one. `camera.width` and `camera.height` set its resolution.
-- IP camera: its RTSP URL, `rtsp://user:password@192.168.1.64:554/<path>`. Percent-encode `@`, `:`, `/` and `#` in the password (`@` becomes `%40`), otherwise the URL breaks; the web admin does this itself. Logs and error messages hide everything between `://` and the last `@` either way.
+Cameras added before 4 November 2026 kept their URL in Firestore (`camera_configs`). Camera AI no longer reads it: open "Chỉnh sửa thông tin" once and save, without retyping the account. The web admin then moves the URL to `edge-data/` and deletes it from Firestore.
 
 ### Stream paths
 
@@ -62,40 +100,39 @@ For other brands, see the camera's manual, or run ONVIF Device Manager (free, Wi
 Before the first session:
 
 ```powershell
-python -m src.main --config config/local_pipeline.json --check-camera
-# Camera rtsp://***@192.168.1.64:554/Streaming/Channels/101: 1280x720, 10.0 fps trong 5s (capture_fps 10).
+python -m src.main --check-camera
+# Camera 201 (rtsp://***@192.168.1.64:554/Streaming/Channels/101): 1280x720, 10.0 fps trong 5s (capture_fps 10).
 ```
 
-The check opens the camera the way a session does, without the model, and keeps frames in memory only, wiping each one. It needs `GOOGLE_APPLICATION_CREDENTIALS` only when the URL comes from the web admin. It is a manual installation step: the running edge node still opens the camera only during a session. To look at the image, open the same URL in VLC (Media, Open Network Stream); that is also where to take the snapshot for drawing seats (`config/README.md`).
+The check opens every camera on the web admin the way a session does, or only one with `--camera NAME`. It runs without the model, and keeps frames in memory only, wiping each one. It is a manual installation step: the running edge nodes still open their cameras only during a session.
 
-- An IP camera sends the resolution set in its own settings: `camera.width`/`height` cannot change it, and the edge node logs a warning when they differ. Give the stream it reads about 1280x720, in the camera's settings or by choosing the sub stream if that one is at least 720p. The pixel thresholds assume about that size, and 2K or 4K frames make pose inference several times slower.
+- **Resolution:** an IP camera sends the resolution set in its own settings. Give the stream it reads about 1280x720, in the camera's settings or by choosing the sub stream if that one is at least 720p. The pixel thresholds assume about that size, and 2K or 4K frames make pose inference several times slower.
 - A network stream is read at the camera's own frame rate and only the newest frame is kept at `sampling.capture_fps`, so frames do not queue up in the stream buffers and lag behind.
 - A network camera that does not answer fails after 10 s, when opening or reading. The heartbeat then reports `unavailable` and the edge node retries every 10 s.
 
-How each config section is used:
+The camera, its class, address, angle and seats come from the web admin. The settings shared by every camera have defaults, and a `--settings` file can change them (`config/README.md`):
 
 | Section | Effect |
 |---|---|
-| `camera` | `camera_id` names the heartbeat document and the camera on the web admin, and is written into results. `class_id` selects the sessions to follow and the seat plan to load, and the camera source is read from the environment variable named in `source_env`; either one `null` comes from the web admin. `angle_type` enables back-turn detection for `frontal` cameras only. |
-| `seating` | Image position of the four corner seats, from which every seat's position is derived, or `null` when the seats are drawn on the web admin (`seat_regions/{camera_id}`, which take precedence; `config/README.md`). |
 | `sampling` | Capture FPS. Pose inference runs on every n-th frame; the other frames are wiped without processing. |
 | `thresholds` | Pose detector settings, side-conversation and back-turn detectors. |
-| `schedule` | The camera opens only inside these local-time windows, even while a session is running. |
-| `privacy` | One-frame buffer, no persistent output, `retention_days` for `expire_at`. |
+| `schedule` | The cameras open only inside these local-time windows, even while a session is running. Default: Monday to Saturday, 06:30 to 18:00. |
+| `privacy` | One-frame buffer, no persistent output, `retention_days` for session data in `edge-data/`. |
 
 ## Test with a video instead of the camera
 
 `--video` replaces the camera with a video file, to test recognition when the camera is out of reach:
 
 ```powershell
-python -m src.main --config config/local_pipeline.json --video D:/videos/lesson.mp4 --check-camera  # opens the file only
-python -m src.main --config config/local_pipeline.json --video D:/videos/lesson.mp4
+python -m src.main --video D:/videos/lesson.mp4 --camera "Camera 201" --check-camera  # opens the file only
+python -m src.main --video D:/videos/lesson.mp4 --camera "Camera 201"
 ```
 
-- The rest works as in a real lesson. The edge node follows the class's sessions and writes the same documents. It reads the video only while a session is running inside `schedule`; to test outside those hours, widen `schedule` in a test config. The camera source in the config or on the web admin is not used.
-- The video plays in real time, like a camera. Frames that pass while the edge node is busy are skipped, so posture durations and alerts keep their real timing. At the end, the video starts again from the beginning. People jump at that point, so use a video longer than the test.
-- The seats must match the video. One way is to take a snapshot of the video in VLC (Video, Take Snapshot) and draw the seats over it in "Xác định chỗ ngồi" on the web admin. The other is to set `seating.corner_seats` from that snapshot.
-- Results from a video are stored like those of a real lesson. Use a test session, and delete it on the web admin afterwards; this also deletes its edge documents.
+- **The camera must exist on the web admin.** Its class and seats come from there, and only its stream is replaced. Without `--camera`, every camera plays the video.
+- **The rest works as in a real lesson.** The edge node follows the sessions the web admin gives its camera and writes the same files. It reads the video only while a session is running inside `schedule`; to test outside those hours, pass a `--settings` file with a wider `schedule`.
+- **The video plays in real time,** like a camera. Frames that pass while the edge node is busy are skipped, so posture durations and alerts keep their real timing. At the end, the video starts again from the beginning. People jump at that point, so use a video longer than the test.
+- **The seats must match the video.** Take a snapshot of the video in VLC (Video, Take Snapshot) and draw the seats over it in "Xác định chỗ ngồi" on the web admin.
+- Results from a video are stored like those of a real lesson. Use a test session, and delete it on the web admin afterwards; this also deletes its files in `edge-data/`.
 - A recording of a real class is personal data. Use one made with consent, keep it outside the repository, and delete it after testing.
 
 To test without Firebase or a camera, run the offline demo: `camera-ai/venv/Scripts/python backend/tests/demo_server.py --video lesson.mp4`, from the repository root.
@@ -103,29 +140,26 @@ To test without Firebase or a camera, run the offline demo: `camera-ai/venv/Scri
 - YOLO runs on the video instead of the simulated poses.
 - The demo's CAM-1 plays the video, so "Lấy ảnh từ camera" in "Xác định chỗ ngồi" returns a frame of it. Draw the seats over that frame before starting the 11B2 lesson.
 
-## Session control (written by the web admin or app)
+## Session control (written by the web admin)
 
-The edge node listens to the top-level `sessions` collection, filtered on `class_id` equal to its class (`camera.class_id`, or the class set for the camera on the web admin):
+When an admin starts a session, the web admin gives it to the class's camera in `edge-data/camera_sessions/{camera_id}.json`, and updates `status` there at every change. The edge node reads the file again every second.
 
 | `status` | Edge node |
 |---|---|
 | `scheduled` | Ignored. |
-| `running` | Starts the session if none is running: loads the class seat plan, then opens the camera inside the schedule. |
+| `running` | Starts the session if none is running: builds the seat plan from the file, then opens the camera inside the schedule. |
 | `paused` | Closes the camera and pauses alerts. Going back to `running` reopens it, and behaviour episodes start over. |
 | `completed` | Closes the camera, writes the final evaluations and sets `monitoring_status` to `completed`. |
-| `cancelled`, document deleted, or any other value | Closes the camera and sets `monitoring_status` to `incomplete`. |
+| Any other value, or another session given to the camera | Closes the camera and sets `monitoring_status` to `incomplete`. |
 
-The web admin sets these values (`backend/routes/session_routes.py`); the older `live` still counts as `running` and `ended` as `completed`.
+The older `live` still counts as `running` and `ended` as `completed`.
 
-The edge node reads only `class_id` and `status`; `started_at` and `ended_at` are ignored, and the `schedule` windows bound when the camera may open.
+- The file holds one session per camera, so a camera never runs two sessions. Session IDs must match `[A-Za-z0-9_-]{1,64}`; Firestore auto-IDs do.
+- The seat plan comes with the session and is fixed for the whole session: `row_count`/`column_count` of the class and the rectangles drawn for this class on the camera page (`seat_regions`), copied when the session starts. The class's `seat_map`, which maps seats to students, never reaches the edge node. Seats are numbered `S01`, `S02`, ... row by row, the same keys the web admin writes in `seat_map`. Rectangles are in pixels of a snapshot and scaled to the stream's resolution. A person counts for a seat only inside its rectangle, and seats without one are not tracked. If the plan cannot be used (more than 50 rows or columns, no usable rectangle), the heartbeat reports `unavailable` and the edge node retries every 10 s.
 
-- Keep at most one `running` or `paused` session per class. If there are several, the edge node takes the one with the smallest ID.
-- Session IDs must match `[A-Za-z0-9_-]{1,64}`. Firestore auto-IDs do.
-- The seat plan is loaded when the session starts and fixed for the whole session: only `row_count`/`column_count` from `classes2/{class_id}` (a field projection: the class's `seat_map`, which maps seats to students, is never read). Seats are numbered `S01`, `S02`, ... row by row, the same keys the web admin writes in `seat_map`. Seat positions come from `seat_regions/{camera_id}` when an admin drew them for this class on the web admin's camera page (rectangles in pixels of a snapshot, scaled to the stream's resolution; a person counts for a seat only inside its rectangle, and seats without one are not tracked), otherwise from the corner seats. If the plan cannot be loaded (missing class, more than 50 rows or columns, corner seats not forming a convex quadrilateral, no usable drawn seat and no corner seats, Firestore unreachable), the heartbeat reports `unavailable` and the edge node retries every 10 s.
+## Live seat states: `sessions/{session_id}/result.json`
 
-## Live seat states: `session_results/{session_id}`
-
-Written when the session starts, then every 10 s of monitored time, and once more when it stops. Fields: `session_id`, `camera_id`, `captured_at`, `monitoring_status`, `result_map`, `expire_at`. `result_map` holds one entry per seat seen so far:
+Written when the session starts, then every 10 s of monitored time, and once more when it stops. Fields: `session_id`, `camera_id`, `captured_at`, `monitoring_status`, `result_map`. `result_map` holds one entry per seat seen so far:
 
 | Field | Meaning |
 |---|---|
@@ -137,20 +171,20 @@ Written when the session starts, then every 10 s of monitored time, and once mor
 |---|---|
 | `running` | Written while the session runs. |
 | `completed` | The session was set to `completed`. |
-| `incomplete` | The session stopped without being ended (cancelled, document deleted, edge node shut down), or the edge node restarted during it and the scores cover only the part after the restart (UC04 alternate flow). A result still `running` after the session ended means the edge node died; treat it as incomplete. |
+| `incomplete` | The session stopped without being ended (cancelled, deleted, replaced, edge node shut down), or the edge node restarted during it and the scores cover only the part after the restart (UC04 alternate flow). A result still `running` after the session ended means the edge node died; treat it as incomplete. |
 
-## Per-seat evaluations: `session_evaluations/{session_id}_{seat_id}`
+## Per-seat evaluations: `sessions/{session_id}/evaluations.json`
 
-Written every 5 minutes of monitored time and when the session stops, one document per seat seen. Fields: `session_id`, `seat_id`, `captured_at`, `concentration` (last 60 s), `avg_concentration` (whole session), `distraction` (alerts of any type for this seat), `observed_sec` (time the seat was seen), `expire_at`.
+Written every 5 minutes of monitored time and when the session stops, one entry per seat seen, keyed by seat ID. Fields: `session_id`, `seat_id`, `captured_at`, `concentration` (last 60 s), `avg_concentration` (whole session), `distraction` (alerts of any type for this seat), `observed_sec` (time the seat was seen).
 
 - Use `observed_sec` to drop seats where someone only walked past, and to weight class averages.
-- For reports and exports (UC03, UC11), map `seat_id` to students through `sessions/{session_id}/monitored_students`, the seating the web admin freezes when the session starts (`docs/web_admin_integration.md`).
+- For reports and exports (UC03, UC11), map `seat_id` to students through `sessions/{session_id}/monitored_students` in Firestore, the seating the web admin freezes when the session starts (`docs/web_admin_integration.md`).
 
-## Posture windows: `session_windows/{session_id}_{run}_{seq}`
+## Posture windows: `sessions/{session_id}/windows.jsonl`
 
-Written with every `session_results` update (every 10 s of monitored time) and once more when the session stops. The web backend's scoring worker reads them (`docs/backend_scoring_and_schema_proposal.md`, Part 1). No client reads them.
+One line per window: with every result update (every 10 s of monitored time) and once more when the session stops. The web backend's scoring worker reads them (`docs/backend_scoring_and_schema_proposal.md`, Part 1).
 
-Fields: `session_id`, `camera_id`, `run`, `seq`, `start_sec`, `end_sec` (monitored seconds of this run), `captured_at`, `monitoring_status` (`running`; the last window says `completed` or `incomplete`), `seats`, `expire_at`.
+Fields: `session_id`, `camera_id`, `run`, `seq`, `start_sec`, `end_sec` (monitored seconds of this run), `captured_at`, `monitoring_status` (`running`; the last window says `completed` or `incomplete`), `seats`.
 
 - `run` is 8 random hex characters, new each time the edge node starts or resumes the session; the session clock restarts at 0 in each run.
 - `seq` counts the run's windows from 0.
@@ -165,36 +199,33 @@ Fields: `session_id`, `camera_id`, `run`, `seq`, `start_sec`, `end_sec` (monitor
 | `last_behaviour_sec` | Monitored second of the last back turn or side conversation in the window, or null. |
 | `alerts` | Alerts of this seat that started in the window, per type; types with none are left out. |
 
-## Alerts: `sessions/{session_id}/alerts/{id}`
+## Alerts: `sessions/{session_id}/alerts.jsonl`
 
-Fields: `session_id`, `seat_id`, `type` (`head_drop`, `back_turn`, `side_conversation`), `start_sec`, `duration_sec`, `expire_at`. The web admin or the teacher adds `status` (`acknowledged` or `dismissed`), `handled_by` and `handled_at`; an alert without `status` is new.
+One line per alert. Fields: `id` (random, set once), `session_id`, `seat_id`, `type` (`head_drop`, `back_turn`, `side_conversation`), `start_sec`, `duration_sec`. When an admin handles an alert, the web admin records `status` (`acknowledged` or `dismissed`), `handled_by` and `handled_at` under its `id` in `handled_alerts.json`; an alert without `status` is new.
 
-## Heartbeat: `edge_nodes/{camera_id}`
+## Heartbeat: `edge_nodes/{camera_id}.json`
 
-Written every 10 s and on every status change. Fields: `class_id`, `online`, `status`, `session_id`, `fps` (inferred frames per second), `camera_ok`, `last_frame_at`, `updated_at`.
+Written every 10 s and on every status change. Fields: `online`, `status`, `session_id`, `fps` (inferred frames per second), `camera_ok`, `last_frame_at`, `updated_at`.
 
 | `status` | Meaning |
 |---|---|
 | `idle` | No running session. |
 | `monitoring` | Session running, frames arriving. |
 | `paused` | Session paused, camera closed. |
-| `unavailable` | Session running, but the camera sent no frame for 5 s or could not be opened (retried every 10 s), or the seat plan could not be loaded. Show "temporarily unavailable" (UC02). |
+| `unavailable` | Session running, but the camera sent no frame for 5 s or could not be opened (retried every 10 s), or the seat plan could not be used. Show "temporarily unavailable" (UC02). |
 | `outside_schedule` | Session running outside the schedule windows. The camera stays closed. |
-| `unconfigured` | The local config leaves the class to the web admin, and the camera has not been added there yet. `class_id` is null. |
 
-- Treat the node as offline when `online` is false or `updated_at` is more than 30 s old. Timestamps come from the edge clock in UTC, so keep NTP enabled on edge nodes.
+- Treat the node as offline when `online` is false or `updated_at` is more than 30 s old.
 - `camera_ok` is null until the camera has been opened once. The edge node never opens the camera outside a session just to test it, so before a session `camera_ok` reflects the previous one.
-- UC04 step 3 (check before starting): the class has a seat plan, and the heartbeat is online and recent.
+- UC04 step 3 (check before starting): the class has a seat plan and drawn seats, and its camera's heartbeat is online and recent.
 
 ## Timing
 
-`captured_at`, `expire_at` and the heartbeat's timestamps are UTC wall-clock times from the edge clock. Results and evaluations are paced by monitored time, so a pause writes nothing. `start_sec` (alerts) counts seconds of monitored time since the session started; a pause or a camera outage advances that clock by at most 5 s, so it is not wall-clock time since the start. Alert times are rounded to 0.1 s.
+`captured_at` and the heartbeat's timestamps are UTC wall-clock times. Results and evaluations are paced by monitored time, so a pause writes nothing. `start_sec` (alerts) counts seconds of monitored time since the session started; a pause or a camera outage advances that clock by at most 5 s, so it is not wall-clock time since the start. Alert times are rounded to 0.1 s.
 
 ## Known limits
 
-- The Firestore listener dies when the network drops (a reconnect recursion in `google-api-core`). The edge node subscribes again once its Firestore writes succeed. Until then it keeps the last session state it saw, so a session ended during an outage is closed only after reconnection. The schedule still bounds when the camera can be open.
+- Camera AI sees only what the web backend writes. A session started, paused or ended in the Firebase console or directly by the app never reaches it; the app must call the web API.
 - Opening a network camera that does not answer blocks the loop for up to 10 s, so the heartbeat can be up to about 20 s old meanwhile (the web admin treats 30 s as offline).
-- One camera per class: `session_results` uses the session ID as its document ID. The web admin refuses a second camera for a class.
-- The class set on the web admin is read again every minute while no session runs (every 15 s until the camera is added), about 1,500 reads a day per edge node.
-- With per-node custom tokens (option B in `docs/firestore_security_review.md`) the class is a token claim: mint the token again after changing a camera's class on the web admin.
+- One camera per class: the web admin refuses a second camera for a class.
 - Alert push notifications (FCM, UC09) are not built.

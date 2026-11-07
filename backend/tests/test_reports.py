@@ -1,12 +1,13 @@
 """Job báo cáo phụ huynh (jobs/parent_reports.py), xóa tiết cùng dữ liệu camera AI, và đánh dấu tiết bị
 gián đoạn trong báo cáo lớp."""
 
+import json
 from datetime import datetime, timedelta, timezone
 
 import pytest
 
 from jobs import parent_reports
-from services import monitoring_service, report_service
+from services import edge_store, monitoring_service, report_service
 
 NOW = datetime(2026, 10, 5, 2, 0, tzinfo=timezone.utc)
 
@@ -36,11 +37,13 @@ def finished_session(db, session_id, *, monitoring_status="completed", ended_ago
         )
     if monitoring_status is None:
         return  # camera AI không giám sát tiết này
-    db.document(f"session_results/{session_id}").set(
-        {"session_id": session_id, "camera_id": "CAM-1", "captured_at": NOW, "monitoring_status": monitoring_status}
+    edge_store.write_session_file(
+        session_id,
+        "result.json",
+        {"session_id": session_id, "camera_id": "CAM-1", "captured_at": NOW, "monitoring_status": monitoring_status},
     )
-    for seat, score, observed in (("S01", 90, 2400), ("S02", 55, 40), ("S03", 70, 1800)):
-        db.document(f"session_evaluations/{session_id}_{seat}").set({
+    evaluations = {
+        seat: {
             "session_id": session_id,
             "seat_id": seat,
             "captured_at": NOW,
@@ -48,10 +51,14 @@ def finished_session(db, session_id, *, monitoring_status="completed", ended_ago
             "avg_concentration": score,
             "distraction": 2 if seat == "S01" else 0,
             "observed_sec": observed,
-        })
-    for index in range(2):  # An cúi đầu 2 lần
-        alert = {"session_id": session_id, "seat_id": "S01", "type": "head_drop", "start_sec": 60.0 * index}
-        db.document(f"sessions/{session_id}/alerts/{session_id}-a{index}").set({**alert, "duration_sec": 6.0})
+        }
+        for seat, score, observed in (("S01", 90, 2400), ("S02", 55, 40), ("S03", 70, 1800))
+    }
+    edge_store.write_session_file(session_id, "evaluations.json", evaluations)
+    with (edge_store.ROOT / "sessions" / session_id / "alerts.jsonl").open("a", encoding="utf-8") as alerts:
+        for index in range(2):  # An cúi đầu 2 lần
+            alert = {"id": f"a{index}", "session_id": session_id, "seat_id": "S01", "type": "head_drop"}
+            alerts.write(json.dumps({**alert, "start_sec": 60.0 * index, "duration_sec": 6.0}) + "\n")
 
 
 @pytest.fixture
@@ -88,12 +95,14 @@ def test_the_job_writes_one_report_per_student_with_data_and_only_once(school, c
     assert session["report_count"] == 1 and isinstance(session["reports_at"], datetime)
     assert school.docs["sessions/s1/monitored_students/S02"]["student_id"] == "binh"
 
-    school.document("session_evaluations/s1_S01").update({"avg_concentration": 10})
+    evaluations = edge_store.session_file("s1", "evaluations.json")
+    evaluations["S01"]["avg_concentration"] = 10
+    edge_store.write_session_file("s1", "evaluations.json", evaluations)
     assert report_service.build_pending_reports() == {}  # đã có báo cáo: không tạo lại
     assert school.docs["students2/an/reports/s1"]["avg_concentration"] == 90
 
 
-def test_the_job_ends_sessions_left_running_30_minutes_past_their_timetable_end(school, capsys):
+def test_the_job_ends_sessions_left_running_30_minutes_past_their_timetable_end(school, capsys, edge_files):
     # NOW là 09:00 giờ Việt Nam ngày 2026-10-05
     for session_id, date, end, status in (
         ("forgot", "2026-10-05", "08:25", "running"),  # quá 35 phút: camera đang quay lớp sau giờ học
@@ -104,11 +113,14 @@ def test_the_job_ends_sessions_left_running_30_minutes_past_their_timetable_end(
         school.document(f"sessions/{session_id}").set(
             {"class_id": "c1", "status": status, "end_time": end, **({"session_date": date} if date else {})}
         )
+    school.document("sessions/forgot").update({"camera_id": "CAM-1"})
+    edge_files.write("camera_sessions/CAM-1.json", {"session_id": "forgot", "status": "running"})
     parent_reports.main([])
     assert "Đã tự kết thúc 2 tiết" in capsys.readouterr().out
     statuses = {sid: school.docs[f"sessions/{sid}"]["status"] for sid in ("forgot", "yesterday", "grace", "undated")}
     assert statuses == {"forgot": "completed", "yesterday": "completed", "grace": "running", "undated": "running"}
     assert isinstance(school.docs["sessions/forgot"]["ended_at"], datetime)
+    assert edge_files.read("camera_sessions/CAM-1.json")["status"] == "completed"  # camera AI tắt camera
 
 
 def test_interrupted_sessions_are_marked_partial_and_unfinished_results_are_waited_for(school):
@@ -158,21 +170,22 @@ def test_class_report_lists_each_session_with_its_data_status(client, school, ad
 
 
 def owned(path, session_id):
-    """Document thuộc về tiết: sessions/{s} và cảnh báo, kết quả, đánh giá, roster, báo cáo của nó."""
-    return (
-        path.rsplit("/", 1)[-1] == session_id
-        or f"/{session_id}/" in path
-        or path.startswith(f"session_evaluations/{session_id}_")
-    )
+    """Document thuộc về tiết: sessions/{s} và roster, báo cáo của nó."""
+    return path.rsplit("/", 1)[-1] == session_id or f"/{session_id}/" in path
 
 
-def test_deleting_a_session_removes_everything_it_owns(client, school, admin):
+def test_deleting_a_session_removes_everything_it_owns(client, school, admin, edge_files):
     finished_session(school, "s1")
     finished_session(school, "s2")
     report_service.build_pending_reports()
     school.document("sessions/live").set({"class_id": "c1", "status": "paused"})
-    # tiết, 2 cảnh báo, kết quả, 3 đánh giá, 2 ghế trong monitored_students, báo cáo của An
-    assert len([path for path in school.docs if owned(path, "s1")]) == 10
+    # tiết, 2 ghế trong monitored_students, báo cáo của An; trên máy: kết quả, đánh giá, cảnh báo của camera AI
+    assert len([path for path in school.docs if owned(path, "s1")]) == 4
+    assert [path for path in edge_files.files() if "/s1/" in path] == [
+        "sessions/s1/alerts.jsonl",
+        "sessions/s1/evaluations.json",
+        "sessions/s1/result.json",
+    ]
     keep = {path for path in school.docs if not owned(path, "s1")}
 
     assert client.delete("/api/admin/schedules/live", headers=admin).status_code == 409
@@ -181,3 +194,5 @@ def test_deleting_a_session_removes_everything_it_owns(client, school, admin):
     assert client.delete("/api/admin/schedules/s1", headers=admin).status_code == 200
 
     assert set(school.docs) == keep
+    assert [path for path in edge_files.files() if "/s1/" in path] == []
+    assert len(edge_files.files()) == 3  # dữ liệu của s2 còn nguyên

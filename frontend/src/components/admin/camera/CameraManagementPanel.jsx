@@ -14,14 +14,14 @@ import AddCameraForm from "./AddCameraForm";
 import CameraSnapshotModal from "./CameraSnapshotModal";
 import SeatRegionModal from "./SeatRegionModal";
 
-// Trạng thái trong heartbeat của camera AI (edge_nodes/{camera_id})
+// Trạng thái trong heartbeat của camera AI (edge-data/edge_nodes/{camera_id}.json, backend đọc)
 const EDGE_STATUS = {
   idle: "Sẵn sàng",
   monitoring: "Đang giám sát",
   paused: "Tạm dừng",
   unavailable: "Tạm thời không khả dụng",
   outside_schedule: "Ngoài khung giờ giám sát",
-  unconfigured: "Chờ thêm camera trên web",
+  unconfigured: "Camera chưa gắn lớp",
 };
 
 const edgeLabel = (edge) => {
@@ -39,7 +39,7 @@ const CameraManagementPanel = () => {
   const [roomFilter, setRoomFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
 
-  const [addCameraName, setAddCameraName] = useState(null); // null: form đóng
+  const [adding, setAdding] = useState(false);
   const [editCamera, setEditCamera] = useState(null);
   const [seatCamera, setSeatCamera] = useState(null);
   const [snapshotCamera, setSnapshotCamera] = useState(null);
@@ -268,7 +268,7 @@ const CameraManagementPanel = () => {
           <button
             type="button"
             className="camera-add-button"
-            onClick={() => setAddCameraName("")}
+            onClick={() => setAdding(true)}
           >
             <Icon name="plus" size={17} />
 
@@ -388,7 +388,7 @@ const CameraManagementPanel = () => {
                         <div>
                           <strong>{camera.name || "Chưa đặt tên"}</strong>
 
-                          <span>{camera.declared ? camera.camera_id : "Chưa thêm trên web"}</span>
+                          <span>{camera.camera_id}</span>
                         </div>
                       </div>
                     </td>
@@ -451,25 +451,13 @@ const CameraManagementPanel = () => {
 
                     <td>
                       <div className="camera-row-actions">
-                        {!camera.declared && (
-                          <button
-                            type="button"
-                            className="configure-camera-button"
-                            onClick={() => setAddCameraName(camera.camera_name)}
-                          >
-                            Thêm
-                          </button>
-                        )}
-
-                        {camera.declared && (
-                          <button
-                            type="button"
-                            className="configure-camera-button"
-                            onClick={() => setEditCamera(camera)}
-                          >
-                            Sửa
-                          </button>
-                        )}
+                        <button
+                          type="button"
+                          className="configure-camera-button"
+                          onClick={() => setEditCamera(camera)}
+                        >
+                          Sửa
+                        </button>
 
                         {camera.snapshot && (
                           <button
@@ -491,18 +479,16 @@ const CameraManagementPanel = () => {
                           </button>
                         )}
 
-                        {camera.declared && (
-                          <button
-                            type="button"
-                            className="delete-camera-button"
-                            onClick={() => handleDeleteCamera(camera)}
-                            disabled={deletingCameraId === camera.camera_id}
-                          >
-                            {deletingCameraId === camera.camera_id
-                              ? "Đang xóa..."
-                              : "Xóa"}
-                          </button>
-                        )}
+                        <button
+                          type="button"
+                          className="delete-camera-button"
+                          onClick={() => handleDeleteCamera(camera)}
+                          disabled={deletingCameraId === camera.camera_id}
+                        >
+                          {deletingCameraId === camera.camera_id
+                            ? "Đang xóa..."
+                            : "Xóa"}
+                        </button>
                       </div>
                     </td>
                   </tr>
@@ -540,15 +526,13 @@ const CameraManagementPanel = () => {
         </div>
       </section>
 
-      {addCameraName !== null && (
+      {adding && (
         <AddCameraForm
-          edgeNames={cameras.filter((camera) => !camera.declared).map((camera) => camera.camera_name)}
-          defaultCameraName={addCameraName}
-          onClose={() => setAddCameraName(null)}
+          onClose={() => setAdding(false)}
           onSubmit={async (cameraData) => {
             await createCamera(cameraData); // lỗi hiện trong form
 
-            setAddCameraName(null);
+            setAdding(false);
 
             await loadCameras();
           }}
@@ -586,17 +570,10 @@ const CameraManagementPanel = () => {
             top: Math.min(menu.y, window.innerHeight - 190),
           }}
         >
-          {menu.camera.declared ? (
-            <button type="button" role="menuitem" onClick={() => setEditCamera(menu.camera)}>
-              <Icon name="edit" size={16} />
-              <span>Chỉnh sửa thông tin</span>
-            </button>
-          ) : (
-            <button type="button" role="menuitem" onClick={() => setAddCameraName(menu.camera.camera_name)}>
-              <Icon name="plus" size={16} />
-              <span>Thêm camera</span>
-            </button>
-          )}
+          <button type="button" role="menuitem" onClick={() => setEditCamera(menu.camera)}>
+            <Icon name="edit" size={16} />
+            <span>Chỉnh sửa thông tin</span>
+          </button>
 
           {menu.camera.snapshot && (
             <button type="button" role="menuitem" onClick={() => setSnapshotCamera(menu.camera)}>
@@ -612,17 +589,15 @@ const CameraManagementPanel = () => {
             </button>
           )}
 
-          {menu.camera.declared && (
-            <button
-              type="button"
-              role="menuitem"
-              className="danger"
-              onClick={() => handleDeleteCamera(menu.camera)}
-            >
-              <Icon name="trash" size={16} />
-              <span>Xóa camera</span>
-            </button>
-          )}
+          <button
+            type="button"
+            role="menuitem"
+            className="danger"
+            onClick={() => handleDeleteCamera(menu.camera)}
+          >
+            <Icon name="trash" size={16} />
+            <span>Xóa camera</span>
+          </button>
         </div>
       )}
 

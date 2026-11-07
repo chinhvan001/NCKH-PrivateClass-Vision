@@ -1,9 +1,9 @@
-"""Allowlist ket qua phien edge ghi len Firestore theo schema cua nhom.
+"""Allowlist ket qua phien edge giao cho web admin (``src/sync``, thu muc ``sessions/{session_id}/``).
 
-- ``session_results/{session_id}`` (``SessionResult``): trang thai hien tai moi ghe,
-  ghi de ~10 s mot lan (UC07). ``monitoring_status`` cho biet phien giam sat co tron ven (UC04).
-- ``session_evaluations/{session_id}_{seat_id}`` (``SeatEvaluation``): tong hop tung ghe,
-  ghi de ~5 phut mot lan va lan cuoi khi het phien (UC03, UC11).
+- ``result.json`` (``SessionResult``): trang thai hien tai moi ghe, ghi de ~10 s mot lan (UC07).
+  ``monitoring_status`` cho biet phien giam sat co tron ven (UC04).
+- ``evaluations.json`` (``SeatEvaluation`` theo ghe): tong hop tung ghe, ghi de ~5 phut mot lan
+  va lan cuoi khi het phien (UC03, UC11).
 
 Chi co seat_id, diem, trang thai, so dem va thoi diem chup (``captured_at``: wall-clock
 UTC cua edge, cung kieu voi ``started_at`` cua phien). Khong anh, keypoint, bbox, ten

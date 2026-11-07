@@ -1,16 +1,15 @@
-"""Phía web của hợp đồng Firestore với edge node camera-ai (camera-ai/docs/web_admin_integration.md).
+"""Phía web của hợp đồng với edge node camera-ai (camera-ai/docs/web_admin_integration.md).
 
-Edge node nghe sessions có class_id của lớp và ghi session_results/{s}, session_evaluations/{s}_{seat},
-sessions/{s}/alerts/{id} và edge_nodes/{camera_id}. Web chỉ đọc các document đó; riêng cảnh báo,
-web ghi thêm status, handled_by, handled_at khi xử lý, và xóa chúng khi xóa tiết. Edge node đọc
-seat_regions/{camera_id} (ô ghế admin vẽ trên trang Quản lý camera) lúc bắt đầu tiết.
+Camera AI chạy cùng máy và trao đổi với web qua file trong edge-data/ (services/edge_store.py), không qua
+Firestore. Lúc bắt đầu tiết, web giao tiết cho camera của lớp kèm sơ đồ ghế và ô ghế vẽ trên trang Quản lý
+camera; mỗi lần đổi trạng thái tiết, web báo lại. Edge node ghi kết quả, đánh giá theo ghế, cảnh báo và
+heartbeat; web đọc lại, ghi thêm trạng thái xử lý cảnh báo, và xóa chúng khi xóa tiết.
 """
 
 from datetime import datetime, timedelta, timezone
 
-from firebase_admin import firestore
-
-from routes.test_helpers import commit_writes, db, json_document, json_value, server_timestamp
+from routes.test_helpers import commit_writes, db, json_value, server_timestamp
+from services import edge_store
 
 EDGE_STALE_SEC = 30  # edge node gửi heartbeat 10 s/lần
 MAX_GRID_SIDE = 50  # edge node từ chối sơ đồ lớn hơn
@@ -33,6 +32,7 @@ SCHOOL_TZ = timezone(timedelta(hours=7))
 START_PROBLEMS = {
     "class_busy": "Lớp đang có một tiết khác được giám sát. Hãy kết thúc tiết đó trước.",
     "no_seat_plan": f"Lớp chưa có sơ đồ chỗ ngồi hợp lệ (1–{MAX_GRID_SIDE} hàng và cột).",
+    "no_seat_regions": "Camera của lớp chưa được xác định chỗ ngồi: vào Quản lý camera, chọn Xác định chỗ ngồi.",
     "edge_offline": "Camera AI của lớp đang offline hoặc chưa được cài đặt.",
 }
 
@@ -80,9 +80,8 @@ def roster(session_id, class_data):
 
 
 def result_status(session_id):
-    """monitoring_status của session_results/{s}, None nếu camera AI chưa ghi kết quả nào."""
-    doc = db.collection("session_results").document(session_id).get(field_paths=["monitoring_status"])
-    return (doc.to_dict() or {}).get("monitoring_status") if doc.exists else None
+    """monitoring_status của kết quả camera AI ghi cho tiết, None nếu chưa có kết quả nào."""
+    return (edge_store.result(session_id) or {}).get("monitoring_status")
 
 
 def data_status(session, monitoring_status):
@@ -111,38 +110,45 @@ def is_online(heartbeat):
     )
 
 
-def edge_status(class_id):
-    """Heartbeat mới nhất của edge node gắn với lớp, None nếu lớp chưa có edge node."""
-    nodes = [
-        (doc.id, doc.to_dict() or {}) for doc in db.collection("edge_nodes").where("class_id", "==", class_id).stream()
-    ]
-    nodes = [(camera_id, data) for camera_id, data in nodes if isinstance(data.get("updated_at"), datetime)]
-    if not nodes:
+def edge_status(camera_id):
+    """Heartbeat của edge node của camera, None nếu camera chưa có edge node chạy."""
+    data = edge_store.heartbeat(camera_id) if camera_id else None
+    if not isinstance(data, dict) or not isinstance(data.get("updated_at"), datetime):
         return None
-    camera_id, data = max(nodes, key=lambda node: node[1]["updated_at"])
     fields = ("status", "session_id", "fps", "camera_ok", "last_frame_at", "updated_at")
     return {"camera_id": camera_id, "online": is_online(data), **json_value({key: data.get(key) for key in fields})}
 
 
 def check_start(session_id, session, force=False):
-    """Kiểm tra trước khi bắt đầu giám sát (UC04 bước 3). Trả (dữ liệu lớp, mã lỗi hoặc None).
+    """Kiểm tra trước khi bắt đầu giám sát (UC04 bước 3). Trả (dữ liệu lớp, ô ghế của camera, mã lỗi hoặc None).
 
     force=True cho bắt đầu khi edge node offline: edge node nhận tiết ngay khi chạy lại."""
     class_id = session.get("class_id")
     if not class_id:
-        return {}, "no_seat_plan"
+        return {}, None, "no_seat_plan"
     for doc in db.collection("sessions").where("class_id", "==", class_id).stream():
         # ponytail: không khóa giao dịch, 2 admin bấm cùng lúc vẫn lọt; edge node khi đó chọn tiết có id nhỏ nhất
         if doc.id != session_id and (doc.to_dict() or {}).get("status") in LIVE_STATUSES:
-            return {}, "class_busy"
+            return {}, None, "class_busy"
     class_doc = db.collection("classes2").document(class_id).get()
     class_data = (class_doc.to_dict() or {}) if class_doc.exists else {}
     if grid_size(class_data) is None:
-        return class_data, "no_seat_plan"
-    edge = edge_status(class_id)
+        return class_data, None, "no_seat_plan"
+    camera_id = class_data.get("camera_id")
+    regions_doc = db.collection("seat_regions").document(camera_id).get() if camera_id else None
+    regions = (regions_doc.to_dict() or {}) if regions_doc is not None and regions_doc.exists else None
+    if camera_id and (regions is None or regions.get("class_id") != class_id):
+        # camera AI chỉ lấy vị trí ghế từ ô vẽ trên web cho đúng lớp này
+        return class_data, None, "no_seat_regions"
+    edge = edge_status(camera_id)
     if not force and not (edge and edge["online"]):
-        return class_data, "edge_offline"
-    return class_data, None
+        return class_data, regions, "edge_offline"
+    return class_data, regions, None
+
+
+def publish_status(session, session_id, status):
+    """Báo camera AI của tiết (camera chốt lúc bắt đầu) rằng tiết đổi trạng thái."""
+    edge_store.set_session_status(session.get("camera_id"), session_id, status)
 
 
 def close_forgotten_sessions():
@@ -159,6 +165,7 @@ def close_forgotten_sessions():
                 continue
             if (utc_now() - end).total_seconds() > FORGOTTEN_AFTER_SEC:
                 db.collection("sessions").document(doc.id).update({"status": "completed", "ended_at": server_timestamp()})
+                publish_status(session, doc.id, "completed")
                 closed.append(doc.id)
     return closed
 
@@ -178,14 +185,17 @@ def freeze_roster(session_id, class_data):
 
 
 def recent_alerts(session_id, limit=ALERT_LIMIT):
-    query = (
-        db.collection("sessions")
-        .document(session_id)
-        .collection("alerts")
-        .order_by("start_sec", direction=firestore.Query.DESCENDING)
-        .limit(limit)
-    )
-    return [json_document(doc) for doc in query.stream()]
+    alerts = sorted(edge_store.alerts(session_id), key=lambda alert: alert.get("start_sec") or 0, reverse=True)
+    return [json_value(alert) for alert in alerts[:limit]]
+
+
+def session_camera(session):
+    """Camera của tiết: camera chốt lúc bắt đầu, tiết chưa bắt đầu thì camera hiện tại của lớp."""
+    if session.get("camera_id"):
+        return session["camera_id"]
+    class_id = session.get("class_id")
+    class_doc = db.collection("classes2").document(class_id).get(field_paths=["camera_id"]) if class_id else None
+    return (class_doc.to_dict() or {}).get("camera_id") if class_doc is not None and class_doc.exists else None
 
 
 def live_view(session_id):
@@ -194,11 +204,11 @@ def live_view(session_id):
     if not session_doc.exists:
         return None
     session = session_doc.to_dict() or {}
-    result_doc = db.collection("session_results").document(session_id).get()
+    result = edge_store.result(session_id)
     return {
         "session": {"id": session_id, **json_value(session)},
-        "edge": edge_status(session.get("class_id")),
-        "result": json_value(result_doc.to_dict() or {}) if result_doc.exists else None,
+        "edge": edge_status(session_camera(session)),
+        "result": json_value(result) if result else None,
         "alerts": recent_alerts(session_id),
     }
 
@@ -245,7 +255,7 @@ def seat_plan(session_id):
 
 
 def delete_session(session_id):
-    """Xóa tiết cùng dữ liệu của nó: cảnh báo, kết quả, đánh giá và window 10 s của camera AI, bản chốt ghế,
+    """Xóa tiết cùng dữ liệu của nó: kết quả, đánh giá, window 10 s và cảnh báo của camera AI, bản chốt ghế,
     báo cáo phụ huynh. Trả "not_found", "live" (đang giám sát, phải kết thúc trước) hoặc None khi đã xóa."""
     session_ref = db.collection("sessions").document(session_id)
     session_doc = session_ref.get()
@@ -254,29 +264,23 @@ def delete_session(session_id):
     if (session_doc.to_dict() or {}).get("status") in LIVE_STATUSES:
         return "live"
     students = set((roster_data(session_id) or {}).values())
-    writes = []
-    for name in ("alerts", MONITORED_STUDENTS):
-        collection = session_ref.collection(name)
-        writes += [(collection.document(doc.id), None) for doc in collection.stream()]
-    for name in ("session_evaluations", "session_windows"):
-        collection = db.collection(name)
-        writes += [(collection.document(doc.id), None) for doc in collection.where("session_id", "==", session_id).stream()]
+    collection = session_ref.collection(MONITORED_STUDENTS)
+    writes = [(collection.document(doc.id), None) for doc in collection.stream()]
     writes += [
         (db.collection("students2").document(student_id).collection("reports").document(session_id), None)
         for student_id in students
     ]
     # session_rosters: bản chốt ghế kiểu cũ (trước monitored_students), xóa nếu còn
-    writes += [(db.collection(name).document(session_id), None) for name in ("session_results", "session_rosters")]
+    writes.append((db.collection("session_rosters").document(session_id), None))
     commit_writes(writes)
-    # ponytail: edge node mất mạng mà vẫn tưởng tiết đang chạy sẽ ghi lại kết quả khi có mạng;
-    # các document đó có expire_at nên TTL của Firestore dọn được
+    edge_store.delete_session(session_id)
     session_ref.delete()  # xóa sau cùng: lỗi giữa chừng thì tiết vẫn còn để xóa lại
     return None
 
 
 def clean_seat_regions(data):
-    """Ô ghế admin vẽ trên ảnh chụp từ camera, lưu ở seat_regions/{camera_id}; edge node đọc lại lúc bắt đầu
-    tiết (camera-ai/src/config/class_layout.py). seats: {seat_id: [x1, y1, x2, y2]} theo pixel của ảnh.
+    """Ô ghế admin vẽ trên ảnh chụp từ camera, lưu ở seat_regions/{camera_id}; lúc bắt đầu tiết web chép chúng vào
+    tiết giao cho camera AI (camera-ai/src/config/class_layout.py). seats: {seat_id: [x1, y1, x2, y2]} theo pixel.
     Trả (document để lưu, None) hoặc (None, thông báo lỗi)."""
     class_id = data.get("class_id")
     class_doc = db.collection("classes2").document(class_id).get() if isinstance(class_id, str) and class_id else None
@@ -309,8 +313,4 @@ def clean_seat_regions(data):
 
 def handle_alert(session_id, alert_id, status, uid):
     """Ghi nhận đã xử lý cảnh báo (UC09). False nếu không có cảnh báo đó."""
-    ref = db.collection("sessions").document(session_id).collection("alerts").document(alert_id)
-    if not ref.get().exists:
-        return False
-    ref.update({"status": status, "handled_by": uid, "handled_at": server_timestamp()})
-    return True
+    return edge_store.handle_alert(session_id, alert_id, status, uid, utc_now())

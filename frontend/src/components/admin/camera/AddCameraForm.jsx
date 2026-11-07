@@ -21,8 +21,6 @@ async function getList(url, key) {
 // cũ, tài khoản chỉ khi IP và cổng không đổi); không có: thêm camera mới
 const AddCameraForm = ({
     camera = null,
-    edgeNames = [],
-    defaultCameraName = "",
     onClose,
     onSubmit,
 }) => {
@@ -51,6 +49,7 @@ const AddCameraForm = ({
                 room_name: text("room_name"),
                 camera_name: text("camera_name"),
                 class_id: text("class_id"),
+                angle_type: text("angle_type"),
                 ip_address: text("ip_address"),
                 rtsp_port: text("rtsp_port"),
                 stream_path: text("stream_path"),
@@ -144,21 +143,14 @@ const AddCameraForm = ({
                                 id="camera_name"
                                 name="camera_name"
                                 type="text"
-                                list="camera-edge-options"
-                                defaultValue={camera?.camera_name ?? defaultCameraName}
+                                defaultValue={camera?.camera_name}
                                 readOnly={Boolean(camera)}
                                 placeholder="Ví dụ: Camera 201"
                                 required
                             />
 
-                            <datalist id="camera-edge-options">
-                                {edgeNames.map((name) => (
-                                    <option key={name} value={name} />
-                                ))}
-                            </datalist>
-
                             <small>
-                                Trùng camera_id trong cấu hình của camera AI.
+                                Camera AI tự nhận camera mới trong vòng 30 giây.
                             </small>
                         </div>
 
@@ -188,6 +180,25 @@ const AddCameraForm = ({
 
                             <small>
                                 Camera AI giám sát các tiết của lớp này.
+                            </small>
+                        </div>
+
+                        <div className="camera-form-field">
+                            <label htmlFor="angle_type">
+                                Góc đặt camera
+                            </label>
+
+                            <select
+                                id="angle_type"
+                                name="angle_type"
+                                defaultValue={camera?.angle_type || "frontal"}
+                            >
+                                <option value="frontal">Phía trước lớp, nhìn thẳng học sinh</option>
+                                <option value="top_down">Từ trên cao nhìn xuống</option>
+                            </select>
+
+                            <small>
+                                Chỉ góc phía trước mới báo được học sinh quay lưng.
                             </small>
                         </div>
 

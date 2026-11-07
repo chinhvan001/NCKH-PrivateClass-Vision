@@ -50,7 +50,7 @@ class _SeatPipelineState:
 
 @dataclass(frozen=True)
 class SeatWindowState:
-    """Thoi gian 1 ghe o tung trang thai tu the trong 1 window (``session_windows``)."""
+    """Thoi gian 1 ghe o tung trang thai tu the trong 1 window (``SessionWindow``)."""
 
     seat_id: str
     seconds: Dict[str, float]  # normal / slumping / head_drop
@@ -61,7 +61,7 @@ class SeatWindowState:
 
 @dataclass(frozen=True)
 class SeatState:
-    """Trang thai 1 ghe cho ``session_results``/``session_evaluations`` (so dem alert do runtime giu)."""
+    """Trang thai 1 ghe cho ``SessionResult``/``SeatEvaluation`` (so dem alert do runtime giu)."""
 
     seat_id: str
     concentration: Optional[int]  # diem CONCENTRATION_WINDOW_SEC gan nhat; None khi ghe "away"
@@ -289,7 +289,7 @@ def run_pipeline(
     on_alert: Callable[[AlertEvent], None] | None = None,
 ) -> PipelineRunResult:
     """Chay pipeline khong GUI; moi record engagement an danh duoc day ngay vao
-    ``on_record`` (sink: ghi JSONL, day len Firestore, ...) va KHONG giu lai
+    ``on_record`` (sink: ghi JSONL, ...) va KHONG giu lai
     trong RAM -- session dai khong lam bo nho tang theo so frame. Sink chay
     dong bo trong vong lap frame nen phai nhanh; sink nem exception se dung
     pipeline (frame hien tai van duoc dispose). Logic engagement: xem

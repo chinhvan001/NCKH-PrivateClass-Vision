@@ -1,8 +1,9 @@
 from routes.class_routes import get_vietnamese_sort_key, teacher_name
 from routes.test_helpers import db
+from services import edge_store
 from services.monitoring_service import data_status, result_status, roster
 
-# Đánh giá theo ghế do edge node ghi (session_evaluations/{session}_{seat}): avg_concentration 0-100
+# Đánh giá theo ghế do edge node ghi (edge-data/sessions/{session}/evaluations.json): avg_concentration 0-100
 # từ đầu tiết, observed_sec là thời gian ghế có người. Ghế chỉ có người đi ngang qua không được tính.
 MIN_OBSERVED_SEC = 60
 
@@ -47,9 +48,7 @@ class EvaluationService:
         classes = {doc.id: doc.to_dict() or {} for doc in db.collection("classes2").stream()}
         session_class = {doc.id: (doc.to_dict() or {}).get("class_id") for doc in db.collection("sessions").stream()}
         by_class = {}
-        # ponytail: đọc toàn bộ session_evaluations mỗi lần mở trang; khi dữ liệu lớn thì lọc theo captured_at
-        for doc in db.collection("session_evaluations").stream():
-            evaluation = doc.to_dict() or {}
+        for evaluation in edge_store.all_evaluations():
             class_id = session_class.get(evaluation.get("session_id"))
             if class_id in classes:
                 by_class.setdefault(class_id, []).append(evaluation)
@@ -83,11 +82,7 @@ class EvaluationService:
         sessions = {
             doc.id: doc.to_dict() or {} for doc in db.collection("sessions").where("class_id", "==", class_id).stream()
         }
-        evaluations = [
-            doc.to_dict() or {}
-            for session_id in sessions
-            for doc in db.collection("session_evaluations").where("session_id", "==", session_id).stream()
-        ]
+        evaluations = [evaluation for session_id in sessions for evaluation in edge_store.evaluations(session_id)]
 
         students = []
         for key, score in student_scores(evaluations, data).items():

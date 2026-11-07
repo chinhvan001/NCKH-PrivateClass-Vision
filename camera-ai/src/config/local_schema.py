@@ -1,9 +1,11 @@
-"""Schema JSON local cho mot pipeline camera an danh.
+"""Config cua camera AI: cai dat chung cua may (``EdgeSettings``) va config tung camera.
 
-Schema co chu dich khong co ten hoc sinh, student ID, face model, embedding,
-hay URL RTSP. Nguon camera duoc tham chieu bang ten bien moi truong de credential
-khong nam trong file config co the bi commit/chia se. Toa do 4 ghe goc (vi tri
-ghe tren anh) cung nam o day vi phu thuoc cach lap camera, khong dua len Firestore.
+Camera, lop, nguon camera (URL RTSP), goc camera va o ghe admin dat tren web admin; edge
+node cua moi camera dung ``EdgeSettings.for_camera``. Cai dat chung (lay mau, nguong nhan
+dien, lich cho phep mo camera, luu tru) mac dinh la ``DEFAULT_SETTINGS``, doi bang file JSON
+``schema_version`` 3 (``python -m src.main --settings``). Schema co chu dich khong co ten hoc
+sinh, student ID, face model, embedding hay URL RTSP. ``LocalPipelineConfig.from_dict``
+(``schema_version`` 2, ca camera va 4 ghe goc) chi con cho test va demo.
 """
 
 from __future__ import annotations
@@ -20,9 +22,33 @@ from src.capture.config import CaptureConfig
 from src.seating import CornerSeats
 
 SCHEMA_VERSION = 2
+SETTINGS_VERSION = 3
 _WEEKDAYS = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")  # thu tu cua datetime.weekday()
 _DAYS = set(_WEEKDAYS)
-_CAMERA_ANGLE_TYPES = ("frontal", "top_down")
+CAMERA_ANGLE_TYPES = ("frontal", "top_down")
+_SETTINGS_SECTIONS = {"schema_version", "sampling", "thresholds", "schedule", "privacy"}
+# Khong co file --settings: gia tri da chay voi camera that. Lich: thu 2 den thu 7 (thoi khoa bieu web co thu 7),
+# rong hon tiet 1 sang (07:00) va tiet 5 chieu (17:25) cua web.
+DEFAULT_SETTINGS = {
+    "sampling": {"capture_fps": 10, "inference_every_n_frames": 2},
+    "thresholds": {
+        "pose_confidence": 0.2,
+        "iou_threshold": 0.5,
+        "image_size": 960,
+        "tile_size": 960,
+        "tile_overlap": 0.2,
+        "max_detections": 100,
+        "conversation_duration_sec": 3,
+        "conversation_max_distance_px": 260,
+        "back_turn_duration_sec": 2,
+        "back_turn_max_face_visibility": 0.2,
+    },
+    "schedule": {
+        "timezone": "Asia/Ho_Chi_Minh",
+        "windows": [{"days": ["mon", "tue", "wed", "thu", "fri", "sat"], "start": "06:30", "end": "18:00"}],
+    },
+    "privacy": {"frame_buffer_size": 1, "allow_persistent_output": False, "retention_days": 365},
+}
 _CORNER_KEYS = ("first_row_first_column", "first_row_last_column", "last_row_last_column", "last_row_first_column")
 
 
@@ -53,9 +79,8 @@ def _unit(value: Any, path: str, *, allow_zero: bool = False) -> float:
 
 @dataclass(frozen=True)
 class CameraLocalConfig:
-    camera_id: str  # vd "Camera 201", ten document edge_nodes/{camera_id}
-    # document classes2/{class_id}: 1 lop = 1 phong = 1 camera. None: lop admin gan cho camera tren web
-    # (camera_configs/{camera_id}); edge node doi lop theo web khi khong co phien.
+    camera_id: str  # vd "Camera 201", ten file edge-data/edge_nodes/{camera_id}.json
+    # EdgeRuntime khong dung: web admin giao tung tiet cho camera kem lop (src/sync); chi con o config test
     class_id: Optional[str]
     source_env: Optional[str]  # ten bien moi truong chua nguon camera; None: URL admin nhap tren web
     width: Optional[int]
@@ -65,7 +90,7 @@ class CameraLocalConfig:
 
 @dataclass(frozen=True)
 class SeatingConfig:
-    corner_seats: Optional[CornerSeats]  # None: chi dung o ghe ve tren web (Firestore seat_regions)
+    corner_seats: Optional[CornerSeats]  # EdgeRuntime khong dung: o ghe ve tren web di kem tiet (src/sync)
 
 
 @dataclass(frozen=True)
@@ -114,12 +139,12 @@ class ScheduleConfig:
 class PrivacyConfig:
     frame_buffer_size: int
     allow_persistent_output: bool
-    retention_days: int  # expire_at cua document phien edge ghi; Firestore TTL xoa khi het han
+    retention_days: int  # du lieu tiet trong edge-data/ cu hon chung nay ngay bi xoa (sync.prune_sessions)
 
 
 @dataclass(frozen=True)
 class LocalPipelineConfig:
-    """Toan bo config duoc phep luu cuc bo cho mot camera/lop hoc."""
+    """Config cua edge node mot camera (``EdgeSettings.for_camera``)."""
 
     schema_version: int
     camera: CameraLocalConfig
@@ -128,17 +153,6 @@ class LocalPipelineConfig:
     thresholds: ThresholdConfig
     schedule: ScheduleConfig
     privacy: PrivacyConfig
-
-    @classmethod
-    def from_json_file(cls, path: Union[str, Path]) -> "LocalPipelineConfig":
-        file_path = Path(path)
-        try:
-            data = json.loads(file_path.read_text(encoding="utf-8"))
-        except FileNotFoundError as error:
-            raise LocalConfigError(f"Khong tim thay config: {file_path}") from error
-        except json.JSONDecodeError as error:
-            raise LocalConfigError(f"Config JSON khong hop le: {error}") from error
-        return cls.from_dict(data)
 
     @classmethod
     def from_dict(cls, data: Any) -> "LocalPipelineConfig":
@@ -186,6 +200,64 @@ class LocalPipelineConfig:
         )
 
 
+@dataclass(frozen=True)
+class EdgeSettings:
+    """Cai dat chung cua camera AI tren may, moi camera dung chung."""
+
+    sampling: SamplingConfig
+    thresholds: ThresholdConfig
+    schedule: ScheduleConfig
+    privacy: PrivacyConfig
+
+    @classmethod
+    def default(cls) -> "EdgeSettings":
+        return cls.from_dict({"schema_version": SETTINGS_VERSION, **DEFAULT_SETTINGS})
+
+    @classmethod
+    def from_json_file(cls, path: Union[str, Path]) -> "EdgeSettings":
+        file_path = Path(path)
+        try:
+            data = json.loads(file_path.read_text(encoding="utf-8"))
+        except FileNotFoundError as error:
+            raise LocalConfigError(f"Khong tim thay file cai dat: {file_path}") from error
+        except json.JSONDecodeError as error:
+            raise LocalConfigError(f"File cai dat JSON khong hop le: {error}") from error
+        return cls.from_dict(data)
+
+    @classmethod
+    def from_dict(cls, data: Any) -> "EdgeSettings":
+        if not isinstance(data, dict):
+            raise LocalConfigError("File cai dat phai la JSON object.")
+        if data.get("schema_version") == SCHEMA_VERSION:
+            raise LocalConfigError(
+                "Config theo tung camera (schema_version 2) khong con dung: camera, lop va o ghe them tren web "
+                "admin. Chi giu sampling, thresholds, schedule, privacy voi schema_version 3, hoac bo --settings."
+            )
+        _only_keys(data, _SETTINGS_SECTIONS, "root")
+        _required(data, _SETTINGS_SECTIONS, "root")
+        if data["schema_version"] != SETTINGS_VERSION:
+            raise LocalConfigError(f"schema_version phai la {SETTINGS_VERSION}.")
+        return cls(
+            sampling=_parse_sampling(data["sampling"]),
+            thresholds=_parse_thresholds(data["thresholds"]),
+            schedule=_parse_schedule(data["schedule"]),
+            privacy=_parse_privacy(data["privacy"]),
+        )
+
+    def for_camera(self, camera_id: str, angle_type: str) -> LocalPipelineConfig:
+        """Edge node cua camera admin them tren web: lop va nguon camera doc tu web luc chay, o ghe ve tren web."""
+        camera = {"camera_id": camera_id, "class_id": None, "source_env": None, "width": None, "height": None}
+        return LocalPipelineConfig(
+            schema_version=SCHEMA_VERSION,
+            camera=_parse_camera({**camera, "angle_type": angle_type}),
+            seating=SeatingConfig(None),
+            sampling=self.sampling,
+            thresholds=self.thresholds,
+            schedule=self.schedule,
+            privacy=self.privacy,
+        )
+
+
 def _object(value: Any, path: str, keys: set[str]) -> dict:
     if not isinstance(value, dict):
         raise LocalConfigError(f"{path} phai la object.")
@@ -198,12 +270,12 @@ def _parse_camera(value: Any) -> CameraLocalConfig:
     data = _object(value, "camera", {"camera_id", "class_id", "source_env", "width", "height", "angle_type"})
     for key in ("camera_id", "class_id", "source_env"):
         if data[key] is None and key != "camera_id":
-            continue  # null: lop/nguon camera admin dat tren web (camera_configs/{camera_id})
+            continue  # null: lop/nguon camera admin dat tren web (edge-data/cameras/{camera_id}.json)
         if not isinstance(data[key], str) or not data[key].strip():
             raise LocalConfigError(f"camera.{key} phai la chuoi khong rong.")
     for key in ("camera_id", "class_id"):
-        if data[key] is not None and "/" in data[key]:
-            raise LocalConfigError(f"camera.{key} la ten document Firestore, khong duoc chua '/'.")
+        if data[key] is not None and any(char in data[key] for char in "/\\"):
+            raise LocalConfigError(f"camera.{key} la ten file, khong duoc chua '/' hay '\\'.")
     if data["source_env"] is not None and not data["source_env"].isidentifier():
         raise LocalConfigError("camera.source_env phai la ten bien moi truong hop le.")
     width, height = data["width"], data["height"]
@@ -211,7 +283,7 @@ def _parse_camera(value: Any) -> CameraLocalConfig:
         raise LocalConfigError("camera.width va camera.height phai cung dat hoac cung null.")
     if width is not None and (not isinstance(width, int) or not isinstance(height, int) or width <= 0 or height <= 0):
         raise LocalConfigError("camera.width/height phai la so nguyen duong hoac null.")
-    if data["angle_type"] not in _CAMERA_ANGLE_TYPES:
+    if data["angle_type"] not in CAMERA_ANGLE_TYPES:
         raise LocalConfigError("camera.angle_type chi duoc la frontal hoac top_down.")
     return CameraLocalConfig(data["camera_id"], data["class_id"], data["source_env"], width, height, data["angle_type"])
 

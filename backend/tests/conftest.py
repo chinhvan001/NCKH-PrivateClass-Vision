@@ -4,6 +4,7 @@ firebase_admin và dotenv luôn được thay bằng module giả trước khi i
 SDK thật, để test không bao giờ ghi vào project Firebase thật.
 """
 
+import json
 import sys
 import types
 from pathlib import Path
@@ -43,6 +44,47 @@ _firebase_admin.firestore = _module(
 _firebase_admin.credentials = _module("firebase_admin.credentials", Certificate=lambda path: None)
 _firebase_admin.auth = _module("firebase_admin.auth", verify_id_token=_verify_id_token)
 _module("dotenv", load_dotenv=lambda *args, **kwargs: None)
+
+
+class EdgeFiles:
+    """Thư mục edge-data/ chung với camera AI của một test: ghi file như camera AI ghi, đọc lại như web."""
+
+    def __init__(self, root):
+        self.root = root
+
+    def write(self, path, data):
+        from services import edge_store
+
+        edge_store.write(self.root / path, data)
+
+    def append(self, path, *rows):
+        from services import edge_store
+
+        (self.root / path).parent.mkdir(parents=True, exist_ok=True)
+        with (self.root / path).open("a", encoding="utf-8") as file:
+            for row in rows:
+                file.write(json.dumps(row, default=edge_store._json_default) + "\n")
+
+    def read(self, path):
+        from services import edge_store
+
+        return edge_store.read(self.root / path)
+
+    def lines(self, path):
+        from services import edge_store
+
+        return edge_store.read_lines(self.root / path)
+
+    def files(self):
+        return sorted(path.relative_to(self.root).as_posix() for path in self.root.rglob("*") if path.is_file())
+
+
+@pytest.fixture(autouse=True)
+def edge_files(tmp_path, monkeypatch):
+    from services import edge_store
+
+    monkeypatch.setattr(edge_store, "ROOT", tmp_path / "edge-data")
+    return EdgeFiles(edge_store.ROOT)
 
 
 @pytest.fixture

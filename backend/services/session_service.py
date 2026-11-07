@@ -1,7 +1,7 @@
 from datetime import datetime, timedelta
 from repositories.session_repository import SessionRepository
 from routes.test_helpers import json_value, server_timestamp
-from services import monitoring_service
+from services import edge_store, monitoring_service
 
 # Giờ từng tiết, như periodsConfigMap trong frontend SessionPanel.jsx (sửa cả hai chỗ). start_time/end_time
 # của tiết dùng cho tự kết thúc tiết bị quên, báo cáo phụ huynh và trang đánh giá.
@@ -114,8 +114,9 @@ class SessionService:
             return {"success": False, "message": "Chuyển trạng thái không hợp lệ.", "status": 409}
 
         update_data = {"status": new_status}
-        if current_status == "scheduled" and new_status == "running":
-            class_data, problem = monitoring_service.check_start(session_id, session, force)
+        starting = current_status == "scheduled" and new_status == "running"
+        if starting:
+            class_data, regions, problem = monitoring_service.check_start(session_id, session, force)
             if problem:
                 message = monitoring_service.START_PROBLEMS[problem]
                 return {"success": False, "code": problem, "message": message, "status": 409}
@@ -128,4 +129,10 @@ class SessionService:
             update_data["ended_at"] = server_timestamp()
 
         updated_doc = SessionRepository.update_status(session_ref, update_data)
+        # Camera AI cùng máy chỉ biết tiết qua file edge-data/camera_sessions/{camera_id}.json (services/edge_store.py)
+        if starting and update_data.get("camera_id"):
+            size = monitoring_service.grid_size(class_data)
+            edge_store.assign_session(update_data["camera_id"], session_id, session.get("class_id"), size, regions)
+        elif not starting:
+            monitoring_service.publish_status(session, session_id, new_status)
         return {"success": True, "data": {"id": updated_doc.id, **json_value(updated_doc.to_dict())}, "status": 200}
