@@ -1,4 +1,14 @@
+import unicodedata
+
 from repositories.student_repository import StudentRepository
+
+GENDER_LABELS = {"nam": "Nam", "male": "Nam", "nữ": "Nữ", "nu": "Nữ", "female": "Nữ"}
+
+
+def gender_label(value):
+    """'Nam'/'Nữ' từ giới tính web (Nam, Nữ) hoặc app (male, female) lưu; '' nếu không rõ."""
+    return GENDER_LABELS.get(unicodedata.normalize("NFC", str(value or "")).strip().lower(), "")
+
 
 class StudentService:
     @staticmethod
@@ -27,7 +37,7 @@ class StudentService:
                 "id": student_id,
                 "full_name": s.get('full_name', ''),
                 "birthday": s.get('birthday'),
-                "gender": "Nam" if s.get('gender') in ['male', 'Nam'] else "Nữ",
+                "gender": gender_label(s.get('gender')),
                 "class_id": class_id,
                 "current_class": current_class,
                 "status": status_str,
@@ -59,8 +69,7 @@ class StudentService:
         student['class_id'] = class_id
         student['current_class'] = current_class
 
-        gender_val = student.get('gender')
-        student['gender'] = "Nam" if gender_val in ['male', 'Nam'] else "Nữ"
+        student['gender'] = gender_label(student.get('gender'))
         
         return {"success": True, "data": student}
 

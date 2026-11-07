@@ -128,6 +128,20 @@ def get_admin_users():
         }), 500
 
 
+def new_teacher(name, email, phone_number, subject, is_active=True):
+    """Tài khoản giáo viên chờ đăng nhập Google lần đầu (nút Thêm giáo viên và nhập từ file)."""
+    return {
+        "uid": None,
+        "email": email,
+        "name": name,
+        "phone_number": phone_number,
+        "subject": subject,
+        "is_active": is_active,
+        "auth_provider": "google",
+        "auth_status": "pending"
+    }
+
+
 @admin_bp.route("/api/admin/teachers", methods=["POST"])
 def create_teacher():
     uid, admin_data, error_response = require_admin()
@@ -205,16 +219,13 @@ def create_teacher():
                 "message": "Email này đã được sử dụng."
             }), 409
 
-        teacher_data = {
-            "uid": None,
-            "email": email,
-            "name": name,
-            "phone_number": phone_number,
-            "subject": subject,
-            "is_active": is_active,
-            "auth_provider": "google",
-            "auth_status": "pending"
-        }
+        teacher_data = new_teacher(
+            name,
+            email,
+            phone_number,
+            subject,
+            is_active
+        )
 
         doc_ref = db.collection(
             "teachers"

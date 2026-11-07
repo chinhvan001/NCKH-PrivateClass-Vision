@@ -1,5 +1,7 @@
 from firebase_admin import firestore
 
+from routes.test_helpers import commit_writes
+
 db = firestore.client()
 
 class StudentRepository:
@@ -54,28 +56,34 @@ class StudentRepository:
         return data
 
     @staticmethod
-    def create_student(student_data):
+    def new_student_writes(student_data):
+        """[(ref, data)] thêm 1 học sinh, kèm class_members nếu có class_id (form Thêm học sinh và nhập từ file)."""
         timestamp = firestore.SERVER_TIMESTAMP
         class_id = student_data.pop('class_id', None)
-        
+
         student_data['created_at'] = timestamp
         student_data['updated_at'] = timestamp
         if 'is_active' not in student_data:
             student_data['is_active'] = True
-            
+
         ref = db.collection('students2').document()
-        ref.set(student_data)
-        student_id = ref.id
+        writes = [(ref, student_data)]
 
         if class_id:
-            db.collection('class_members').add({
-                'student_id': student_id,
+            writes.append((db.collection('class_members').document(), {
+                'student_id': ref.id,
                 'class_id': class_id,
                 'status': 'active',
                 'assigned_at': timestamp
-            })
+            }))
 
-        return student_id
+        return writes
+
+    @staticmethod
+    def create_student(student_data):
+        writes = StudentRepository.new_student_writes(student_data)
+        commit_writes(writes)
+        return writes[0][0].id
 
     @staticmethod
     def update_student(student_id, student_data):

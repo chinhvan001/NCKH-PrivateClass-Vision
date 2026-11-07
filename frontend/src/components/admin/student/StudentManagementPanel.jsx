@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { 
   Users, UserCheck, UserX, Clock, Search, RefreshCw, 
-  Plus, Eye, Edit, Trash2, X, CheckCircle, AlertCircle, ChevronLeft, ChevronRight, Archive 
+  Plus, Eye, Edit, Trash2, X, CheckCircle, AlertCircle, ChevronLeft, ChevronRight, Archive, Upload
 } from 'lucide-react';
 
 import { getAuthHeaders } from '../../../utils/AuthSession';
+import ImportFileModal from '../ImportFileModal';
 
 export default function StudentManagementPanel() {
   const [students, setStudents] = useState([]);
@@ -26,6 +27,7 @@ export default function StudentManagementPanel() {
   const tableTopRef = useRef(null);
   
   const [showAddModal, setShowAddModal] = useState(false);
+  const [showImportModal, setShowImportModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [selectedStudent, setSelectedStudent] = useState(null);
@@ -311,15 +313,20 @@ export default function StudentManagementPanel() {
             <h2>Danh sách học sinh toàn trường</h2>
             <p>Quản lý hồ sơ, thông tin liên lạc và trạng thái học tập của học sinh</p>
           </div>
-          <button 
-            onClick={() => {
-              setFormData({ full_name: '', birthday: '', gender: 'Nam', parent_phonenumber: '', parent_name: '', class_id: '', status: 'Đang học' });
-              setShowAddModal(true);
-            }}
-            className="primary-button"
-          >
-            <Plus size={16} /> Thêm học sinh
-          </button>
+          <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexShrink: 0 }}>
+            <button onClick={() => setShowImportModal(true)} className="secondary-button">
+              <Upload size={16} /> Nhập từ File
+            </button>
+            <button
+              onClick={() => {
+                setFormData({ full_name: '', birthday: '', gender: 'Nam', parent_phonenumber: '', parent_name: '', class_id: '', status: 'Đang học' });
+                setShowAddModal(true);
+              }}
+              className="primary-button"
+            >
+              <Plus size={16} /> Thêm học sinh
+            </button>
+          </div>
         </div>
 
         {/* Thanh tìm kiếm và bộ lọc Khối, Lớp, Trạng thái */}
@@ -562,6 +569,22 @@ export default function StudentManagementPanel() {
           </div>
         </div>
       </div>
+
+      {showImportModal && (
+        <ImportFileModal
+          title="Nhập danh sách học sinh từ File"
+          columns="Họ và tên*, Ngày sinh (dd/mm/yyyy), Giới tính (Nam/Nữ), Lớp, Họ tên phụ huynh, Số điện thoại phụ huynh"
+          url="/api/import/students"
+          label="học sinh"
+          onClose={() => setShowImportModal(false)}
+          onImported={(message) => {
+            setShowImportModal(false);
+            showNotify(message);
+            sessionStorage.removeItem('app_students_cache_data');
+            fetchStudents(true);
+          }}
+        />
+      )}
 
       {/* Modal Thêm học sinh mới */}
       {showAddModal && (
