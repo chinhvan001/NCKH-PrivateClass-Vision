@@ -197,6 +197,65 @@ enum NotificationType {
   reminder,
 }
 
+/// Trạng thái của một tiết học so với thời điểm hiện tại
+enum SessionState { upcoming, ongoing, ended }
+
+/// Một tiết học của học sinh (lấy từ sessions, kèm dữ liệu của đúng ghế học sinh đó)
+class StudentSession {
+  final String id;
+  final String classId;
+  final String className;
+
+  /// Ngày học (chỉ phần ngày, giờ = 00:00)
+  final DateTime date;
+  final DateTime? startTime;
+  final DateTime? endTime;
+  final int period;
+  final String subject;
+  final String room;
+  final String teacherName;
+  final bool isPresent;
+
+  /// Chỉ số tập trung 0-100 của học sinh ở tiết này (null nếu chưa có)
+  final double? attentionScore;
+
+  /// Trường status của buổi học đã ở trạng thái kết thúc
+  final bool statusEnded;
+
+  const StudentSession({
+    required this.id,
+    required this.classId,
+    required this.className,
+    required this.date,
+    required this.period,
+    required this.subject,
+    required this.isPresent,
+    this.startTime,
+    this.endTime,
+    this.room = '',
+    this.teacherName = '',
+    this.attentionScore,
+    this.statusEnded = false,
+  });
+
+  SessionState stateAt(DateTime now) {
+    final end = endTime;
+    if (end != null) {
+      if (!end.isAfter(now)) return SessionState.ended;
+      final start = startTime;
+      if (start != null && !start.isAfter(now)) return SessionState.ongoing;
+      return SessionState.upcoming;
+    }
+    if (statusEnded) return SessionState.ended;
+    final today = DateTime(now.year, now.month, now.day);
+    return date.isBefore(today) ? SessionState.ended : SessionState.upcoming;
+  }
+
+  /// Vắng mặt: tiết đã kết thúc mà học sinh không có mặt
+  bool isAbsentAt(DateTime now) =>
+      !isPresent && stateAt(now) == SessionState.ended;
+}
+
 /// Model thông báo phụ huynh (trích xuất từ sessions)
 class ParentNotification {
   final String id;

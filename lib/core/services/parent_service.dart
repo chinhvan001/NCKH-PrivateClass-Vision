@@ -262,16 +262,7 @@ class ParentService {
     if (ids.isEmpty) return [];
 
     try {
-      final docs = <QueryDocumentSnapshot<Map<String, dynamic>>>[];
-      // whereIn tối đa 30 giá trị nên chia nhóm
-      for (var i = 0; i < ids.length; i += 30) {
-        final chunk = ids.sublist(i, i + 30 > ids.length ? ids.length : i + 30);
-        final col = _db.collection('sessions');
-        final snap = chunk.length == 1
-            ? await col.where('class_id', isEqualTo: chunk.first).get()
-            : await col.where('class_id', whereIn: chunk).get();
-        docs.addAll(snap.docs);
-      }
+      final docs = await _fetchSessionDocs(ids);
 
       final now = DateTime.now();
       final teacherCache = <String, String>{};
@@ -280,17 +271,8 @@ class ParentService {
       for (final doc in docs) {
         final data = doc.data();
 
-        final rawMonitored = data['monitored_students'] ?? data['mnoitored_student'];
-        if (rawMonitored is! Map) continue;
-
         // Tìm ghế của học sinh trong buổi học
-        Map? seat;
-        for (final v in rawMonitored.values) {
-          if (v is Map && v['student_id']?.toString() == studentId) {
-            seat = v;
-            break;
-          }
-        }
+        final seat = _findSeat(data, studentId);
         if (seat == null) continue;
 
         final startTime = _toDate(data['start_time']) ?? _toDate(data['session_date']);
@@ -344,6 +326,121 @@ class ParentService {
     }
   }
 
+  /// Lấy các buổi học của học sinh để dựng lịch tuần (collection sessions).
+  ///
+  /// Chỉ truy vấn theo `class_id` của các lớp con đang học, mỗi buổi chỉ lấy đúng ghế của con.
+  /// Trả về toàn bộ buổi để màn hình lịch tự lọc theo tuần (chuyển tuần không phải đọc lại).
+  Future<List<StudentSession>> getSessionsForStudent({
+    required String studentId,
+    required List<ChildClass> classes,
+  }) async {
+    final classNames = {for (final c in classes) c.id: c.name};
+    final classTeachers = {for (final c in classes) c.id: c.teacherName};
+    final ids = classNames.keys.where((e) => e.isNotEmpty).toList();
+    if (ids.isEmpty) return [];
+
+    try {
+      final docs = await _fetchSessionDocs(ids);
+      final teacherCache = <String, String>{};
+      final result = <StudentSession>[];
+
+      for (final doc in docs) {
+        final data = doc.data();
+        final seat = _findSeat(data, studentId);
+        if (seat == null) continue;
+
+        final period = _toInt(data['period']);
+        if (period == null || period < 1) continue; // không biết xếp vào tiết nào
+
+        final sessionDate = _parseDateTime(data['session_date']);
+        final start = _parseDateTime(data['start_time'], base: sessionDate);
+        final end = _parseDateTime(data['end_time'], base: sessionDate ?? start);
+        final day = start ?? sessionDate ?? end;
+        if (day == null) continue; // không biết buổi học ở ngày nào
+
+        final classId = (data['class_id'] ?? '').toString();
+        var teacherName = await _teacherName(
+          (data['teacher_id'] ?? '').toString(),
+          teacherCache,
+        );
+        if (teacherName.isEmpty) teacherName = classTeachers[classId] ?? '';
+
+        result.add(
+          StudentSession(
+            id: doc.id,
+            classId: classId,
+            className: classNames[classId] ?? '',
+            date: DateTime(day.year, day.month, day.day),
+            startTime: start,
+            endTime: end,
+            period: period,
+            subject: _subjectOf(doc.id, data),
+            room: (data['room'] ?? '').toString(),
+            teacherName: teacherName,
+            isPresent: seat['is_present'] == true,
+            attentionScore: seat['attention_score'] is num
+                ? (seat['attention_score'] as num).toDouble()
+                : null,
+            statusEnded: _endedStatuses.contains(
+              (data['status'] ?? '').toString().toLowerCase(),
+            ),
+          ),
+        );
+      }
+      return result;
+    } catch (e) {
+      debugPrint('--> [Schedule] Lỗi tải lịch học: $e');
+      rethrow;
+    }
+  }
+
+  /// Đọc các buổi học theo danh sách lớp (whereIn tối đa 30 giá trị nên chia nhóm)
+  Future<List<QueryDocumentSnapshot<Map<String, dynamic>>>> _fetchSessionDocs(
+    List<String> classIds,
+  ) async {
+    final docs = <QueryDocumentSnapshot<Map<String, dynamic>>>[];
+    final col = _db.collection('sessions');
+    for (var i = 0; i < classIds.length; i += 30) {
+      final end = i + 30 > classIds.length ? classIds.length : i + 30;
+      final chunk = classIds.sublist(i, end);
+      final snap = chunk.length == 1
+          ? await col.where('class_id', isEqualTo: chunk.first).get()
+          : await col.where('class_id', whereIn: chunk).get();
+      docs.addAll(snap.docs);
+    }
+    return docs;
+  }
+
+  /// Tìm ghế của học sinh trong buổi học. Thử các tên map đã biết trước,
+  /// nếu không thấy thì duyệt các map con còn lại của tài liệu.
+  Map? _findSeat(Map<String, dynamic> data, String studentId) {
+    Map? scan(dynamic raw) {
+      if (raw is! Map) return null;
+      for (final v in raw.values) {
+        if (v is Map && v['student_id']?.toString() == studentId) return v;
+      }
+      return null;
+    }
+
+    const knownKeys = [
+      'monitored_students',
+      'mnoitored_student',
+      'monitored_student',
+      'mnoitored_students',
+    ];
+    for (final key in knownKeys) {
+      final seat = scan(data[key]);
+      if (seat != null) return seat;
+    }
+    for (final raw in data.values) {
+      final seat = scan(raw);
+      if (seat != null) return seat;
+    }
+    return null;
+  }
+
+  static const _endedStatuses = ['completed', 'ended', 'finished', 'done', 'closed'];
+
   /// Buổi học đã kết thúc: ưu tiên end_time, không có thì xét status, cuối cùng là ngày học
   bool _hasEnded(
     Map<String, dynamic> data,
@@ -353,7 +450,7 @@ class ParentService {
   ) {
     if (end != null) return !end.isAfter(now);
     final status = (data['status'] ?? '').toString().toLowerCase();
-    if (const ['completed', 'ended', 'finished', 'done', 'closed'].contains(status)) {
+    if (_endedStatuses.contains(status)) {
       return true;
     }
     if (start != null) {
@@ -392,10 +489,42 @@ class ParentService {
     return name;
   }
 
-  DateTime? _toDate(dynamic v) {
+  DateTime? _toDate(dynamic v) => _parseDateTime(v);
+
+  int? _toInt(dynamic v) {
+    if (v is num) return v.toInt();
+    if (v is String) return int.tryParse(v.trim());
+    return null;
+  }
+
+  /// Đọc ngày giờ từ Timestamp, DateTime hoặc chuỗi ("yyyy-MM-dd...", "dd/MM/yyyy", "HH:mm").
+  /// Chuỗi chỉ có giờ ("07:30") được ghép với ngày [base].
+  DateTime? _parseDateTime(dynamic v, {DateTime? base}) {
     if (v is Timestamp) return v.toDate();
     if (v is DateTime) return v;
-    if (v is String) return DateTime.tryParse(v);
+    if (v is String) {
+      final s = v.trim();
+      final hm = RegExp(r'^(\d{1,2}):(\d{2})(?::\d{2})?$').firstMatch(s);
+      if (hm != null) {
+        if (base == null) return null;
+        return DateTime(
+          base.year,
+          base.month,
+          base.day,
+          int.parse(hm.group(1)!),
+          int.parse(hm.group(2)!),
+        );
+      }
+      final dmy = RegExp(r'^(\d{1,2})/(\d{1,2})/(\d{4})$').firstMatch(s);
+      if (dmy != null) {
+        return DateTime(
+          int.parse(dmy.group(3)!),
+          int.parse(dmy.group(2)!),
+          int.parse(dmy.group(1)!),
+        );
+      }
+      return DateTime.tryParse(s);
+    }
     return null;
   }
 
