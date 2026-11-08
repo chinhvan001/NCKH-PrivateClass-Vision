@@ -1,0 +1,32 @@
+# BÁO CÁO CHI TIẾT TRIỂN KHAI MODULE XỬ LÝ ĐIỂM TẬP TRUNG HỌC SINH
+## (Student Concentration Dynamic Scoring System - 3-Tier Architecture)
+
+Tài liệu chi tiết xem tại [README_CONCENTRATION_MODULE.md](README_CONCENTRATION_MODULE.md) hoặc [README.md](README.md).
+
+### Tóm tắt nhanh:
+1. **Presentation Tier (Routes / Controllers):**
+   - File: `backend/routes/concentration_routes.py`
+   - Endpoints:
+     * `POST /api/v1/concentration/process-score`: Nhận JSON payload định kỳ 3-5 giây từ camera-ai.
+     * `POST /api/v1/concentration/classrooms/<classroom_id>/live-scores`
+     * `GET /api/v1/concentration/history/<classroom_id>/<student_id>`: Lấy dữ liệu vẽ biểu đồ tiến trình.
+
+2. **Business Logic Tier (Services / Use Cases):**
+   - File: `backend/services/concentration_service.py`
+   - Điểm ban đầu mặc định: 100.0.
+   - Bảng trọng số: attentive (+1.0), slightly_distracted (-1.5), looking_down (-3.0), sleeping (-4.5), using_phone (-6.0), away_from_seat (-4.0), active_participating (+4.0).
+   - Hệ số lũy tiến vi phạm: multiplier = min(2.5, 1.0 + (duration / 20.0)).
+   - Clamping dải điểm [0.0, 100.0].
+
+3. **Data Access Tier (Repositories / Firebase Service):**
+   - File: `backend/repositories/concentration_repository.py`
+   - Collection: `classrooms/{classroom_id}/live_scores/{student_id}`
+   - Sub-collection: `classrooms/{classroom_id}/live_scores/{student_id}/history_logs/{auto_id}`
+   - Firestore Batch Writes: Ghi nguyên tử, tối ưu hóa I/O, tự động chia nhỏ chunk <= 200 học sinh để không vượt trần 500 writes của Firestore.
+
+4. **Camera-AI Edge Node:**
+   - File: `camera-ai/src/sync/concentration_client.py` (HTTP client gửi định kỳ 3-5s).
+   - Tool test: `camera-ai/tools/simulate_concentration_stream.py`.
+
+5. **Kiểm thử tự động:**
+   - 15/15 unit & integration tests PASSED.

@@ -11,6 +11,7 @@ from routes.evaluation_routes import evaluation_bp
 from routes.student_routes import student_bp
 from routes.dashboard_routes import dashboard_bp
 from routes.report_routes import report_bp
+from routes.concentration_routes import concentration_bp
 
 app = Flask(__name__)
 
@@ -26,6 +27,7 @@ app.register_blueprint(evaluation_bp)
 app.register_blueprint(student_bp)
 app.register_blueprint(dashboard_bp)
 app.register_blueprint(report_bp)
+app.register_blueprint(concentration_bp)
 
 
 @app.route("/", methods=["GET"])

@@ -1,6 +1,6 @@
 from datetime import date, datetime
 
-from flask import jsonify
+from flask import jsonify, request
 from firebase_admin import firestore
 
 from firebase_config import db
@@ -25,6 +25,17 @@ def require_admin():
         return None, (jsonify({"success": False, "message": "Tài khoản admin đã bị vô hiệu hóa."}), 403)
 
     return decoded_token.get("uid"), None
+
+
+def admin_only(blueprint):
+    """Mỗi route của blueprint cần admin; preflight CORS (OPTIONS) thì không."""
+
+    @blueprint.before_request
+    def check_admin():
+        if request.method != "OPTIONS":
+            return require_admin()[1]
+
+    return blueprint
 
 
 def json_value(value):
@@ -62,7 +73,21 @@ def server_timestamp():
     return firestore.SERVER_TIMESTAMP
 
 
+def commit_writes(writes, batch_size=450):
+    """writes: [(document_ref, data)], data None là xóa. Firestore nhận tối đa 500 thao tác mỗi batch."""
+    for start in range(0, len(writes), batch_size):
+        batch = db.batch()
+        for ref, data in writes[start:start + batch_size]:
+            if data is None:
+                batch.delete(ref)
+            else:
+                batch.set(ref, data)
+        batch.commit()
+
+
 __all__ = [
+    "admin_only",
+    "commit_writes",
     "db",
     "get_json_body",
     "get_document",
