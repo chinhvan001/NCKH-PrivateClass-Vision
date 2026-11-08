@@ -31,6 +31,7 @@ class LinkedChild {
   final List<ChildClass> classes;
   final String? parentName;
   final String? parentPhone;
+  final bool isActive;
 
   LinkedChild({
     required this.id,
@@ -40,7 +41,10 @@ class LinkedChild {
     required this.classes,
     this.parentName,
     this.parentPhone,
+    this.isActive = true,
   });
+
+  String get statusDisplay => isActive ? 'Đang học' : 'Nghỉ học';
 
   String get shortName {
     final parts = name.trim().split(' ');
@@ -185,27 +189,44 @@ class AbsenceRecord {
 }
 
 /// Loại thông báo phụ huynh
-enum NotificationType { attendance, attentionWarning, attentionPraise, note }
+enum NotificationType {
+  /// Học sinh vắng mặt (is_present == false) ở buổi học đã kết thúc
+  absence,
+
+  /// Nhắc nhở từ giáo viên (note của buổi học)
+  reminder,
+}
 
 /// Model thông báo phụ huynh (trích xuất từ sessions)
 class ParentNotification {
   final String id;
   final String sessionId;
-  final String title;
-  final String message;
   final NotificationType type;
+
+  /// Thời điểm phát sinh thông báo (giờ kết thúc buổi học) dùng để tính "x phút trước"
   final DateTime timestamp;
-  final bool isPresent;
-  final double attentionScore;
+
+  final DateTime? startTime;
+  final DateTime? endTime;
+  final int? period;
+  final String subject;
+  final String teacherName;
+  final String room;
+
+  /// Nội dung nhắc nhở của giáo viên (chỉ có với type == reminder)
+  final String note;
 
   const ParentNotification({
     required this.id,
     required this.sessionId,
-    required this.title,
-    required this.message,
     required this.type,
     required this.timestamp,
-    required this.isPresent,
-    required this.attentionScore,
+    this.startTime,
+    this.endTime,
+    this.period,
+    this.subject = '',
+    this.teacherName = '',
+    this.room = '',
+    this.note = '',
   });
 }

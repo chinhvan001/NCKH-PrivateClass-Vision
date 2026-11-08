@@ -55,6 +55,7 @@ class ParentService {
       classes: classList,
       parentName: (sData['parent_name'] ?? '').toString(),
       parentPhone: (sData['parent_phonenumber'] ?? '').toString(),
+      isActive: sData['is_active'] as bool? ?? true,
     );
   }
 
@@ -243,161 +244,159 @@ class ParentService {
     }
   }
 
-  /// Lấy danh sách thông báo cho học sinh trực tiếp từ collection sessions
+  /// Lấy thông báo của một học sinh từ collection sessions.
+  ///
+  /// Cách đọc dữ liệu (tối ưu số lần đọc):
+  /// - Chỉ truy vấn các buổi học thuộc lớp của học sinh (`class_id`), không quét cả collection.
+  /// - Mỗi buổi chỉ lấy đúng ghế có `student_id` trùng học sinh.
+  /// - Tên giáo viên chỉ đọc khi thật sự có thông báo và được cache theo `teacher_id`.
+  ///
+  /// Quy tắc:
+  /// - Vắng mặt: `is_present == false` và buổi học ĐÃ kết thúc (tránh báo nhầm buổi chưa diễn ra).
+  /// - Nhắc nhở: `note` không rỗng (null, "", '""' đều bị bỏ qua).
   Future<List<ParentNotification>> getNotificationsForStudent({
     required String studentId,
-    String? classId,
+    required List<String> classIds,
   }) async {
+    final ids = classIds.where((e) => e.isNotEmpty).toSet().toList();
+    if (ids.isEmpty) return [];
+
     try {
-      debugPrint('--> [Notification] Quét sessions: studentId=$studentId, classId=$classId');
-
-      String? targetSeatId;
-      if (classId != null && classId.isNotEmpty) {
-        targetSeatId = await getSeatIdForStudent(classId: classId, studentId: studentId);
+      final docs = <QueryDocumentSnapshot<Map<String, dynamic>>>[];
+      // whereIn tối đa 30 giá trị nên chia nhóm
+      for (var i = 0; i < ids.length; i += 30) {
+        final chunk = ids.sublist(i, i + 30 > ids.length ? ids.length : i + 30);
+        final col = _db.collection('sessions');
+        final snap = chunk.length == 1
+            ? await col.where('class_id', isEqualTo: chunk.first).get()
+            : await col.where('class_id', whereIn: chunk).get();
+        docs.addAll(snap.docs);
       }
 
-      Query query = _db.collection('sessions');
-      if (classId != null && classId.isNotEmpty) {
-        query = query.where('class_id', isEqualTo: classId);
-      }
+      final now = DateTime.now();
+      final teacherCache = <String, String>{};
+      final result = <ParentNotification>[];
 
-      final querySnapshot = await query.get();
-      final List<ParentNotification> notifications = [];
-
-      for (final doc in querySnapshot.docs) {
-        final data = doc.data() as Map<String, dynamic>;
-
-        DateTime sessionTime = DateTime.now();
-        if (data['end_time'] is Timestamp) {
-          sessionTime = (data['end_time'] as Timestamp).toDate();
-        } else if (data['created_at'] is Timestamp) {
-          sessionTime = (data['created_at'] as Timestamp).toDate();
-        } else if (data['session_date'] is Timestamp) {
-          sessionTime = (data['session_date'] as Timestamp).toDate();
-        }
-
-        final dateFormatted =
-            '${sessionTime.day.toString().padLeft(2, '0')}/${sessionTime.month.toString().padLeft(2, '0')}/${sessionTime.year}';
-
-        String subject = data['subject']?.toString() ?? '';
-        if (subject.isEmpty) {
-          final docIdLower = doc.id.toLowerCase();
-          if (docIdLower.contains('toan')) {
-            subject = 'Toán';
-          } else if (docIdLower.contains('van')) {
-            subject = 'Ngữ văn';
-          } else if (docIdLower.contains('anh')) {
-            subject = 'Tiếng Anh';
-          } else {
-            subject = 'Buổi học';
-          }
-        }
+      for (final doc in docs) {
+        final data = doc.data();
 
         final rawMonitored = data['monitored_students'] ?? data['mnoitored_student'];
-        if (rawMonitored == null) continue;
-        final monitoredStudents = Map<String, dynamic>.from(rawMonitored as Map);
+        if (rawMonitored is! Map) continue;
 
-        for (final entry in monitoredStudents.entries) {
-          final seatId = entry.key;
-          final seatData = entry.value;
-          if (seatData is! Map) continue;
-
-          final sId = seatData['student_id']?.toString() ?? '';
-
-          final bool isMatched = (sId == studentId) ||
-              (targetSeatId != null && seatId.toUpperCase() == targetSeatId.toUpperCase());
-
-          if (!isMatched) continue;
-
-          final isPresent = seatData['is_present'] == true;
-          final isAttention = seatData['is_attention'] == true;
-          final double attentionScore = (seatData['attention_score'] is num)
-              ? (seatData['attention_score'] as num).toDouble()
-              : 0.0;
-          final note = seatData['note']?.toString() ?? '';
-
-          // 1. Điểm danh
-          if (!isPresent) {
-            notifications.add(
-              ParentNotification(
-                id: '${doc.id}_${seatId}_absent',
-                sessionId: doc.id,
-                title: 'Cảnh báo vắng mặt',
-                message: 'Bé vắng mặt trong buổi học môn $subject ngày $dateFormatted.',
-                type: NotificationType.attendance,
-                timestamp: sessionTime,
-                isPresent: false,
-                attentionScore: attentionScore,
-              ),
-            );
-          } else {
-            notifications.add(
-              ParentNotification(
-                id: '${doc.id}_${seatId}_present',
-                sessionId: doc.id,
-                title: 'Điểm danh buổi học',
-                message: 'Bé đã có mặt đầy đủ trong tiết $subject ngày $dateFormatted.',
-                type: NotificationType.attendance,
-                timestamp: sessionTime,
-                isPresent: true,
-                attentionScore: attentionScore,
-              ),
-            );
-
-            // 2. Mức độ tập trung
-            if (!isAttention || attentionScore < 50) {
-              notifications.add(
-                ParentNotification(
-                  id: '${doc.id}_${seatId}_att_warn',
-                  sessionId: doc.id,
-                  title: 'Nhắc nhở chú ý',
-                  message: 'Mức độ tập trung của bé trong tiết $subject đạt $attentionScore%, cần chú ý hơn.',
-                  type: NotificationType.attentionWarning,
-                  timestamp: sessionTime,
-                  isPresent: true,
-                  attentionScore: attentionScore,
-                ),
-              );
-            } else if (attentionScore >= 80) {
-              notifications.add(
-                ParentNotification(
-                  id: '${doc.id}_${seatId}_att_praise',
-                  sessionId: doc.id,
-                  title: 'Khen ngợi học tập',
-                  message: 'Bé rất tập trung trong tiết $subject (đạt $attentionScore%). Tinh thần học tập rất tốt!',
-                  type: NotificationType.attentionPraise,
-                  timestamp: sessionTime,
-                  isPresent: true,
-                  attentionScore: attentionScore,
-                ),
-              );
-            }
+        // Tìm ghế của học sinh trong buổi học
+        Map? seat;
+        for (final v in rawMonitored.values) {
+          if (v is Map && v['student_id']?.toString() == studentId) {
+            seat = v;
+            break;
           }
+        }
+        if (seat == null) continue;
 
-          // 3. Ghi chú buổi học
-          if (note.trim().isNotEmpty && note != '""') {
-            notifications.add(
-              ParentNotification(
-                id: '${doc.id}_${seatId}_note',
-                sessionId: doc.id,
-                title: 'Ghi chú buổi học',
-                message: 'Lời nhắn: "$note" ($subject - $dateFormatted)',
-                type: NotificationType.note,
-                timestamp: sessionTime,
-                isPresent: isPresent,
-                attentionScore: attentionScore,
-              ),
-            );
-          }
+        final startTime = _toDate(data['start_time']) ?? _toDate(data['session_date']);
+        final endTime = _toDate(data['end_time']);
+
+        final isPresent = seat['is_present'] == true;
+        final note = (seat['note'] ?? '').toString().trim();
+        final hasNote = note.isNotEmpty && note != '""';
+        final isAbsent = !isPresent && _hasEnded(data, startTime, endTime, now);
+
+        if (!isAbsent && !hasNote) continue;
+
+        final timestamp = endTime ?? startTime ?? now;
+        final subject = _subjectOf(doc.id, data);
+        final period = (data['period'] is num) ? (data['period'] as num).toInt() : null;
+        final room = (data['room'] ?? '').toString();
+        final teacherName = await _teacherName(
+          (data['teacher_id'] ?? '').toString(),
+          teacherCache,
+        );
+
+        ParentNotification build(NotificationType type, String suffix, {String note = ''}) {
+          return ParentNotification(
+            id: '${doc.id}_$suffix',
+            sessionId: doc.id,
+            type: type,
+            timestamp: timestamp,
+            startTime: startTime,
+            endTime: endTime,
+            period: period,
+            subject: subject,
+            teacherName: teacherName,
+            room: room,
+            note: note,
+          );
+        }
+
+        if (isAbsent) {
+          result.add(build(NotificationType.absence, 'absent'));
+        }
+        if (hasNote) {
+          result.add(build(NotificationType.reminder, 'note', note: note));
         }
       }
 
-      notifications.sort((a, b) => b.timestamp.compareTo(a.timestamp));
-      return notifications;
+      result.sort((a, b) => b.timestamp.compareTo(a.timestamp));
+      return result;
     } catch (e) {
       debugPrint('--> [Notification] Lỗi trích xuất thông báo: $e');
-      return [];
+      rethrow;
     }
+  }
+
+  /// Buổi học đã kết thúc: ưu tiên end_time, không có thì xét status, cuối cùng là ngày học
+  bool _hasEnded(
+    Map<String, dynamic> data,
+    DateTime? start,
+    DateTime? end,
+    DateTime now,
+  ) {
+    if (end != null) return !end.isAfter(now);
+    final status = (data['status'] ?? '').toString().toLowerCase();
+    if (const ['completed', 'ended', 'finished', 'done', 'closed'].contains(status)) {
+      return true;
+    }
+    if (start != null) {
+      final today = DateTime(now.year, now.month, now.day);
+      return start.isBefore(today);
+    }
+    return false;
+  }
+
+  String _subjectOf(String docId, Map<String, dynamic> data) {
+    final subject = (data['subject'] ?? '').toString().trim();
+    if (subject.isNotEmpty) return subject;
+    final id = docId.toLowerCase();
+    if (id.contains('toan')) return 'Toán';
+    if (id.contains('van')) return 'Ngữ văn';
+    if (id.contains('anh')) return 'Tiếng Anh';
+    return 'Buổi học';
+  }
+
+  Future<String> _teacherName(String teacherId, Map<String, String> cache) async {
+    if (teacherId.isEmpty) return '';
+    final cached = cache[teacherId];
+    if (cached != null) return cached;
+
+    String name = '';
+    try {
+      var doc = await _db.collection('teachers').doc(teacherId).get();
+      if (!doc.exists) {
+        doc = await _db.collection('teacher').doc(teacherId).get();
+      }
+      name = (doc.data()?['name'] ?? '').toString();
+    } catch (e) {
+      debugPrint('Lỗi tải giáo viên $teacherId: $e');
+    }
+    cache[teacherId] = name;
+    return name;
+  }
+
+  DateTime? _toDate(dynamic v) {
+    if (v is Timestamp) return v.toDate();
+    if (v is DateTime) return v;
+    if (v is String) return DateTime.tryParse(v);
+    return null;
   }
 
   String _formatDate(dynamic value) {
