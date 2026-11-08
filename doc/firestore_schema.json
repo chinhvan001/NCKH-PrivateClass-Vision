@@ -1,0 +1,341 @@
+{
+  "admins": {
+    "type": "Collection",
+    "sample_doc_ids": [
+      "1uqKcDCX1kb0qB0ED01Hi3Zx9Sg1",
+      "E4ln9bqM5fUfS3uYwRwdXeH26Fw1"
+    ],
+    "fields": {
+      "name": "str (vd: Admin Test)",
+      "create_date": "Timestamp (2026-10-28T08:48:20.978000+00:00)",
+      "school": "str (vd: THPT Phan Châu Trinh)",
+      "phone_number": "str (vd: )",
+      "is_active": "bool (vd: True)",
+      "email": "str (vd: admin@test.com)"
+    }
+  },
+  "camera_configs": {
+    "type": "Collection",
+    "sample_doc_ids": [
+      "Camera 201",
+      "Camera 202"
+    ],
+    "fields": {
+      "updated_at": "Timestamp (2026-11-01T05:32:48.902000+00:00)",
+      "source": "str (vd: rtsp://admin:C1SE.31CAM@192.168.1.219:554/h264/ch1/main/av_stream)",
+      "updated_by": "str (vd: 1uqKcDCX1kb0qB0ED01Hi3Zx9Sg1)"
+    }
+  },
+  "cameras": {
+    "type": "Collection",
+    "sample_doc_ids": [
+      "Camera 201",
+      "Camera 202",
+      "p302",
+      "p303"
+    ],
+    "fields": {
+      "camera_name": "str (vd: Camera 201)",
+      "rtsp_port": "str (vd: 554)",
+      "room_name": "str (vd: 301)",
+      "updated_at": "Timestamp (2026-11-01T05:32:48.814000+00:00)",
+      "updated_by": "str (vd: 1uqKcDCX1kb0qB0ED01Hi3Zx9Sg1)",
+      "ip_address": "str (vd: 192.168.1.219)",
+      "camera_status": "str (vd: )",
+      "row_number": "int (vd: 5)",
+      "column_number": "int (vd: 8)",
+      "class_name": "str (vd: Phòng 303)"
+    }
+  },
+  "class_members": {
+    "type": "Collection",
+    "sample_doc_ids": [
+      "QAyFodvpIkTNU7VNzayM",
+      "kEAkQb7mTP3ltPrNCRW3",
+      "l60Zmhj5dCW5cazsOdcY",
+      "zVd6ETTvypRohefRdVQV"
+    ],
+    "fields": {
+      "class_id": "str (vd: lop12b2)",
+      "student_id": "str (vd: 28032005so8)",
+      "status": "str (vd: active)",
+      "assigned_at": "Timestamp (2026-10-27T08:51:06.835000+00:00)"
+    }
+  },
+  "classes2": {
+    "type": "Collection",
+    "sample_doc_ids": [
+      "AU8lrCJ2ytRgnBAe0nhh",
+      "E90UAfJrW2kPpTsW90f5",
+      "YCzaI6eGG2JhL3lAMLjJ",
+      "lop12a1",
+      "lop12b2"
+    ],
+    "fields": {
+      "seatmap": {
+        "1": {
+          "1": {
+            "student_id": "str (vd: )"
+          }
+        }
+      },
+      "seat_map": {
+        "S01": {
+          "seat_id": "str (vd: S01)",
+          "updated_at": "Timestamp (2026-10-23T15:05:47.086000+00:00)",
+          "column": "int (vd: 1)",
+          "student_id": "NoneType (vd: None)",
+          "status": "str (vd: empty)",
+          "row": "int (vd: 1)"
+        },
+        "S03": {
+          "seat_id": "str (vd: S03)",
+          "updated_at": "Timestamp (2026-10-23T15:05:47.086000+00:00)",
+          "column": "int (vd: 1)",
+          "student_id": "NoneType (vd: None)",
+          "status": "str (vd: empty)",
+          "row": "int (vd: 2)"
+        },
+        "S04": {
+          "seat_id": "str (vd: S04)",
+          "updated_at": "Timestamp (2026-10-23T15:05:47.086000+00:00)",
+          "column": "int (vd: 2)",
+          "student_id": "NoneType (vd: None)",
+          "status": "str (vd: empty)",
+          "row": "int (vd: 2)"
+        },
+        "S02": {
+          "seat_id": "str (vd: S02)",
+          "updated_at": "Timestamp (2026-10-23T15:05:47.086000+00:00)",
+          "column": "int (vd: 2)",
+          "student_id": "NoneType (vd: None)",
+          "status": "str (vd: empty)",
+          "row": "int (vd: 1)"
+        }
+      },
+      "school_year": "str (vd: 2026-2027)",
+      "updated_at": "Timestamp (2026-11-01T05:40:17.331000+00:00)",
+      "row_count": "int (vd: 2)",
+      "teacher_id": "str (vd: BZYtTFuXDQZd6KbpxmLrwbK3xyv1Y)",
+      "status": "str (vd: active)",
+      "created_at": "Timestamp (2026-11-01T05:34:14.727000+00:00)",
+      "camera_id": "str (vd: Camera 202)",
+      "class_name": "str (vd: 11B1)",
+      "column_count": "int (vd: 2)",
+      "subject": "str (vd: )",
+      "room": "str (vd: 301)"
+    }
+  },
+  "edge_nodes": {
+    "type": "Collection",
+    "sample_doc_ids": [
+      "Camera 201",
+      "Camera 202",
+      "p302",
+      "p303"
+    ],
+    "fields": {
+      "updated_at": "Timestamp (2026-11-01T11:50:17.821216+00:00)",
+      "class_id": "str (vd: YCzaI6eGG2JhL3lAMLjJ)",
+      "camera_ok": "NoneType (vd: None)",
+      "status": "str (vd: idle)",
+      "online": "bool (vd: True)",
+      "session_id": "NoneType (vd: None)",
+      "fps": "float (vd: 0.0)",
+      "last_frame_at": "NoneType (vd: None)"
+    }
+  },
+  "parents": {
+    "type": "Collection",
+    "sample_doc_ids": [
+      "3a8UpJU1UUNjsXKufBkAAuTbByW2",
+      "MfKMuHu5NreYs1A91O4YJ5AuZao2",
+      "VgIlZoQeW1eUb8bZhar3BEZkikU2",
+      "rRPADYU2gHV7DZgKRJH2R6Q1AJf2"
+    ],
+    "fields": {
+      "name": "str (vd: Nguyễn Phương Ngân)",
+      "birthday": "Timestamp (2018-09-17T17:00:00+00:00)",
+      "is_active": "bool (vd: True)",
+      "phone_number": "str (vd: 0910000001)",
+      "email": "str (vd: nphuongngan311@gmail.com)",
+      "create_date": "Timestamp (2026-08-04T17:00:00+00:00)",
+      "e-mail": "str (vd: cmax.24042006@gmail.com)"
+    }
+  },
+  "session_evaluations": {
+    "type": "Collection",
+    "sample_doc_ids": [
+      "rB4fZjhZomoKk5HPOS9y_S01",
+      "rB4fZjhZomoKk5HPOS9y_S02",
+      "rB4fZjhZomoKk5HPOS9y_S03",
+      "rB4fZjhZomoKk5HPOS9y_S04",
+      "rB4fZjhZomoKk5HPOS9y_S06"
+    ],
+    "fields": {
+      "seat_id": "str (vd: S01)",
+      "expire_at": "Timestamp (2027-10-28T09:42:49.884963+00:00)",
+      "concentration": "int (vd: 100)",
+      "distraction": "int (vd: 2)",
+      "captured_at": "Timestamp (2026-10-28T09:42:49.884661+00:00)",
+      "session_id": "str (vd: rB4fZjhZomoKk5HPOS9y)",
+      "avg_concentration": "int (vd: 92)",
+      "observed_sec": "int (vd: 1124)"
+    }
+  },
+  "session_results": {
+    "type": "Collection",
+    "sample_doc_ids": [
+      "rB4fZjhZomoKk5HPOS9y"
+    ],
+    "fields": {
+      "session_id": "str (vd: rB4fZjhZomoKk5HPOS9y)",
+      "captured_at": "Timestamp (2026-10-28T09:42:49.885385+00:00)",
+      "expire_at": "Timestamp (2027-10-28T09:42:49.885406+00:00)",
+      "monitoring_status": "str (vd: incomplete)",
+      "result_map": {
+        "S31": {
+          "interaction": "int (vd: 0)",
+          "status": "str (vd: focused)",
+          "concentration": "int (vd: 100)"
+        },
+        "S01": {
+          "interaction": "int (vd: 0)",
+          "status": "str (vd: focused)",
+          "concentration": "int (vd: 100)"
+        },
+        "S43": {
+          "interaction": "int (vd: 0)",
+          "status": "str (vd: away)",
+          "concentration": "NoneType (vd: None)"
+        },
+        "S02": {
+          "interaction": "int (vd: 0)",
+          "status": "str (vd: distracted)",
+          "concentration": "int (vd: 50)"
+        },
+        "S13": {
+          "interaction": "int (vd: 0)",
+          "status": "str (vd: away)",
+          "concentration": "NoneType (vd: None)"
+        },
+        "S04": {
+          "interaction": "int (vd: 0)",
+          "status": "str (vd: away)",
+          "concentration": "NoneType (vd: None)"
+        },
+        "S06": {
+          "interaction": "int (vd: 0)",
+          "status": "str (vd: focused)",
+          "concentration": "int (vd: 100)"
+        },
+        "S46": {
+          "interaction": "int (vd: 0)",
+          "status": "str (vd: away)",
+          "concentration": "NoneType (vd: None)"
+        },
+        "S07": {
+          "interaction": "int (vd: 0)",
+          "status": "str (vd: away)",
+          "concentration": "NoneType (vd: None)"
+        },
+        "S19": {
+          "interaction": "int (vd: 0)",
+          "status": "str (vd: away)",
+          "concentration": "NoneType (vd: None)"
+        },
+        "S08": {
+          "interaction": "int (vd: 0)",
+          "status": "str (vd: away)",
+          "concentration": "NoneType (vd: None)"
+        },
+        "S14": {
+          "interaction": "int (vd: 0)",
+          "status": "str (vd: away)",
+          "concentration": "NoneType (vd: None)"
+        },
+        "S37": {
+          "interaction": "int (vd: 0)",
+          "status": "str (vd: away)",
+          "concentration": "NoneType (vd: None)"
+        },
+        "S44": {
+          "interaction": "int (vd: 0)",
+          "status": "str (vd: away)",
+          "concentration": "NoneType (vd: None)"
+        },
+        "S03": {
+          "interaction": "int (vd: 0)",
+          "status": "str (vd: distracted)",
+          "concentration": "int (vd: 50)"
+        }
+      },
+      "camera_id": "str (vd: Camera 201)"
+    }
+  },
+  "sessions": {
+    "type": "Collection",
+    "sample_doc_ids": [
+      "0B89SEwelBDHgDjd5vJ5",
+      "0fS6s5LShRRCQMp4YMHy",
+      "1eiwTl8afQWgBbFnLbk3",
+      "4JDf2RAmYuOZDmpmFkzm",
+      "4QU9OYLn4Te0sBOjOIKm"
+    ],
+    "fields": {
+      "period": "int (vd: 1)",
+      "session_date": "str (vd: 2026-11-09)",
+      "class_id": "str (vd: lop12b2)",
+      "session_type": "str (vd: morning)",
+      "teacher_id": "str (vd: 0paAE9BUIWTdEnwb3c00QHsntQ03)",
+      "status": "str (vd: scheduled)",
+      "created_at": "Timestamp (2026-10-30T03:47:37.244000+00:00)",
+      "day_of_week": "int (vd: 1)",
+      "room": "str (vd: 302)",
+      "subject": "str (vd: Công nghệ)",
+      "start_time": "str (vd: 07:55)",
+      "end_time": "str (vd: 08:40)"
+    }
+  },
+  "students2": {
+    "type": "Collection",
+    "sample_doc_ids": [
+      "17092005so1",
+      "17092005so10",
+      "17092005so11",
+      "17092005so12",
+      "17092005so13"
+    ],
+    "fields": {
+      "updated_at": "Timestamp (2026-10-25T07:49:13.679658+00:00)",
+      "gender": "str (vd: Nữ)",
+      "status": "str (vd: Đang học)",
+      "is_active": "bool (vd: True)",
+      "created_at": "Timestamp (2026-10-25T07:49:13.679658+00:00)",
+      "parent_phonenumber": "str (vd: 0910000001)",
+      "full_name": "str (vd: Nguyễn Phương Ngân)",
+      "birthday": "Timestamp (2005-05-14T17:00:00+00:00)",
+      "parent_name": "str (vd: Nguyễn San)",
+      "parent_id": "str (vd: 3a8UpJU1UUNjsXKufBkAAuTbByW2)"
+    }
+  },
+  "teachers": {
+    "type": "Collection",
+    "sample_doc_ids": [
+      "077gzwSZqBAtz504cYCt",
+      "0paAE9BUIWTdEnwb3c00QHsntQ03",
+      "1PSAz8kdX5RHiZDUuoZ7",
+      "1jX5HL0B7HYbbmuEe0gU0sxKD8e2",
+      "3a8UpJU1UUNjsXKufBkAAuTbByW2"
+    ],
+    "fields": {
+      "name": "str (vd: Nguyễn Văn An)",
+      "create_date": "Timestamp (2026-11-01T10:24:10.644430+00:00)",
+      "phone_number": "str (vd: 905123456)",
+      "is_active": "bool (vd: True)",
+      "email": "str (vd: nguyenvanan@gmail.com)",
+      "subject": "str (vd: Toán)",
+      "nphuongngan311@gmail.com": "str (vd: )"
+    }
+  }
+}

@@ -68,6 +68,9 @@ class StudentModel {
       }
     }
 
+    final String statusStr = data['status']?.toString() ?? 'active';
+    final bool computedIsStudying = isStudying && statusStr != 'Đã nghỉ học' && statusStr != 'inactive';
+
     return StudentModel(
       id: doc.id,
       name: fullName,
@@ -83,9 +86,9 @@ class StudentModel {
         data,
         ['parent_phonenumber', 'parent_phone_number', 'phone_number'],
       ),
-      isStudying: isStudying,
+      isStudying: computedIsStudying,
       isActive: data['is_active'] != false,
-      status: data['status']?.toString() ?? 'active',
+      status: statusStr,
     );
   }
 

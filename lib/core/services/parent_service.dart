@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 
+import '../constants/firestore_constants.dart';
 import '../models/parent_model.dart';
 
 class ParentService {
@@ -9,7 +10,7 @@ class ParentService {
   FirebaseFirestore get _db => _injectedDb ?? FirebaseFirestore.instance;
 
   Future<ParentModel?> getParent(String uid) async {
-    final doc = await _db.collection('parents').doc(uid).get();
+    final doc = await _db.collection(FirestoreConstants.parents).doc(uid).get();
     return doc.exists ? ParentModel.fromFirestore(doc) : null;
   }
 
@@ -19,7 +20,7 @@ class ParentService {
   /// Khi giáo viên/admin sửa parent_id trên Firestore, app nhận thay đổi ngay.
   Stream<List<LinkedChild>> watchChildren({required String uid, String? email}) {
     return _db
-        .collection('students')
+        .collection(FirestoreConstants.students)
         .where('parent_id', isEqualTo: uid)
         .snapshots()
         .asyncMap((snap) async {
@@ -29,7 +30,7 @@ class ParentService {
 
       if (email != null && email.isNotEmpty) {
         final byEmail = await _db
-            .collection('students')
+            .collection(FirestoreConstants.students)
             .where('parent_email', isEqualTo: email)
             .get();
         for (final doc in byEmail.docs) {
@@ -50,7 +51,7 @@ class ParentService {
 
     // Một học sinh có thể học nhiều lớp -> lấy tất cả enrollments của học sinh
     final enrollSnap = await _db
-        .collection('enrollments')
+        .collection(FirestoreConstants.enrollments)
         .where('student_id', isEqualTo: studentDoc.id)
         .get();
 
@@ -71,14 +72,14 @@ class ParentService {
   }
 
   Future<ChildClass?> _fetchClass(String classId) async {
-    final classDoc = await _db.collection('classes').doc(classId).get();
+    final classDoc = await _db.collection(FirestoreConstants.classes).doc(classId).get();
     final cData = classDoc.data();
     if (cData == null) return null;
 
     String teacherName = '';
     final teacherId = (cData['teacher_id'] ?? '').toString();
     if (teacherId.isNotEmpty) {
-      final teacherDoc = await _db.collection('teachers').doc(teacherId).get();
+      final teacherDoc = await _db.collection(FirestoreConstants.teachers).doc(teacherId).get();
       teacherName = (teacherDoc.data()?['name'] ?? '').toString();
     }
 

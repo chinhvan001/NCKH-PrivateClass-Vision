@@ -7,6 +7,7 @@ import '../../../../core/constants/firestore_constants.dart';
 import '../../../../core/models/session_model.dart';
 import '../../../../core/models/session_student_model.dart';
 import '../../../../core/models/student_model.dart';
+import '../../../../core/utils/firestore_parsers.dart';
 
 class SessionDetailController extends ChangeNotifier {
   final String sessionId;
@@ -110,9 +111,21 @@ class SessionDetailController extends ChangeNotifier {
                               ? Map<String, dynamic>.from(classData['seat_map'])
                               : <String, dynamic>{}));
 
-                  final dynamic rawMonitoredStudents = data['monitored_students'] ??
+                  dynamic rawMonitoredStudents = data['monitored_students'] ??
                       data['mnoitored_student'] ??
                       data['monitored_student'];
+
+                  // Nếu session doc chưa có monitored_students, thử đọc từ collection session_results
+                  if (rawMonitoredStudents == null) {
+                    final resultDoc = await _firestore
+                        .collection(FirestoreConstants.sessionResults)
+                        .doc(sessionId)
+                        .get();
+                    if (resultDoc.exists && resultDoc.data() != null) {
+                      final resData = resultDoc.data()!;
+                      rawMonitoredStudents = resData['result_map'];
+                    }
+                  }
 
                   // Detect which field name was found so we can write back correctly
                   if (data.containsKey('monitored_students')) {
@@ -228,25 +241,53 @@ class SessionDetailController extends ChangeNotifier {
     Map<String, dynamic> entryData,
     Map<String, dynamic> classSeatmap,
   ) {
-    final model = SessionStudentModel.fromMapEntry(seatKey, entryData);
+    // 1. Tìm student_id từ entryData hoặc tra từ classSeatmap với seatKey
+    String? sid = FirestoreParsers.cleanId(entryData['student_id']);
+    int row = (entryData['row'] as num?)?.toInt() ?? 0;
+    int col = (entryData['column'] as num?)?.toInt() ?? (entryData['col'] as num?)?.toInt() ?? 0;
 
-    // If row/column are 0 (i.e. not stored in the monitored_students entry),
-    // try to resolve them from the class seatmap using the same seat key.
-    if (model.row == 0 && model.column == 0 && classSeatmap.containsKey(seatKey)) {
+    if (classSeatmap.containsKey(seatKey)) {
       final seatData = classSeatmap[seatKey];
       if (seatData is Map) {
         final seatMap = Map<String, dynamic>.from(seatData);
-        final resolvedRow = (seatMap['row'] as num?)?.toInt() ?? 0;
-        final resolvedCol =
-            (seatMap['column'] as num?)?.toInt() ??
-            (seatMap['col'] as num?)?.toInt() ?? 0;
-        if (resolvedRow > 0 && resolvedCol > 0) {
-          return model.copyWith(row: resolvedRow, column: resolvedCol);
+        if (sid == null || sid.isEmpty) {
+          sid = FirestoreParsers.cleanId(seatMap['student_id']);
+        }
+        if (row == 0) row = (seatMap['row'] as num?)?.toInt() ?? 0;
+        if (col == 0) {
+          col = (seatMap['column'] as num?)?.toInt() ?? (seatMap['col'] as num?)?.toInt() ?? 0;
         }
       }
     }
 
-    return model;
+    // 2. Map AI status ("focused", "distracted", "away") sang status/is_present/is_attention
+    final String statusStr = entryData['status']?.toString() ?? '';
+    bool isPresent = entryData['is_present'] == true;
+    bool isAttention = entryData['is_attention'] != false;
+    double? attentionScore = (entryData['attention_score'] as num?)?.toDouble() ??
+        (entryData['concentration'] as num?)?.toDouble();
+
+    if (statusStr == 'focused') {
+      isPresent = true;
+      isAttention = true;
+    } else if (statusStr == 'distracted') {
+      isPresent = true;
+      isAttention = false;
+    } else if (statusStr == 'away') {
+      isPresent = false;
+      isAttention = false;
+    }
+
+    return SessionStudentModel(
+      seatId: seatKey,
+      studentId: sid ?? '',
+      row: row,
+      column: col,
+      isPresent: isPresent,
+      isAttention: isAttention,
+      attentionScore: attentionScore,
+      note: entryData['note']?.toString() ?? '',
+    );
   }
 
   Future<void> _fetchStudentDetails() async {

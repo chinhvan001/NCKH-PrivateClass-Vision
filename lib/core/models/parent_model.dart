@@ -21,7 +21,7 @@ class ParentModel {
     return ParentModel(
       uid: doc.id,
       name: data['name'] ?? 'Chưa cập nhật',
-      email: data['email'] ?? 'Chưa cập nhật',
+      email: data['email'] ?? data['e-mail'] ?? 'Chưa cập nhật',
       phoneNumber: data['phone_number'] ?? 'Chưa cập nhật',
       isActive: data['is_active'] != false,
     );

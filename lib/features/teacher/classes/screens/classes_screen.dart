@@ -83,28 +83,30 @@ class ClassScreen extends StatelessWidget {
                       padding: const EdgeInsets.fromLTRB(16, 20, 16, 24),
                       itemCount: docs.length,
                       itemBuilder: (context, index) {
-                        final data = docs[index].data() as Map<String, dynamic>;
-                        final String docId = docs[index].id;
-                        final String roomId = (data['classroom_id'] ?? '')
-                            .toString();
+                        final doc = docs[index];
+                        final data = doc.data() as Map<String, dynamic>;
+                        final String camId = data['camera_id']?.toString() ?? '';
 
-                        return FutureBuilder<String>(
-                          future: classroomService.getClassroomName(roomId),
-                          builder: (context, roomSnapshot) {
-                            final String displayRoom =
-                                roomSnapshot.data ?? roomId;
+                        return FutureBuilder<(String, int)>(
+                          future: Future.wait([
+                            camId.isNotEmpty
+                                ? classroomService.getClassroomName(camId)
+                                : Future.value(data['room']?.toString() ?? 'Chưa xếp phòng'),
+                            classroomService.getClassStudentCount(doc.id, data),
+                          ]).then((results) => (results[0] as String, results[1] as int)),
+                          builder: (context, snapshot) {
+                            final String displayRoom = snapshot.data?.$1 ??
+                                data['room']?.toString() ??
+                                'Chưa xếp phòng';
+                            final int studentCount = snapshot.data?.$2 ??
+                                ClassModel.fromFirestore(doc).students;
 
-                            final ClassModel cls = ClassModel(
-                              id: docId,
-                              name: data['class_name'] ?? 'Lớp học',
-                              room: displayRoom,
-                              schedule: '',
-                              students:
-                                  (data['class_size'] as num?)?.toInt() ?? 0,
-                              grade: (data['grade'] ?? '12').toString(),
-                            );
+                            final ClassModel cls = ClassModel.fromFirestore(
+                              doc,
+                              roomName: displayRoom,
+                            ).copyWith(students: studentCount);
 
-                            return _buildClassCard(context, cls, docId);
+                            return _buildClassCard(context, cls, doc.id);
                           },
                         );
                       },
