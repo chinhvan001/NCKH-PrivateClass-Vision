@@ -1,16 +1,25 @@
 import 'package:flutter/material.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:flutter_privateclass_vision/features/teacher/seating_manager/widgets/classroom_matrix_service.dart';
-import 'package:flutter_privateclass_vision/features/teacher/seating_manager/widgets/student_service.dart';
-
-// Import 3 Service đã tách
-import '../../../../core/services/student_service.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter_privateclass_vision/features/teacher/seating_manager/screens/seating_grid.dart';
+import 'package:flutter_privateclass_vision/features/teacher/seating_manager/screens/seating_layout_builder.dart';
+import 'package:flutter_privateclass_vision/features/teacher/seating_manager/screens/seating_save_validator.dart';
+import 'package:flutter_privateclass_vision/features/teacher/seating_manager/screens/student_picker_sheet.dart';
 
 import '../../../../../core/constants/app_colors.dart';
-import '../../../../../core/models/student_model.dart';
+import 'seat_models.dart';
 import '../widgets/seating_components.dart';
+import 'seating_manager_repository.dart';
 
 enum ManagerMode { view, edit }
+
+/// Ném ra khi mở màn hình mà không có người dùng nào đang đăng nhập
+/// (không xác định được giáo viên hiện tại để kiểm tra quyền sở hữu lớp).
+class _NotLoggedInException implements Exception {
+  const _NotLoggedInException();
+
+  @override
+  String toString() => 'Chưa đăng nhập';
+}
 
 class SeatingManagerScreen extends StatefulWidget {
   final String? classId;
@@ -22,20 +31,25 @@ class SeatingManagerScreen extends StatefulWidget {
 }
 
 class _SeatingManagerScreenState extends State<SeatingManagerScreen> {
+  String? _targetClassId;
+  // Một stream duy nhất từ classes2: thông tin lớp + seat_map + roster.
+  Stream<ClassSeatData>? _classSeatStream;
+  late final Future<void> _resolveFuture;
+
+  // Kích thước ma trận phòng học - lấy động từ classes2.row_count/column_count,
+  // giá trị dưới đây chỉ là mặc định tạm dùng trước khi dữ liệu về.
+  int _rows = ClassInfo.fallback.rows;
+  int _cols = ClassInfo.fallback.cols;
+
+  final SeatingManagerRepository _repository = SeatingManagerRepository();
+
   ManagerMode _mode = ManagerMode.view;
   bool _isSaving = false;
-  bool _isInitialized = false;
+  String? _lastRosterSignature;
+  late final String? _teacherId;
 
-  // Khởi tạo các Service
-  final StudentService _studentService = StudentService();
-  final ClassService _classService = ClassService();
-  final ClassroomMatrixService _matrixService = ClassroomMatrixService();
-
-  late String _targetClassId;
-
-  // Biến lưu kích thước ma trận phòng học (Sẽ được cập nhật từ ClassroomMatrixService)
-  int _rows = 5;
-  int _cols = 8;
+  Set<int> _lockedCells = {};
+  Set<String> _rosterIds = {};
 
   late List<String?> _savedSeats;
   late List<String?> _draftSeats;
@@ -43,236 +57,263 @@ class _SeatingManagerScreenState extends State<SeatingManagerScreen> {
   @override
   void initState() {
     super.initState();
-    _targetClassId = widget.classId ?? 'EqRTu5xAcl5vdPVNy5IW';
+    _teacherId = FirebaseAuth.instance.currentUser?.uid;
     _savedSeats = List.filled(_rows * _cols, null);
     _draftSeats = List.filled(_rows * _cols, null);
+    _resolveFuture = _resolveClass();
   }
 
-  // Cập nhật lại kích thước ma trận và làm mới mảng ghế ngồi khi đổi ma trận phòng
+  Future<void> _resolveClass() async {
+    final teacherId = _teacherId;
+    if (teacherId == null) throw const _NotLoggedInException();
+
+    final classId =
+        widget.classId ?? await _repository.findClassIdByTeacher(teacherId);
+
+    _targetClassId = classId;
+    _classSeatStream = _repository.classSeatStream(
+      classId,
+      teacherId: teacherId,
+    );
+  }
+
+  // Cập nhật lại kích thước ma trận khi classes2.row_count/column_count
+  // thay đổi (hoặc lần đầu tải xong). Khi kích thước đổi, làm mới toàn bộ
+  // mảng ghế và buộc khởi tạo lại sơ đồ từ classes2.seat_map.
   void _updateMatrixDimensions(int newRows, int newCols) {
-    if (_rows != newRows || _cols != newCols) {
-      _rows = newRows;
-      _cols = newCols;
-      _savedSeats = List.filled(_rows * _cols, null);
-      _draftSeats = List.filled(_rows * _cols, null);
-      _isInitialized = false;
-    }
+    if (_rows == newRows && _cols == newCols) return;
+    _rows = newRows;
+    _cols = newCols;
+    _savedSeats = List.filled(_rows * _cols, null);
+    _draftSeats = List.filled(_rows * _cols, null);
+    _lastRosterSignature = null;
   }
 
-  // Khởi tạo sơ đồ từ tọa độ row/column lấy về từ enrollments
-  void _populateInitialSeats(List<StudentModel> roster) {
-    if (_isInitialized) return;
+  // Dựng lại sơ đồ từ classes2.seat_map khi dữ liệu thật sự đổi.
+  void _syncSeats(ClassSeatData data) {
+    if (_mode == ManagerMode.edit) return; // đang sửa thì không ghi đè
+    final signature = SeatingLayoutBuilder.signature(data.entries);
+    if (signature == _lastRosterSignature) return; // dữ liệu chưa đổi
+    _lastRosterSignature = signature;
 
-    final List<String?> initialSeats = List.filled(_rows * _cols, null);
-    for (final student in roster) {
-      final r = student.row ?? 0;
-      final c = student.column ?? 0;
-
-      if (r > 0 && c > 0) {
-        final index = (r - 1) * _cols + (c - 1);
-        if (index >= 0 && index < initialSeats.length) {
-          initialSeats[index] = student.id;
-        }
-      }
-    }
-
-    _savedSeats = List.from(initialSeats);
-    _draftSeats = List.from(initialSeats);
-    _isInitialized = true;
+    final layout = SeatingLayoutBuilder.fromEntries(
+      data.entries,
+      rows: _rows,
+      cols: _cols,
+    );
+    _savedSeats = List.of(layout.seats);
+    _draftSeats = List.of(layout.seats);
   }
 
   int get _assignedCount =>
       (_mode == ManagerMode.edit ? _draftSeats : _savedSeats)
-          .where((s) => s != null)
+          .where((s) => s != null && _rosterIds.contains(s))
           .length;
 
-  List<StudentModel> _getUnassignedStudents(List<StudentModel> allStudents) {
+  String _accessErrorMessage(Object? error) {
+  if (error is NoClassFoundException) {
+    return 'Bạn không có lớp chủ nhiệm nào cả.';
+  }
+  if (error is ClassAccessDeniedException) {
+    return 'Bạn không có quyền truy cập lớp học này.';
+  }
+  if (error is _NotLoggedInException) {
+    return 'Vui lòng đăng nhập để xem sơ đồ lớp.';
+  }
+  return 'Không tải được thông tin lớp học: $error';
+}
+
+  List<SeatStudent> _unassignedStudents(List<SeatStudent> allStudents) {
     final usedIds = _draftSeats.where((s) => s != null).toSet();
     return allStudents.where((s) => !usedIds.contains(s.id)).toList();
   }
 
-  void _tapCell(int index, List<StudentModel> allStudents) {
-    if (_mode == ManagerMode.edit && _draftSeats[index] == null) {
-      _showStudentPicker(index, allStudents);
-    }
+  void _onTapCell(int index, List<SeatStudent> roster) {
+    if (_mode != ManagerMode.edit || _draftSeats[index] != null) return;
+    showStudentPickerSheet(
+      context,
+      unassignedStudents: _unassignedStudents(roster),
+      onSelect: (student) => setState(() => _draftSeats[index] = student.id),
+    );
   }
 
-  void _onAcceptDrag(int draggedIndex, int targetIndex) {
+  void _onSwapSeats(int fromIndex, int toIndex) {
     setState(() {
-      final temp = _draftSeats[targetIndex];
-      _draftSeats[targetIndex] = _draftSeats[draggedIndex];
-      _draftSeats[draggedIndex] = temp;
+      final temp = _draftSeats[toIndex];
+      _draftSeats[toIndex] = _draftSeats[fromIndex];
+      _draftSeats[fromIndex] = temp;
     });
   }
 
-  // Lưu sơ đồ thực tế vào bảng enrollments trên Firestore
-  Future<void> _save() async {
+  // Xóa toàn bộ học sinh khỏi bản NHÁP để xếp lại từ đầu. Chưa ghi Firestore:
+  // chỉ khi bấm "Lưu sơ đồ" (và đã xếp đủ học sinh) dữ liệu mới thay đổi,
+  // còn nút quay lại sẽ trả về sơ đồ đã lưu.
+  Future<void> _confirmClearAll() async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Xóa toàn bộ sơ đồ?'),
+        content: const Text(
+          'Bạn có chắc muốn xóa toàn bộ học sinh khỏi sơ đồ không? '
+          'Bạn cần xếp lại tất cả học sinh trước khi có thể lưu.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Hủy'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text(
+              'Xóa toàn bộ',
+              style: TextStyle(color: Colors.red),
+            ),
+          ),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+    setState(() => _draftSeats = List.filled(_rows * _cols, null));
+  }
+
+  // Lưu sơ đồ: toàn bộ logic Firestore nằm trong SeatingManagerRepository.
+  Future<void> _save(List<SeatStudent> roster) async {
+    final check = SeatingSaveValidator.validate(
+      draftSeats: _draftSeats,
+      roster: roster,
+      lockedCount: _lockedCells.length,
+    );
+    if (!check.canSave) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(check.message)));
+      return;
+    }
     setState(() => _isSaving = true);
-
     try {
-      final enrollmentsRef = FirebaseFirestore.instance.collection(
-        'enrollments',
+      await _repository.saveSeats(
+        classId: _targetClassId!,
+        draftSeats: _draftSeats,
+        cols: _cols,
+        requiredStudentIds: roster.map((s) => s.id),
+        lockedCells: _lockedCells,
       );
-      final querySnap = await enrollmentsRef
-          .where('class_id', isEqualTo: _targetClassId)
-          .get();
-
-      final batch = FirebaseFirestore.instance.batch();
-
-      for (final doc in querySnap.docs) {
-        final studentId = doc.data()['student_id'] as String?;
-        if (studentId == null) continue;
-
-        final seatIndex = _draftSeats.indexOf(studentId);
-        if (seatIndex != -1) {
-          final newRow = (seatIndex ~/ _cols) + 1;
-          final newCol = (seatIndex % _cols) + 1;
-          batch.update(doc.reference, {'row': newRow, 'column': newCol});
-        } else {
-          batch.update(doc.reference, {'row': 0, 'column': 0});
-        }
-      }
-
-      await batch.commit();
-
-      if (mounted) {
-        setState(() {
-          _savedSeats = List.from(_draftSeats);
-          _mode = ManagerMode.view;
-          _isSaving = false;
-        });
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Đã lưu sơ đồ lớp thành công!')),
-        );
-      }
+      if (!mounted) return;
+      setState(() {
+        _savedSeats = List.from(_draftSeats);
+        // Báo trước chữ ký sau khi lưu để snapshot cũ không ghi đè sơ đồ.
+        _lastRosterSignature =
+            SeatingLayoutBuilder.signatureAfterSave(_draftSeats, _cols);
+        _mode = ManagerMode.view;
+        _isSaving = false;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Đã lưu sơ đồ lớp thành công!')),
+      );
     } catch (e) {
-      if (mounted) {
-        setState(() => _isSaving = false);
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('Lỗi khi lưu sơ đồ: $e')));
-      }
+      if (!mounted) return;
+      setState(() => _isSaving = false);
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text('Lỗi khi lưu sơ đồ: $e')));
     }
   }
 
   @override
   Widget build(BuildContext context) {
+    return FutureBuilder<void>(
+      future: _resolveFuture,
+      builder: (context, snap) {
+        if (snap.connectionState != ConnectionState.done) {
+          return const Scaffold(
+            backgroundColor: AppColors.appBg,
+            body: Center(child: CircularProgressIndicator()),
+          );
+        }
+        if (snap.hasError) {
+          return Scaffold(
+            backgroundColor: AppColors.appBg,
+            body: Center(
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: Text(
+                  _accessErrorMessage(snap.error),
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(color: Colors.red),
+                ),
+              ),
+            ),
+          );
+        }
+        return _buildScreen(context);
+      },
+    );
+  }
+
+  Widget _buildScreen(BuildContext context) {
     return Scaffold(
       backgroundColor: AppColors.appBg,
-      body: FutureBuilder<Map<String, dynamic>?>(
-        // 1. Sử dụng ClassService để lấy chi tiết lớp học hiện tại
-        future: _classService.getClassDetail(_targetClassId),
-        builder: (context, classSnapshot) {
-          if (classSnapshot.connectionState == ConnectionState.waiting) {
+      body: StreamBuilder<ClassSeatData>(
+        stream: _classSeatStream,
+        builder: (context, snapshot) {
+          if (snapshot.hasError) {
+            return Center(
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: Text(
+                  _accessErrorMessage(snapshot.error),
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(color: Colors.red),
+                ),
+              ),
+            );
+          }
+
+          final data = snapshot.data;
+          if (data == null) {
             return const Center(child: CircularProgressIndicator());
           }
 
-          final classData = classSnapshot.data ?? {};
-          final String className = classData['class_name'] ?? 'Lớp học';
-          final String classroomId = classData['classroom_id'] ?? '';
+          final classInfo = data.info;
+          final roster = data.roster;
+          _rosterIds = roster.map((s) => s.id).toSet();
+          _lockedCells = data.lockedCells;
+          _updateMatrixDimensions(classInfo.rows, classInfo.cols);
+          _syncSeats(data);
 
-          // 2. Sử dụng ClassroomMatrixService để lấy cấu hình phòng học (số hàng, số cột)
-          return FutureBuilder<Map<String, dynamic>?>(
-            future: _matrixService.getClassroomMatrixInfo(classroomId),
-            builder: (context, matrixSnapshot) {
-              if (matrixSnapshot.connectionState == ConnectionState.waiting) {
-                return const Center(child: CircularProgressIndicator());
-              }
-
-              final matrixInfo = matrixSnapshot.data ?? {};
-              final int roomRows = matrixInfo['rows'] ?? 5;
-              final int roomCols = matrixInfo['cols'] ?? 8;
-              final String roomName =
-                  matrixInfo['classroom_name'] ?? classroomId;
-
-              // Cập nhật lại kích thước lưới phòng học nếu có thay đổi từ DB
-              _updateMatrixDimensions(roomRows, roomCols);
-
-              // 3. Sử dụng StudentService để lấy danh sách học sinh theo lớp
-              return StreamBuilder<List<StudentModel>>(
-                stream: _studentService.getStudentsStream(_targetClassId),
-                builder: (context, studentSnapshot) {
-                  if (studentSnapshot.connectionState ==
-                          ConnectionState.waiting &&
-                      !_isInitialized) {
-                    return Column(
-                      children: [
-                        _buildHeader(className, roomName),
-                        const Expanded(
-                          child: Center(child: CircularProgressIndicator()),
-                        ),
-                      ],
-                    );
-                  }
-
-                  if (studentSnapshot.hasError) {
-                    return Column(
-                      children: [
-                        _buildHeader(className, roomName),
-                        Expanded(
-                          child: Center(
-                            child: Text(
-                              'Lỗi tải dữ liệu: ${studentSnapshot.error}',
-                              style: const TextStyle(color: Colors.red),
-                            ),
-                          ),
-                        ),
-                      ],
-                    );
-                  }
-
-                  final List<StudentModel> homeroomRoster =
-                      studentSnapshot.data ?? [];
-
-                  if (!_isInitialized && homeroomRoster.isNotEmpty) {
-                    _populateInitialSeats(homeroomRoster);
-                  }
-
-                  final Map<String, Object> homeroomInfo = {
-                    'id': className,
-                    'name': className,
-                    'room': roomName,
-                    'size': homeroomRoster.length,
-                  };
-
-                  return Column(
-                    children: [
-                      _buildHeader(className, roomName),
-                      Expanded(
-                        child: Transform.translate(
-                          offset: const Offset(0, -16),
-                          child: Container(
-                            width: double.infinity,
-                            decoration: const BoxDecoration(
-                              color: AppColors.appBg,
-                              borderRadius: BorderRadius.only(
-                                topLeft: Radius.circular(24),
-                                topRight: Radius.circular(24),
-                              ),
-                            ),
-                            child: _mode == ManagerMode.edit
-                                ? _buildEditMode(homeroomRoster)
-                                : _buildViewMode(homeroomRoster, homeroomInfo),
-                          ),
-                        ),
+          return Column(
+            children: [
+              _buildHeader(classInfo),
+              Expanded(
+                child: Transform.translate(
+                  offset: const Offset(0, -16),
+                  child: Container(
+                    width: double.infinity,
+                    decoration: const BoxDecoration(
+                      color: AppColors.appBg,
+                      borderRadius: BorderRadius.only(
+                        topLeft: Radius.circular(24),
+                        topRight: Radius.circular(24),
                       ),
-                    ],
-                  );
-                },
-              );
-            },
+                    ),
+                    child: _mode == ManagerMode.edit
+                        ? _buildEditMode(roster)
+                        : _buildViewMode(roster, classInfo),
+                  ),
+                ),
+              ),
+            ],
           );
         },
       ),
     );
   }
 
-  Widget _buildHeader(String className, String roomName) {
-    final String title = _mode == ManagerMode.edit
-        ? "Sắp xếp chỗ ngồi"
-        : "Quản lý sơ đồ lớp";
-    final String subtitle = _mode == ManagerMode.edit
-        ? "Sơ đồ ${_rows}x$_cols · $className"
-        : "Phòng $roomName · Lớp chủ nhiệm";
+  Widget _buildHeader(ClassInfo classInfo) {
+    final title = _mode == ManagerMode.edit
+        ? 'Sắp xếp chỗ ngồi'
+        : 'Quản lý sơ đồ lớp';
+    final subtitle = _mode == ManagerMode.edit
+        ? 'Sơ đồ ${_rows}x$_cols · ${classInfo.className}'
+        : 'Phòng ${classInfo.roomName} · Lớp chủ nhiệm';
 
     return Container(
       width: double.infinity,
@@ -296,7 +337,7 @@ class _SeatingManagerScreenState extends State<SeatingManagerScreen> {
                 width: 36,
                 height: 36,
                 decoration: BoxDecoration(
-                  color: Colors.white.withOpacity(0.1),
+                  color: Colors.white.withValues(alpha: 0.1),
                   shape: BoxShape.circle,
                 ),
                 child: const Icon(
@@ -325,7 +366,7 @@ class _SeatingManagerScreenState extends State<SeatingManagerScreen> {
                   style: TextStyle(
                     fontSize: 13,
                     fontWeight: FontWeight.w500,
-                    color: Colors.white.withOpacity(0.7),
+                    color: Colors.white.withValues(alpha: 0.7),
                   ),
                 ),
               ],
@@ -336,7 +377,12 @@ class _SeatingManagerScreenState extends State<SeatingManagerScreen> {
     );
   }
 
-  Widget _buildEditMode(List<StudentModel> homeroomRoster) {
+  Widget _buildEditMode(List<SeatStudent> roster) {
+    final validation = SeatingSaveValidator.validate(
+      draftSeats: _draftSeats,
+      roster: roster,
+      lockedCount: _lockedCells.length,
+    );
     return Column(
       children: [
         Expanded(
@@ -347,10 +393,17 @@ class _SeatingManagerScreenState extends State<SeatingManagerScreen> {
               children: [
                 CountCard(
                   assignedCount: _assignedCount,
-                  totalSize: homeroomRoster.isNotEmpty
-                      ? homeroomRoster.length
+                  totalSize: roster.isNotEmpty
+                      ? roster.length
                       : (_rows * _cols),
                 ),
+                if (!validation.canSave) ...[
+                  const SizedBox(height: 12),
+                  Text(
+                    validation.message,
+                    style: const TextStyle(fontSize: 13, color: Colors.red),
+                  ),
+                ],
                 const SizedBox(height: 12),
                 const Text(
                   '• Chạm ô trống: Thêm học sinh.\n• Nhấn giữ và Kéo thả: Di chuyển / Đổi chỗ.',
@@ -360,10 +413,34 @@ class _SeatingManagerScreenState extends State<SeatingManagerScreen> {
                     height: 1.6,
                   ),
                 ),
+                const SizedBox(height: 12),
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: OutlinedButton.icon(
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: Colors.red,
+                      side: const BorderSide(color: Colors.red),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                    ),
+                    onPressed: (_isSaving || _assignedCount == 0)
+                        ? null
+                        : _confirmClearAll,
+                    icon: const Icon(Icons.delete_outline, size: 18),
+                    label: const Text('Xóa toàn bộ'),
+                  ),
+                ),
                 const SizedBox(height: 16),
-                _buildDragAndDropGrid(
+                SeatingGrid(
+                  rows: _rows,
+                  cols: _cols,
+                  seats: _draftSeats,
+                  homeroomRoster: roster,
                   isEdit: true,
-                  homeroomRoster: homeroomRoster,
+                  lockedCells: _lockedCells,
+                  onTapCell: (index) => _onTapCell(index, roster),
+                  onSwapSeats: _onSwapSeats,
                 ),
               ],
             ),
@@ -372,317 +449,162 @@ class _SeatingManagerScreenState extends State<SeatingManagerScreen> {
         _buildBottomButton(
           _isSaving ? 'Đang lưu...' : 'Lưu sơ đồ',
           Icons.check,
-          _isSaving ? () {} : _save,
+          enabled: validation.canSave,
+          onPressed: () => _save(roster),
         ),
       ],
     );
   }
 
-  Widget _buildViewMode(
-    List<StudentModel> homeroomRoster,
-    Map<String, Object> homeroomInfo,
-  ) {
+  Widget _buildViewMode(List<SeatStudent> roster, ClassInfo classInfo) {
+    final homeroomInfo = <String, Object>{
+      'id': classInfo.className,
+      'name': classInfo.className,
+      'room': classInfo.roomName,
+      'size': roster.length,
+    };
+
     return SingleChildScrollView(
       padding: const EdgeInsets.fromLTRB(16, 20, 16, 24),
       child: Column(
         children: [
           HomeroomInfoCard(info: homeroomInfo),
           const SizedBox(height: 20),
-          if (_assignedCount > 0) ...[
-            CountCard(
-              assignedCount: _assignedCount,
-              totalSize: homeroomRoster.isNotEmpty
-                  ? homeroomRoster.length
-                  : (_rows * _cols),
+          if (_assignedCount > 0)
+            ..._buildAssignedView(roster)
+          else
+            ..._buildEmptyView(roster),
+        ],
+      ),
+    );
+  }
+
+  List<Widget> _buildAssignedView(List<SeatStudent> roster) {
+    return [
+      CountCard(
+        assignedCount: _assignedCount,
+        totalSize: roster.isNotEmpty ? roster.length : (_rows * _cols),
+      ),
+      const SizedBox(height: 16),
+      SeatingGrid(
+        rows: _rows,
+        cols: _cols,
+        seats: _savedSeats,
+        homeroomRoster: roster,
+        isEdit: false,
+        lockedCells: _lockedCells,
+        onTapCell: (_) {},
+        onSwapSeats: (_, __) {},
+      ),
+      const SizedBox(height: 16),
+      SizedBox(
+        width: double.infinity,
+        height: 48,
+        child: ElevatedButton.icon(
+          style: ElevatedButton.styleFrom(
+            backgroundColor: AppColors.brand,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
             ),
-            const SizedBox(height: 16),
-            _buildDragAndDropGrid(
-              isEdit: false,
-              homeroomRoster: homeroomRoster,
+            elevation: 0,
+          ),
+          onPressed: () => setState(() {
+            _draftSeats = List.from(_savedSeats);
+            _mode = ManagerMode.edit;
+          }),
+          icon: const Icon(Icons.edit, size: 18, color: Colors.white),
+          label: const Text(
+            'Chỉnh sửa sơ đồ',
+            style: TextStyle(
+              fontSize: 15,
+              fontWeight: FontWeight.bold,
+              color: Colors.white,
             ),
-            const SizedBox(height: 16),
-            SizedBox(
-              width: double.infinity,
-              height: 48,
-              child: ElevatedButton.icon(
+          ),
+        ),
+      ),
+    ];
+  }
+
+  List<Widget> _buildEmptyView(List<SeatStudent> roster) {
+    return [
+      Card(
+        elevation: 0,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
+          side: const BorderSide(color: AppColors.hair),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 40),
+          child: Column(
+            children: [
+              Container(
+                width: 64,
+                height: 64,
+                decoration: BoxDecoration(
+                  color: AppColors.lightBlue,
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                child: const Icon(
+                  Icons.grid_on_rounded,
+                  size: 30,
+                  color: AppColors.brand,
+                ),
+              ),
+              const SizedBox(height: 16),
+              const Text(
+                'Chưa có sơ đồ lớp',
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                  color: AppColors.navy,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Hệ thống đã chuẩn bị sẵn sơ đồ $_rows x$_cols với ${roster.length} học sinh. Nhấn để gán học sinh vào vị trí.',
+                textAlign: TextAlign.center,
+                style: const TextStyle(fontSize: 13, color: AppColors.muted),
+              ),
+              const SizedBox(height: 20),
+              ElevatedButton.icon(
                 style: ElevatedButton.styleFrom(
                   backgroundColor: AppColors.brand,
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(12),
                   ),
                   elevation: 0,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 24,
+                    vertical: 12,
+                  ),
                 ),
                 onPressed: () => setState(() {
-                  _draftSeats = List.from(_savedSeats);
+                  _draftSeats = List.filled(_rows * _cols, null);
                   _mode = ManagerMode.edit;
                 }),
-                icon: const Icon(Icons.edit, size: 18, color: Colors.white),
+                icon: const Icon(Icons.add, size: 18, color: Colors.white),
                 label: const Text(
-                  'Chỉnh sửa sơ đồ',
+                  'Thiết lập sơ đồ ngay',
                   style: TextStyle(
-                    fontSize: 15,
                     fontWeight: FontWeight.bold,
                     color: Colors.white,
                   ),
                 ),
               ),
-            ),
-          ] else ...[
-            Card(
-              elevation: 0,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(16),
-                side: const BorderSide(color: AppColors.hair),
-              ),
-              child: Padding(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 24,
-                  vertical: 40,
-                ),
-                child: Column(
-                  children: [
-                    Container(
-                      width: 64,
-                      height: 64,
-                      decoration: BoxDecoration(
-                        color: AppColors.lightBlue,
-                        borderRadius: BorderRadius.circular(16),
-                      ),
-                      child: const Icon(
-                        Icons.grid_on_rounded,
-                        size: 30,
-                        color: AppColors.brand,
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                    const Text(
-                      'Chưa có sơ đồ lớp',
-                      style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                        color: AppColors.navy,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      'Hệ thống đã chuẩn bị sẵn sơ đồ $_rows x$_cols với ${homeroomRoster.length} học sinh. Nhấn để gán học sinh vào vị trí.',
-                      textAlign: TextAlign.center,
-                      style: const TextStyle(
-                        fontSize: 13,
-                        color: AppColors.muted,
-                      ),
-                    ),
-                    const SizedBox(height: 20),
-                    ElevatedButton.icon(
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: AppColors.brand,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        elevation: 0,
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 24,
-                          vertical: 12,
-                        ),
-                      ),
-                      onPressed: () => setState(() {
-                        _draftSeats = List.filled(_rows * _cols, null);
-                        _mode = ManagerMode.edit;
-                      }),
-                      icon: const Icon(
-                        Icons.add,
-                        size: 18,
-                        color: Colors.white,
-                      ),
-                      label: const Text(
-                        'Thiết lập sơ đồ ngay',
-                        style: TextStyle(
-                          fontWeight: FontWeight.bold,
-                          color: Colors.white,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ],
-        ],
+            ],
+          ),
+        ),
       ),
-    );
-  }
-
-  Widget _buildDragAndDropGrid({
-    required bool isEdit,
-    required List<StudentModel> homeroomRoster,
-  }) {
-    final List<String?> dataSeats = isEdit ? _draftSeats : _savedSeats;
-
-    return Column(
-      children: [
-        Container(
-          width: double.infinity,
-          padding: const EdgeInsets.symmetric(vertical: 8),
-          margin: const EdgeInsets.only(bottom: 20),
-          decoration: BoxDecoration(
-            color: AppColors.navy,
-            borderRadius: BorderRadius.circular(8),
-          ),
-          alignment: Alignment.center,
-          child: const Text(
-            'BỤC GIẢNG',
-            style: TextStyle(
-              fontSize: 11,
-              fontWeight: FontWeight.w700,
-              color: Colors.white,
-              letterSpacing: 2.0,
-            ),
-          ),
-        ),
-        GridView.builder(
-          shrinkWrap: true,
-          physics: const NeverScrollableScrollPhysics(),
-          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-            crossAxisCount: _cols,
-            crossAxisSpacing: 4,
-            mainAxisSpacing: 4,
-            childAspectRatio: 1.0,
-          ),
-          itemCount: _rows * _cols,
-          itemBuilder: (context, index) {
-            final studentId = dataSeats[index];
-
-            StudentModel? currentStudent;
-            if (studentId != null) {
-              try {
-                currentStudent = homeroomRoster.firstWhere(
-                  (s) => s.id == studentId,
-                );
-              } catch (_) {
-                currentStudent = null;
-              }
-            }
-
-            final Widget cellContent = Container(
-              decoration: BoxDecoration(
-                color: studentId != null
-                    ? const Color(0xFFE9F8EF)
-                    : AppColors.appBg,
-                border: Border.all(
-                  color: studentId != null
-                      ? const Color(0xFFBFE6CF)
-                      : AppColors.hair,
-                ),
-                borderRadius: BorderRadius.circular(6),
-              ),
-              child: studentId != null
-                  ? Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Text(
-                          currentStudent?.short ?? '...',
-                          style: const TextStyle(
-                            fontSize: 10,
-                            fontWeight: FontWeight.bold,
-                            color: Color(0xFF137A41),
-                          ),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ],
-                    )
-                  : (isEdit
-                        ? const Icon(
-                            Icons.add,
-                            size: 14,
-                            color: AppColors.muted,
-                          )
-                        : null),
-            );
-
-            if (!isEdit) return cellContent;
-
-            return DragTarget<int>(
-              onAccept: (draggedIndex) => _onAcceptDrag(draggedIndex, index),
-              builder: (context, candidateData, rejectedData) {
-                if (candidateData.isNotEmpty) {
-                  return Container(
-                    decoration: BoxDecoration(
-                      color: AppColors.lightBlue,
-                      border: Border.all(color: AppColors.brand, width: 2),
-                      borderRadius: BorderRadius.circular(6),
-                    ),
-                  );
-                }
-
-                if (studentId == null) {
-                  return InkWell(
-                    onTap: () => _tapCell(index, homeroomRoster),
-                    child: cellContent,
-                  );
-                }
-
-                return LongPressDraggable<int>(
-                  data: index,
-                  delay: const Duration(milliseconds: 150),
-                  feedback: Material(
-                    color: Colors.transparent,
-                    child: Transform.scale(
-                      scale: 1.2,
-                      child: SizedBox(
-                        width: MediaQuery.of(context).size.width / _cols - 4,
-                        height: MediaQuery.of(context).size.width / _cols - 4,
-                        child: Container(
-                          decoration: BoxDecoration(
-                            color: Colors.white,
-                            border: Border.all(
-                              color: AppColors.brand,
-                              width: 2,
-                            ),
-                            borderRadius: BorderRadius.circular(6),
-                            boxShadow: [
-                              BoxShadow(
-                                color: Colors.black.withOpacity(0.2),
-                                blurRadius: 10,
-                                offset: const Offset(0, 5),
-                              ),
-                            ],
-                          ),
-                          alignment: Alignment.center,
-                          child: Text(
-                            currentStudent?.short ?? '...',
-                            style: const TextStyle(
-                              fontSize: 10,
-                              fontWeight: FontWeight.bold,
-                              color: AppColors.brand,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                  childWhenDragging: Container(
-                    decoration: BoxDecoration(
-                      color: AppColors.appBg,
-                      border: Border.all(color: AppColors.hair),
-                      borderRadius: BorderRadius.circular(6),
-                    ),
-                  ),
-                  child: cellContent,
-                );
-              },
-            );
-          },
-        ),
-      ],
-    );
+    ];
   }
 
   Widget _buildBottomButton(
     String label,
-    IconData icon,
-    VoidCallback onPressed,
-  ) {
+    IconData icon, {
+    required bool enabled,
+    required VoidCallback onPressed,
+  }) {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: const BoxDecoration(
@@ -700,7 +622,8 @@ class _SeatingManagerScreenState extends State<SeatingManagerScreen> {
             ),
             elevation: 0,
           ),
-          onPressed: onPressed,
+          // null khi đang lưu -> nút tự chuyển style "disabled" mặc định của ElevatedButton.
+          onPressed: (_isSaving || !enabled) ? null : onPressed,
           icon: Icon(icon, size: 20, color: Colors.white),
           label: Text(
             label,
@@ -712,178 +635,6 @@ class _SeatingManagerScreenState extends State<SeatingManagerScreen> {
           ),
         ),
       ),
-    );
-  }
-
-  void _showStudentPicker(int cellIndex, List<StudentModel> homeroomRoster) {
-    final unassignedStudents = _getUnassignedStudents(homeroomRoster);
-
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (context) {
-        String query = '';
-        return StatefulBuilder(
-          builder: (context, setSheetState) {
-            final list = unassignedStudents
-                .where(
-                  (s) =>
-                      s.name.toLowerCase().contains(query.trim().toLowerCase()),
-                )
-                .toList();
-
-            return Container(
-              height: MediaQuery.of(context).size.height * 0.75,
-              padding: const EdgeInsets.all(16),
-              decoration: const BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-              ),
-              child: Column(
-                children: [
-                  Container(
-                    width: 40,
-                    height: 4,
-                    margin: const EdgeInsets.only(bottom: 16),
-                    decoration: BoxDecoration(
-                      color: AppColors.hair,
-                      borderRadius: BorderRadius.circular(4),
-                    ),
-                  ),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      const Text(
-                        'Chọn học sinh',
-                        style: TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.w800,
-                          color: AppColors.navy,
-                        ),
-                      ),
-                      Text(
-                        'Còn ${unassignedStudents.length} chưa xếp',
-                        style: const TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w600,
-                          color: AppColors.muted,
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 16),
-                  Container(
-                    height: 44,
-                    padding: const EdgeInsets.symmetric(horizontal: 14),
-                    decoration: BoxDecoration(
-                      color: AppColors.appBg,
-                      border: Border.all(color: AppColors.hair),
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: Row(
-                      children: [
-                        const Icon(
-                          Icons.search,
-                          color: AppColors.muted,
-                          size: 20,
-                        ),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: TextField(
-                            onChanged: (val) =>
-                                setSheetState(() => query = val),
-                            decoration: const InputDecoration(
-                              hintText: 'Tìm học sinh...',
-                              hintStyle: TextStyle(color: Colors.black38),
-                              border: InputBorder.none,
-                              isDense: true,
-                            ),
-                            style: const TextStyle(
-                              fontSize: 14,
-                              color: AppColors.navy,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  Expanded(
-                    child: list.isEmpty
-                        ? const Center(
-                            child: Text(
-                              'Đã xếp chỗ cho tất cả hoặc không tìm thấy.',
-                              style: TextStyle(
-                                fontSize: 14,
-                                color: AppColors.muted,
-                              ),
-                            ),
-                          )
-                        : ListView.builder(
-                            itemCount: list.length,
-                            itemBuilder: (context, index) {
-                              final s = list[index];
-                              return Padding(
-                                padding: const EdgeInsets.only(bottom: 8),
-                                child: InkWell(
-                                  onTap: () {
-                                    setState(() {
-                                      _draftSeats[cellIndex] = s.id;
-                                    });
-                                    Navigator.pop(context);
-                                  },
-                                  child: Container(
-                                    padding: const EdgeInsets.all(10),
-                                    decoration: BoxDecoration(
-                                      border: Border.all(color: AppColors.hair),
-                                      borderRadius: BorderRadius.circular(12),
-                                    ),
-                                    child: Row(
-                                      children: [
-                                        CircleAvatar(
-                                          radius: 16,
-                                          backgroundColor: AppColors.brand,
-                                          child: Text(
-                                            s.short.isNotEmpty
-                                                ? s.short[0]
-                                                : 'S',
-                                            style: const TextStyle(
-                                              color: Colors.white,
-                                              fontSize: 12,
-                                            ),
-                                          ),
-                                        ),
-                                        const SizedBox(width: 12),
-                                        Expanded(
-                                          child: Text(
-                                            s.name,
-                                            style: const TextStyle(
-                                              fontSize: 14,
-                                              fontWeight: FontWeight.bold,
-                                              color: AppColors.navy,
-                                            ),
-                                          ),
-                                        ),
-                                        const Icon(
-                                          Icons.add,
-                                          color: AppColors.brand,
-                                          size: 20,
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                ),
-                              );
-                            },
-                          ),
-                  ),
-                ],
-              ),
-            );
-          },
-        );
-      },
     );
   }
 }

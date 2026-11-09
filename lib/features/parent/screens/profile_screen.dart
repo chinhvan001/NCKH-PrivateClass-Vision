@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_privateclass_vision/core/models/parent_model.dart';
 import 'package:flutter_privateclass_vision/features/auth/controllers/active_role.dart';
 import 'package:flutter_privateclass_vision/features/parent/controllers/parent_session.dart';
 import 'package:flutter_privateclass_vision/features/parent/screens/widgets/common_widgets.dart';
@@ -26,7 +27,7 @@ class ProfileScreen extends StatelessWidget {
           onPressed: () =>
               Navigator.canPop(context) ? Navigator.pop(context) : null,
         ),
-        title: const Text('Hồ sơ học sinh', style: AppTextStyles.heading2),
+        title: const Text('Hồ sơ', style: AppTextStyles.heading2),
       ),
       body: ListenableBuilder(
         listenable: ParentSession.instance,
@@ -37,89 +38,103 @@ class ProfileScreen extends StatelessWidget {
 
   Widget _buildBody(BuildContext context) {
     final session = ParentSession.instance;
-    final child = session.selectedChild;
     final parent = session.parent;
+    final children = session.children;
+    final selectedId = session.selectedChild?.id;
 
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Student header
-          AppCard(
-            child: Row(
-              children: [
-                Container(
-                  width: 64,
-                  height: 64,
-                  decoration: BoxDecoration(
-                    color: AppColors.accentLight,
-                    shape: BoxShape.circle,
-                  ),
-                  child: const Icon(
-                    Icons.person,
-                    color: AppColors.primary,
-                    size: 36,
-                  ),
-                ),
-                const SizedBox(width: 14),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(child?.name ?? '', style: AppTextStyles.heading2),
-                      const SizedBox(height: 4),
-                      Text(
-                        child?.classDisplay ?? '',
-                        style: AppTextStyles.caption,
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 14),
-          // Personal info
+          // ── Hồ sơ phụ huynh (collection parents) ─────────────────────────
           AppCard(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text('Thông tin chung', style: AppTextStyles.heading3),
+                Row(
+                  children: [
+                    AvatarWidget(name: parent?.name ?? '', size: 56),
+                    const SizedBox(width: 14),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            _orDefault(parent?.name),
+                            style: AppTextStyles.heading2,
+                          ),
+                          const SizedBox(height: 2),
+                          const Text('Phụ huynh', style: AppTextStyles.caption),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
                 const SizedBox(height: 12),
+                const Divider(height: 1, color: AppColors.divider),
+                const SizedBox(height: 6),
                 _ProfileRow(
-                  label: 'Ngày sinh',
-                  value: (child?.birthday.isNotEmpty ?? false)
-                      ? child!.birthday
-                      : 'Chưa cập nhật',
+                  icon: Icons.person_outline_rounded,
+                  label: 'Họ tên',
+                  value: _orDefault(parent?.name),
                 ),
                 _ProfileRow(
-                  label: 'Giới tính',
-                  value: (child?.gender.isNotEmpty ?? false)
-                      ? child!.gender
-                      : 'Chưa cập nhật',
+                  icon: Icons.phone_outlined,
+                  label: 'Số điện thoại',
+                  value: _orDefault(parent?.phoneNumber),
                 ),
                 _ProfileRow(
-                  label: 'Giáo viên phụ trách',
-                  value: child?.teacherDisplay ?? 'Chưa cập nhật',
-                ),
-                _ProfileRow(
-                  label: 'Phụ huynh',
-                  value: parent?.name ?? 'Chưa cập nhật',
-                ),
-                _ProfileRow(
-                  label: 'SĐT liên hệ',
-                  value: parent?.phoneNumber ?? 'Chưa cập nhật',
-                ),
-                _ProfileRow(
-                  label: 'Email liên hệ',
-                  value: parent?.email ?? 'Chưa cập nhật',
+                  icon: Icons.mail_outline_rounded,
+                  label: 'Email',
+                  value: _orDefault(parent?.email),
                 ),
               ],
             ),
           ),
-          const SizedBox(height: 14),
-          // Report link
+          const SizedBox(height: 18),
+
+          // ── Danh sách con (students2 có parent_id = uid) ─────────────────
+          Row(
+            children: [
+              const Expanded(
+                child: Text('Con của tôi', style: AppTextStyles.heading3),
+              ),
+              Text('${children.length} học sinh', style: AppTextStyles.caption),
+            ],
+          ),
+          const SizedBox(height: 4),
+          const Text(
+            'Chọn một học sinh để xem thông tin ở các mục khác.',
+            style: AppTextStyles.caption,
+          ),
+          const SizedBox(height: 10),
+          if (children.isEmpty)
+            const AppCard(
+              child: Center(
+                child: Padding(
+                  padding: EdgeInsets.symmetric(vertical: 12),
+                  child: Text(
+                    'Chưa có học sinh nào được liên kết',
+                    style: AppTextStyles.caption,
+                  ),
+                ),
+              ),
+            )
+          else
+            ...children.map(
+              (child) => Padding(
+                padding: const EdgeInsets.only(bottom: 10),
+                child: _ChildTile(
+                  child: child,
+                  selected: child.id == selectedId,
+                  onTap: () => session.selectChild(child),
+                ),
+              ),
+            ),
+          const SizedBox(height: 8),
+
+          // ── Liên kết báo cáo ─────────────────────────────────────────────
           AppCard(
             onTap: () {
               Navigator.push(
@@ -155,13 +170,14 @@ class ProfileScreen extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 20),
+
+          // ── Đăng xuất ────────────────────────────────────────────────────
           SizedBox(
             width: double.infinity,
             height: 48,
             child: ElevatedButton(
               onPressed: () async {
                 try {
-                  // AuthWrapper sẽ tự chuyển về LoginScreen khi state đăng xuất thay đổi
                   await signOutAndResetRole();
                 } catch (e) {
                   debugPrint('Lỗi đăng xuất: $e');
@@ -190,13 +206,105 @@ class ProfileScreen extends StatelessWidget {
       ),
     );
   }
+
+  static String _orDefault(String? v) =>
+      (v != null && v.trim().isNotEmpty) ? v.trim() : 'Chưa cập nhật';
+}
+
+// ─── Thẻ một học sinh trong danh sách ──────────────────────────────────────
+class _ChildTile extends StatelessWidget {
+  final LinkedChild child;
+  final bool selected;
+  final VoidCallback onTap;
+
+  const _ChildTile({
+    required this.child,
+    required this.selected,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final statusColor = child.isActive ? AppColors.green : AppColors.textSecondary;
+    final statusBg = child.isActive ? AppColors.greenLight : AppColors.backgroundGrey;
+
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: selected ? AppColors.accentLight : Colors.white,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: selected ? AppColors.primary : AppColors.divider,
+            width: 1.5,
+          ),
+        ),
+        child: Row(
+          children: [
+            AvatarWidget(
+              name: child.name,
+              size: 46,
+              bgColor: selected ? AppColors.primary : AppColors.accentLight,
+              textColor: selected ? Colors.white : AppColors.primary,
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    child.name,
+                    style: AppTextStyles.heading3.copyWith(
+                      color: selected ? AppColors.primary : AppColors.textPrimary,
+                    ),
+                  ),
+                  const SizedBox(height: 3),
+                  Text(child.classDisplay, style: AppTextStyles.caption),
+                  const SizedBox(height: 6),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 3,
+                    ),
+                    decoration: BoxDecoration(
+                      color: statusBg,
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Text(
+                      child.statusDisplay,
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w600,
+                        color: statusColor,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Icon(
+              selected ? Icons.check_circle : Icons.radio_button_unchecked,
+              color: selected ? AppColors.primary : AppColors.textHint,
+              size: 22,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }
 
 class _ProfileRow extends StatelessWidget {
+  final IconData icon;
   final String label;
   final String value;
 
-  const _ProfileRow({required this.label, required this.value});
+  const _ProfileRow({
+    required this.icon,
+    required this.label,
+    required this.value,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -205,10 +313,9 @@ class _ProfileRow extends StatelessWidget {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          SizedBox(
-            width: 140,
-            child: Text(label, style: AppTextStyles.caption),
-          ),
+          Icon(icon, size: 16, color: AppColors.textSecondary),
+          const SizedBox(width: 8),
+          SizedBox(width: 100, child: Text(label, style: AppTextStyles.caption)),
           Expanded(child: Text(value, style: AppTextStyles.body2)),
         ],
       ),

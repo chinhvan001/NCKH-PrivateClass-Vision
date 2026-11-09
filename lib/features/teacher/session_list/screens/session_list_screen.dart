@@ -1,14 +1,16 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_privateclass_vision/core/models/session_model.dart';
 
-import '../../../../../core/constants/app_colors.dart';
-import '../../shared/widgets/shared_session_card.dart';
+import '../../../../../core/constants/app_colors.dart';         
+import '../widgets/session_list_card.dart';
 import '../../session_detail/screens/session_detail_screen.dart';
-import '../controllers/session_list_controller.dart';
 
 enum ViewPeriodMode { day, week }
 
 class SessionListScreen extends StatefulWidget {
-  const SessionListScreen({super.key});
+   const SessionListScreen({super.key});
 
   @override
   State<SessionListScreen> createState() => _SessionListScreenState();
@@ -17,9 +19,6 @@ class SessionListScreen extends StatefulWidget {
 class _SessionListScreenState extends State<SessionListScreen> {
   ViewPeriodMode _viewMode = ViewPeriodMode.week;
   int _offset = 0;
-
-  // --- Các biến quản lý dữ liệu thực ---
-  final SessionListController _controller = SessionListController();
 
   final Map<int, String> _weekdayLabels = {
     1: 'Thứ Hai',
@@ -31,57 +30,17 @@ class _SessionListScreenState extends State<SessionListScreen> {
     7: 'Chủ Nhật',
   };
 
-  @override
-  void initState() {
-    super.initState();
-    _controller.addListener(_onControllerUpdate);
-    _fetchData();
-  }
-
-  @override
-  void dispose() {
-    _controller.removeListener(_onControllerUpdate);
-    _controller.dispose();
-    super.dispose();
-  }
-
-  void _onControllerUpdate() {
-    if (mounted) setState(() {});
-  }
-
-  Future<void> _fetchData() async {
-    // Tạm thời bỏ lọc ngày để kiểm tra xem có dữ liệu trong DB không
-    // Nếu muốn bật lại lọc ngày, hãy bỏ comment đoạn code dưới đây
-    /*
-    final visibleDates = _getVisibleDates();
-    final startDate = DateTime(
-      visibleDates.first.year,
-      visibleDates.first.month,
-      visibleDates.first.day,
-      0,
-      0,
-      0,
-    );
-    final endDate = DateTime(
-      visibleDates.last.year,
-      visibleDates.last.month,
-      visibleDates.last.day,
-      23,
-      59,
-      59,
-    );
-    await _controller.loadSessionsForRange(startDate, endDate);
-    */
-
-    // Query toàn bộ sessions của teacher (hoặc toàn bộ nếu teacherId trống)
-    await _controller.loadSessionsForRange(null, null);
-  }
-
   String _formatDate(DateTime date) {
     final d = date.day.toString().padLeft(2, '0');
     final m = date.month.toString().padLeft(2, '0');
     final y = date.year.toString();
     return '$d/$m/$y';
+  }
+
+  String _formatTime(DateTime date) {
+    final h = date.hour.toString().padLeft(2, '0');
+    final m = date.minute.toString().padLeft(2, '0');
+    return '$h:$m';
   }
 
   DateTime _getTargetDate() {
@@ -104,149 +63,248 @@ class _SessionListScreenState extends State<SessionListScreen> {
     }
   }
 
-  int _getTotalCount(List<DateTime> dates) {
-    int total = 0;
-    for (final d in dates) {
-      final dateStr = _formatDate(d);
-      total += _controller.sessions.where((h) => h.date == dateStr).length;
+  // Tên lớp theo class_id (classes2.class_name) - cache để không đọc lại
+  // Firestore ở mỗi lần snapshot.
+  final Map<String, String> _classNameCache = {};
+  Stream<List<ScheduleItem>>? _schedulesStream;
+
+  @override
+  void initState() {
+    super.initState();
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid != null) _schedulesStream = _fetchSchedulesStream(uid);
+  }
+
+  Stream<List<ScheduleItem>> _fetchSchedulesStream(String teacherId) {
+    return FirebaseFirestore.instance
+        .collection('sessions')
+        .where('teacher_id', isEqualTo: teacherId)
+        .snapshots()
+        .asyncMap((snapshot) async {
+      // Bỏ qua phiên thiếu giờ bắt đầu/kết thúc.
+      final docs = snapshot.docs.where((d) {
+        final data = d.data();
+        return data['start_time'] is Timestamp &&
+            data['end_time'] is Timestamp;
+      }).toList();
+
+      await _loadClassNames({
+        for (final d in docs)
+          if ((d.data()['class_id'] ?? '').toString().isNotEmpty)
+            d.data()['class_id'].toString(),
+      });
+
+      final items = docs.map((doc) {
+        final classId = (doc.data()['class_id'] ?? '').toString();
+        return ScheduleItem.fromFirestore(
+          doc,
+          className: classId.isEmpty
+              ? 'Lớp chưa xác định'
+              : (_classNameCache[classId] ?? 'Lớp $classId'),
+        );
+      }).toList();
+
+      items.sort((a, b) => a.startTime.compareTo(b.startTime));
+      return items;
+    });
+  }
+
+  Future<void> _loadClassNames(Set<String> ids) async {
+    final missing = ids.where((id) => !_classNameCache.containsKey(id)).toList();
+    // whereIn tối đa 30 giá trị mỗi truy vấn.
+    for (var i = 0; i < missing.length; i += 30) {
+      final end = i + 30 > missing.length ? missing.length : i + 30;
+      final chunk = missing.sublist(i, end);
+      final snap = await FirebaseFirestore.instance
+          .collection('classes2')
+          .where(FieldPath.documentId, whereIn: chunk)
+          .get();
+      for (final d in snap.docs) {
+        _classNameCache[d.id] = (d.data()['class_name'] ?? 'Lớp ${d.id}').toString();
+      }
+      for (final id in chunk) {
+        _classNameCache.putIfAbsent(id, () => 'Lớp $id'); // lớp không tồn tại
+      }
     }
-    return total;
   }
 
   @override
   Widget build(BuildContext context) {
-    final visibleDates = _getVisibleDates();
-    final totalSessions = _getTotalCount(visibleDates);
-
-    return Scaffold(
-      backgroundColor: AppColors.appBg,
-      body: Column(
-        children: [
-          Container(
-            color: Colors.white,
-            child: Column(
-              children: [
-                _buildHeader(totalSessions),
-                Container(height: 1, color: AppColors.hair),
-                _buildFilterNavigator(),
-              ],
-            ),
+    if (_schedulesStream == null) {
+      return const Scaffold(
+        backgroundColor: AppColors.appBg,
+        body: Center(
+          child: Text(
+            'Vui lòng đăng nhập để xem danh sách phiên.',
+            style: TextStyle(fontSize: 14, color: AppColors.muted),
           ),
-          Expanded(
-            child: _controller.isLoading
-                ? const Center(
-                    child: CircularProgressIndicator(color: AppColors.navy),
-                  )
-                : (totalSessions == 0
-                      ? Center(
-                          child: Text(
-                            _viewMode == ViewPeriodMode.week
-                                ? 'Không có phiên nào trong tuần này.'
-                                : 'Không có phiên nào trong ngày này.',
-                            style: const TextStyle(
-                              fontSize: 14,
-                              color: AppColors.muted,
-                            ),
-                          ),
-                        )
-                      : RefreshIndicator(
-                          onRefresh: _fetchData,
-                          child: ListView.builder(
-                            padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
-                            itemCount: visibleDates.length,
-                            itemBuilder: (context, index) {
-                              final date = visibleDates[index];
-                              final dateStr = _formatDate(date);
-                              final dayLabel = _weekdayLabels[date.weekday] ?? '';
-                              final dayItems = _controller.sessions
-                                  .where((h) => h.date == dateStr)
-                                .toList();
+        ),
+      );
+    }
 
-                            if (_viewMode == ViewPeriodMode.week &&
-                                dayItems.isEmpty) {
-                              return const SizedBox.shrink();
-                            }
+    return StreamBuilder<List<ScheduleItem>>(
+      stream: _schedulesStream,
+      builder: (context, snapshot) {
+        if (snapshot.hasError) {
+          return Scaffold(
+            backgroundColor: AppColors.appBg,
+            body: Center(
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: Text(
+                  'Không tải được danh sách phiên: ${snapshot.error}',
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(color: Colors.red),
+                ),
+              ),
+            ),
+          );
+        }
 
-                            return Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                const SizedBox(height: 12),
-                                Container(
-                                  width: double.infinity,
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 16,
-                                    vertical: 8,
-                                  ),
-                                  decoration: BoxDecoration(
-                                    color: AppColors.navy,
-                                    borderRadius: BorderRadius.circular(20),
-                                  ),
-                                  child: Row(
-                                    children: [
-                                      Expanded(
-                                        child: Text(
-                                          '$dayLabel, $dateStr',
-                                          style: const TextStyle(
-                                            fontSize: 13,
-                                            fontWeight: FontWeight.w700,
-                                            color: Colors.white,
-                                          ),
-                                          textAlign: TextAlign.center,
-                                        ),
-                                      ),
-                                      Text(
-                                        '${dayItems.length}',
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Scaffold(
+            backgroundColor: AppColors.appBg,
+            body: Center(child: CircularProgressIndicator()),
+          );
+        }
+
+        final allSchedules = snapshot.data ?? [];
+        final visibleDates = _getVisibleDates();
+
+        final filteredSchedules = allSchedules.where((item) {
+          return visibleDates.any((d) =>
+              d.year == item.startTime.year &&
+              d.month == item.startTime.month &&
+              d.day == item.startTime.day);
+        }).toList();
+
+        final totalSessions = filteredSchedules.length;
+
+        return Scaffold(
+          backgroundColor: AppColors.appBg,
+          body: Column(
+            children: [
+              Container(
+                color: Colors.white,
+                child: Column(
+                  children: [
+                    _buildHeader(totalSessions),
+                    Container(height: 1, color: AppColors.hair),
+                    _buildFilterNavigator(),
+                  ],
+                ),
+              ),
+              Expanded(
+                child: totalSessions == 0
+                    ? Center(
+                        child: Text(
+                          _viewMode == ViewPeriodMode.week
+                              ? 'Không có phiên nào trong tuần này.'
+                              : 'Không có phiên nào trong ngày này.',
+                          style: const TextStyle(fontSize: 14, color: AppColors.muted),
+                        ),
+                      )
+                    : ListView.builder(
+                        padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+                        itemCount: visibleDates.length,
+                        itemBuilder: (context, index) {
+                          final date = visibleDates[index];
+                          final dateStr = _formatDate(date);
+                          final dayLabel = _weekdayLabels[date.weekday] ?? '';
+
+                          final dayItems = filteredSchedules.where((h) {
+                            return h.startTime.year == date.year &&
+                                h.startTime.month == date.month &&
+                                h.startTime.day == date.day;
+                          }).toList();
+
+                          if (_viewMode == ViewPeriodMode.week && dayItems.isEmpty) {
+                            return const SizedBox.shrink();
+                          }
+
+                          return Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const SizedBox(height: 12),
+                              Container(
+                                width: double.infinity,
+                                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                                decoration: BoxDecoration(
+                                  color: AppColors.navy,
+                                  borderRadius: BorderRadius.circular(20),
+                                ),
+                                child: Row(
+                                  children: [
+                                    Expanded(
+                                      child: Text(
+                                        '$dayLabel, $dateStr',
                                         style: const TextStyle(
                                           fontSize: 13,
                                           fontWeight: FontWeight.w700,
                                           color: Colors.white,
                                         ),
+                                        textAlign: TextAlign.center,
                                       ),
-                                      const SizedBox(width: 4),
-                                      const Icon(
-                                        Icons.keyboard_arrow_up,
-                                        size: 18,
+                                    ),
+                                    Text(
+                                      '${dayItems.length}',
+                                      style: const TextStyle(
+                                        fontSize: 13,
+                                        fontWeight: FontWeight.w700,
                                         color: Colors.white,
                                       ),
-                                    ],
-                                  ),
-                                ),
-                                const SizedBox(height: 8),
-                                ...dayItems.map(
-                                  (item) => Padding(
-                                    padding: const EdgeInsets.only(bottom: 10),
-                                    child: SharedSessionCard(
-                                      session: item,
-                                      showClassInfo: true,
-                                      onTap: () {
-                                        Navigator.push(
-                                          context,
-                                          MaterialPageRoute(
-                                            builder: (context) =>
-                                                SessionDetailScreen(
-                                                  sessionId: item.id,
-                                                  classId: item.classId,
-                                                  className: item.className,
-                                                  room: item.room,
-                                                  start: item.start,
-                                                  end: item.end,
-                                                  date: item.date,
-                                                  status: item.status,
-                                                ),
-                                          ),
-                                        );
-                                      },
                                     ),
-                                  ),
+                                    const SizedBox(width: 4),
+                                    const Icon(
+                                      Icons.keyboard_arrow_up,
+                                      size: 18,
+                                      color: Colors.white,
+                                    ),
+                                  ],
                                 ),
-                              ],
-                            );
-                          },
-                        ),
-                      )),
+                              ),
+                              const SizedBox(height: 8),
+                              ...dayItems.map(
+                                (item) => SessionListCard(
+                                  item: HistItem(
+                                    id: item.id,
+                                    classId: item.classId,
+                                    className: item.className,
+                                    room: item.roomName,
+                                    date: _formatDate(item.startTime),
+                                    start: _formatTime(item.startTime),
+                                    end: _formatTime(item.endTime),
+                                    size: item.studentCount,
+                                    status: item.status,
+                                  ),
+                                  onTap: () {
+                                    Navigator.push(
+                                      context,
+                                      MaterialPageRoute(
+                                        builder: (context) => SessionDetailScreen(
+                                          sessionId: item.id,  
+                                          classId: item.classId,
+                                          className: item.className,
+                                          room: item.roomName,
+                                          start: _formatTime(item.startTime),
+                                          end: _formatTime(item.endTime),
+                                          date: _formatDate(item.startTime),
+                                          status: item.status,
+                                        ),
+                                      ),
+                                    );
+                                  },
+                                ),
+                              ),
+                            ],
+                          );
+                        },
+                      ),
+              ),
+            ],
           ),
-        ],
-      ),
+        );
+      },
     );
   }
 
@@ -292,7 +350,6 @@ class _SessionListScreenState extends State<SessionListScreen> {
             _viewMode = mode;
             _offset = 0;
           });
-          _fetchData();
         }
       },
       child: Container(
@@ -346,10 +403,7 @@ class _SessionListScreenState extends State<SessionListScreen> {
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
           InkWell(
-            onTap: () {
-              setState(() => _offset--);
-              _fetchData();
-            },
+            onTap: () => setState(() => _offset--),
             borderRadius: BorderRadius.circular(8),
             child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
@@ -374,8 +428,7 @@ class _SessionListScreenState extends State<SessionListScreen> {
               label,
               textAlign: TextAlign.center,
               style: const TextStyle(
-                fontSize:
-                    12, // Giảm nhẹ font từ 13 xuống 12 để vừa màn hình nhỏ
+                fontSize: 12, // Giảm nhẹ font từ 13 xuống 12 để vừa màn hình nhỏ
                 fontWeight: FontWeight.bold,
                 color: AppColors.navy,
               ),
@@ -384,10 +437,7 @@ class _SessionListScreenState extends State<SessionListScreen> {
             ),
           ),
           InkWell(
-            onTap: () {
-              setState(() => _offset++);
-              _fetchData();
-            },
+            onTap: () => setState(() => _offset++),
             borderRadius: BorderRadius.circular(8),
             child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),

@@ -38,14 +38,13 @@ class SeatSlotModel {
         'status': studentId != null ? 'occupied' : 'empty',
       };
 }
-
 class ClassModel {
   final String id;
   final String name;
   final String grade;
   final String room; // display name resolved from camera / classroom
   final String schedule;
-  final int students; // class_size
+  final int students; // đếm từ seatmap nếu không có class_size
   final String classroomId; // kept for backward compat
   final String cameraId;
   final String teacherId;
@@ -82,6 +81,7 @@ class ClassModel {
     final String cId = FirestoreParsers.string(data, ['classroom_id']);
     final String camId = FirestoreParsers.string(data, ['camera_id']);
     final String tId = FirestoreParsers.string(data, ['teacher_id']);
+    final String roomField = FirestoreParsers.string(data, ['room']);
     final int size = FirestoreParsers.integer(data, ['class_size', 'students']);
     final int year = FirestoreParsers.integer(data, ['school_year']);
     final int rows = FirestoreParsers.integer(data, ['row_count', 'rows'], 5);
@@ -97,7 +97,6 @@ class ClassModel {
                     ? 'Khối 10'
                     : '');
 
-    // Parse seatmap (Map<String, Map>) with typo fallback
     final Map<String, SeatSlotModel> parsedSeatmap = {};
     final rawSeatmap = data['seatmap'] ?? data['seat_map'];
     if (rawSeatmap is Map) {
@@ -109,13 +108,20 @@ class ClassModel {
       });
     }
 
+    final int counted = parsedSeatmap.values
+        .where((s) => s.studentId != null && s.studentId!.isNotEmpty)
+        .length;
+
     return ClassModel(
       id: doc.id,
       name: name,
       grade: gradeStr,
-      room: roomName ?? (cId.isNotEmpty ? cId : 'Chưa xếp phòng'),
+      room: roomName ??
+          (roomField.isNotEmpty
+              ? roomField
+              : (cId.isNotEmpty ? cId : 'Chưa xếp phòng')),
       schedule: data['schedule']?.toString() ?? '',
-      students: size,
+      students: size > 0 ? size : counted,
       classroomId: cId,
       cameraId: camId,
       teacherId: tId,

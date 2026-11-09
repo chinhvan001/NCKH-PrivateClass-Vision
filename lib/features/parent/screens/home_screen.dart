@@ -29,7 +29,6 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void initState() {
     super.initState();
-    // AuthWrapper chỉ mở HomeScreen khi đã đăng nhập và có document parents/{uid}
     _session.attach(widget.uid, email: widget.email);
   }
 
@@ -223,15 +222,20 @@ class _HomeContent extends StatelessWidget {
                           ),
                           const SizedBox(width: 8),
                           Expanded(
-                            // TODO: số liệu tập trung sẽ nối Firestore ở tuần tích hợp buổi học
                             child: ListenableBuilder(
                               listenable: ParentSession.instance,
-                              builder: (context, _) => Text(
-                                'Hôm nay ${ParentSession.instance.selectedChild?.shortName ?? 'con'} tập trung tốt hơn 15% so với buổi trước.',
-                                style: AppTextStyles.caption.copyWith(
-                                  color: AppColors.primary,
-                                ),
-                              ),
+                              builder: (context, _) {
+                                final child = ParentSession.instance.selectedChild;
+                                final displayName = child != null && child.name.trim().isNotEmpty
+                                    ? child.name.trim().split(' ').last
+                                    : 'con';
+                                return Text(
+                                  'Hôm nay $displayName tập trung tốt hơn 15% so với buổi trước.',
+                                  style: AppTextStyles.caption.copyWith(
+                                    color: AppColors.primary,
+                                  ),
+                                );
+                              },
                             ),
                           ),
                         ],
@@ -370,7 +374,7 @@ class _HomeContent extends StatelessWidget {
                     borderRadius: BorderRadius.circular(14),
                     boxShadow: [
                       BoxShadow(
-                        color: AppColors.primary.withValues(alpha: 0.28),
+                        color: AppColors.primary.withOpacity(0.28),
                         blurRadius: 12,
                         offset: const Offset(0, 4),
                       ),
@@ -381,7 +385,7 @@ class _HomeContent extends StatelessWidget {
                       Container(
                         padding: const EdgeInsets.all(10),
                         decoration: BoxDecoration(
-                          color: Colors.white.withValues(alpha: 0.18),
+                          color: Colors.white.withOpacity(0.18),
                           borderRadius: BorderRadius.circular(10),
                         ),
                         child: const Icon(
@@ -417,7 +421,7 @@ class _HomeContent extends StatelessWidget {
                       Container(
                         padding: const EdgeInsets.all(6),
                         decoration: BoxDecoration(
-                          color: Colors.white.withValues(alpha: 0.18),
+                          color: Colors.white.withOpacity(0.18),
                           shape: BoxShape.circle,
                         ),
                         child: const Icon(
@@ -539,7 +543,7 @@ class _AnimatedButtonState extends State<_AnimatedButton>
     ).animate(CurvedAnimation(parent: _ctrl, curve: Curves.easeInOut));
     _color = ColorTween(
       begin: Colors.transparent,
-      end: AppColors.primary.withValues(alpha: 0.08),
+      end: AppColors.primary.withOpacity(0.08),
     ).animate(_ctrl);
   }
 
@@ -777,7 +781,7 @@ class _FocusCard extends StatelessWidget {
                   value: percent / 100,
                   strokeWidth: 5,
                   strokeCap: StrokeCap.round,
-                  backgroundColor: Colors.white.withValues(alpha: 0.6),
+                  backgroundColor: Colors.white.withOpacity(0.6),
                   valueColor: AlwaysStoppedAnimation<Color>(color),
                 ),
                 Text(

@@ -20,7 +20,7 @@ class AppBottomNavBar extends StatelessWidget {
     _NavItem(
       icon: Icons.history_outlined,
       activeIcon: Icons.history_rounded,
-      label: 'Lịch sử',
+      label: 'Thời khóa biểu',
     ),
     _NavItem(
       icon: Icons.notifications_none_rounded,
