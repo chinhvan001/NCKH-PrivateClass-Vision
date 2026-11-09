@@ -31,7 +31,7 @@ class ClassroomService {
       if (camDoc.exists && camDoc.data() != null) {
         final data = camDoc.data()!;
         final String roomName =
-            data['classroom_name'] ?? data['camera_name'] ?? data['name'] ?? cleanId;
+            data['room_name'] ?? data['camera_name'] ?? data['name'] ?? cleanId;
         _roomCache[cleanId] = roomName;
         return roomName;
       }
