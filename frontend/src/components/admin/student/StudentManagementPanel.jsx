@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { 
   Users, UserCheck, UserX, Clock, Search, RefreshCw, 
   Plus, Eye, Edit, Trash2, X, CheckCircle, AlertCircle, ChevronLeft, ChevronRight, Archive, Upload
@@ -14,8 +14,8 @@ export default function StudentManagementPanel() {
   const [loading, setLoading] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   
-  // Bộ lọc Khối (mặc định '12'), Lớp và Trạng thái
-  const [selectedGradeFilter, setSelectedGradeFilter] = useState('12');
+  // Bộ lọc Khối, Lớp và Trạng thái
+  const [selectedGradeFilter, setSelectedGradeFilter] = useState('');
   const [selectedClassFilter, setSelectedClassFilter] = useState('');
   const [selectedStatusFilter, setSelectedStatusFilter] = useState('');
 
@@ -23,7 +23,6 @@ export default function StudentManagementPanel() {
   const [currentPage, setCurrentPage] = useState(1);
   const pageSize = 20;
 
-  // Ref để scroll lên đầu bảng khi chuyển trang
   const tableTopRef = useRef(null);
   
   const [showAddModal, setShowAddModal] = useState(false);
@@ -44,36 +43,37 @@ export default function StudentManagementPanel() {
 
   const [notification, setNotification] = useState(null);
 
+  // Tải ngầm dữ liệu (Background Fetching & Caching) ngay khi mount
   useEffect(() => {
-    fetchStudents(false);
+    const cacheKey = 'app_students_cache_data';
+    const cachedData = sessionStorage.getItem(cacheKey);
+    
+    if (cachedData) {
+      try {
+        const parsed = JSON.parse(cachedData);
+        setStudents(parsed.data || []);
+        setStats(parsed.stats || { total: 0, active: 0, paused: 0, dropped: 0 });
+        setClassList(parsed.classes || []);
+      } catch (e) {}
+    }
+
+    // Luôn gọi ngầm để cập nhật dữ liệu mới nhất
+    fetchStudents(true);
   }, []);
 
   useEffect(() => {
     setCurrentPage(1);
   }, [selectedGradeFilter, selectedClassFilter, selectedStatusFilter, searchTerm]);
 
-  const fetchStudents = async (forceRefresh = false) => {
+  const fetchStudents = async (isBackground = false) => {
     const cacheKey = 'app_students_cache_data';
     const cacheTimeKey = 'app_students_cache_time';
     const now = new Date().getTime();
     
-    if (!forceRefresh) {
-      const cachedData = sessionStorage.getItem(cacheKey);
-      const cachedTime = sessionStorage.getItem(cacheTimeKey);
-      if (cachedData && cachedTime && (now - parseInt(cachedTime) < 180000)) {
-        try {
-          const parsed = JSON.parse(cachedData);
-          setStudents(parsed.data);
-          setStats(parsed.stats);
-          setClassList(parsed.classes || []);
-          return;
-        } catch (e) {
-          // Bỏ qua lỗi parse
-        }
-      }
+    if (!isBackground || students.length === 0) {
+      setLoading(true);
     }
 
-    setLoading(true);
     try {
       const response = await fetch('/api/v1/students', { headers: await getAuthHeaders() });
       const result = await response.json();
@@ -86,7 +86,9 @@ export default function StudentManagementPanel() {
         sessionStorage.setItem(cacheTimeKey, now.toString());
       }
     } catch (error) {
-      showNotify('Lỗi khi tải danh sách học sinh', 'error');
+      if (!isBackground) {
+        showNotify('Lỗi khi tải danh sách học sinh', 'error');
+      }
     } finally {
       setLoading(false);
     }
@@ -148,7 +150,7 @@ export default function StudentManagementPanel() {
         showNotify('Thêm học sinh thành công!');
         setShowAddModal(false);
         sessionStorage.removeItem('app_students_cache_data');
-        fetchStudents(true);
+        fetchStudents(false);
         setFormData({ full_name: '', birthday: '', gender: 'Nam', parent_phonenumber: '', parent_name: '', class_id: '', status: 'Đang học' });
       } else {
         showNotify(result.error || 'Thêm thất bại', 'error');
@@ -172,7 +174,7 @@ export default function StudentManagementPanel() {
         showNotify('Cập nhật thông tin học sinh thành công!');
         setShowEditModal(false);
         sessionStorage.removeItem('app_students_cache_data');
-        fetchStudents(true);
+        fetchStudents(false);
       } else {
         showNotify(result.error || 'Cập nhật thất bại', 'error');
       }
@@ -189,7 +191,7 @@ export default function StudentManagementPanel() {
       if (result.success) {
         showNotify('Đã cập nhật trạng thái học sinh');
         sessionStorage.removeItem('app_students_cache_data');
-        fetchStudents(true);
+        fetchStudents(false);
       } else {
         showNotify(result.error, 'error');
       }
@@ -214,46 +216,86 @@ export default function StudentManagementPanel() {
   };
 
   const handleDeleteReport = (reportIdx) => {
-    if (!window.confirm('Bạn có chắc muốn xóa báo cáo này?')) return;
-    const updatedNotes = [...(selectedStudent.notes || [
-      { teacher_name: 'Nguyễn Văn A', created_at: '14:30 - 27/10/2026', content: 'Học sinh tập trung tốt trong giờ học toán, hoàn thành đầy đủ bài tập về nhà.' },
-      { teacher_name: 'Trần Thị B', created_at: '09:15 - 24/10/2026', content: 'Đi học muộn 10 phút, cần nhắc nhở tác phong.' }
-    ])];
+    if (!window.confirm('Bạn có chắc muốn xóa ghi chú này?')) return;
+    const updatedNotes = [...(selectedStudent.notes || [])];
     updatedNotes.splice(reportIdx, 1);
     setSelectedStudent({ ...selectedStudent, notes: updatedNotes });
     showNotify('Đã xóa báo cáo thành công');
   };
 
-  const handleArchiveReport = (reportIdx) => {
-    showNotify('Đã lưu trữ báo cáo thành công');
+  const parseFullName = (fullName) => {
+    const trimmed = (fullName || "").trim();
+    if (!trimmed || trimmed === "Chưa cập nhật") {
+      return { firstName: "zzz", fullName: trimmed };
+    }
+    const parts = trimmed.split(/\s+/);
+    const firstName = parts[parts.length - 1];
+    return { firstName, fullName: trimmed };
   };
 
-  // Lọc theo Khối, Lớp, Trạng thái, Từ khóa tìm kiếm và Sắp xếp A-B-C
-  const filteredStudents = students.filter(s => {
-    const matchesSearch = 
-      s.full_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      (s.phone_number && s.phone_number.includes(searchTerm));
-    
-    const matchesClass = 
-      !selectedClassFilter || 
-      s.class_id === selectedClassFilter || 
-      s.current_class === selectedClassFilter;
+  const sortedAndIndexedStudents = useMemo(() => {
+    const sorted = [...students].sort((a, b) => {
+      const personA = parseFullName(a.full_name);
+      const personB = parseFullName(b.full_name);
 
-    const matchesGrade = 
-      !selectedGradeFilter || 
-      (s.current_class && s.current_class.startsWith(selectedGradeFilter)) ||
-      (s.grade && String(s.grade) === selectedGradeFilter);
+      const compareFirstName = personA.firstName.localeCompare(
+        personB.firstName,
+        'vi',
+        { sensitivity: 'accent', numeric: true }
+      );
 
-    const matchesStatus = 
-      !selectedStatusFilter || 
-      s.status === selectedStatusFilter;
+      if (compareFirstName !== 0) {
+        return compareFirstName;
+      }
 
-    return matchesSearch && matchesClass && matchesGrade && matchesStatus;
-  }).sort((a, b) => (a.full_name || '').localeCompare(b.full_name || '', 'vi', { sensitivity: 'base' }));
+      return personA.fullName.localeCompare(
+        personB.fullName,
+        'vi',
+        { sensitivity: 'accent', numeric: true }
+      );
+    });
 
-  // Phân trang
+    return sorted.map((student, index) => ({
+      ...student,
+      originalIndex: index + 1
+    }));
+  }, [students]);
+
+  const filteredStudents = useMemo(() => {
+    const keyword = searchTerm.trim().toLowerCase();
+
+    return sortedAndIndexedStudents.filter(s => {
+      const matchesSearch = 
+        !keyword ||
+        (s.full_name && s.full_name.toLowerCase().includes(keyword)) ||
+        (s.phone_number && s.phone_number.includes(keyword)) ||
+        (s.parent_phonenumber && s.parent_phonenumber.includes(keyword));
+      
+      const matchesClass = 
+        !selectedClassFilter || 
+        s.class_id === selectedClassFilter || 
+        s.current_class === selectedClassFilter;
+
+      const matchesGrade = 
+        !selectedGradeFilter || 
+        (s.current_class && s.current_class.startsWith(selectedGradeFilter)) ||
+        (s.grade && String(s.grade) === selectedGradeFilter);
+
+      const matchesStatus = 
+        !selectedStatusFilter || 
+        s.status === selectedStatusFilter;
+
+      return matchesSearch && matchesClass && matchesGrade && matchesStatus;
+    });
+  }, [sortedAndIndexedStudents, searchTerm, selectedClassFilter, selectedGradeFilter, selectedStatusFilter]);
+
   const totalPages = Math.ceil(filteredStudents.length / pageSize) || 1;
-  const paginatedStudents = filteredStudents.slice((currentPage - 1) * pageSize, currentPage * pageSize);
+  const safeCurrentPage = totalPages === 0 ? 1 : Math.min(currentPage, totalPages);
+  const startIndex = (safeCurrentPage - 1) * pageSize;
+  const paginatedStudents = filteredStudents.slice(startIndex, startIndex + pageSize);
+
+  const displayStart = filteredStudents.length === 0 ? 0 : startIndex + 1;
+  const displayEnd = Math.min(startIndex + pageSize, filteredStudents.length);
 
   const handlePageChange = (newPage) => {
     setCurrentPage(newPage);
@@ -265,7 +307,7 @@ export default function StudentManagementPanel() {
   return (
     <div className="student-management-page">
       {notification && (
-        <div className={`fixed top-5 right-5 z-50 px-4 py-3 rounded-lg shadow-lg flex items-center gap-2 text-white ${notification.type === 'error' ? 'bg-red-600' : 'bg-green-600'}`}>
+        <div className={`fixed top-5 right-5 z-50 px-4 py-3 rounded-lg shadow-lg flex items-center gap-2 text-white ${notification.type === 'error' ? 'bg-red-600' : 'bg-green-600'}`} style={{ zIndex: 9999 }}>
           {notification.type === 'error' ? <AlertCircle size={20} /> : <CheckCircle size={20} />}
           <span>{notification.message}</span>
         </div>
@@ -313,11 +355,33 @@ export default function StudentManagementPanel() {
             <h2>Danh sách học sinh toàn trường</h2>
             <p>Quản lý hồ sơ, thông tin liên lạc và trạng thái học tập của học sinh</p>
           </div>
-          <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexShrink: 0 }}>
-            <button onClick={() => setShowImportModal(true)} className="secondary-button">
-              <Upload size={16} /> Nhập từ File
-            </button>
+
+          <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
             <button
+              type="button"
+              className="import-account-button"
+              onClick={() => setShowImportModal(true)}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '8px',
+                height: '40px',
+                padding: '0 18px',
+                border: 'none',
+                borderRadius: '10px',
+                background: 'linear-gradient(180deg, #22c55e 0%, #16a34a 100%)',
+                color: '#ffffff',
+                fontSize: '13px',
+                fontWeight: '700',
+                cursor: 'pointer',
+                boxShadow: '0 8px 18px rgba(22, 163, 74, 0.2)'
+              }}
+            >
+              <Upload size={16} color="#ffffff" />
+              <span>Nhập từ File</span>
+            </button>
+
+            <button 
               onClick={() => {
                 setFormData({ full_name: '', birthday: '', gender: 'Nam', parent_phonenumber: '', parent_name: '', class_id: '', status: 'Đang học' });
                 setShowAddModal(true);
@@ -329,30 +393,32 @@ export default function StudentManagementPanel() {
           </div>
         </div>
 
-        {/* Thanh tìm kiếm và bộ lọc Khối, Lớp, Trạng thái */}
+        {/* Thanh tìm kiếm và bộ lọc chuẩn thiết kế (Icon kính lúp nằm bên phải ô tìm kiếm) */}
         <div className="student-filters" style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', alignItems: 'center' }}>
-          <div className="student-search" style={{ flex: 1, minWidth: '200px' }}>
+          <div className="student-search-right" style={{ flex: 1, minWidth: '260px', position: 'relative' }}>
             <input 
               type="text" 
               placeholder="Tìm kiếm theo tên, số điện thoại..." 
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
+              style={{ width: '100%', height: '40px', padding: '0 40px 0 16px', borderRadius: '10px', border: '1px solid #dfe7f2', backgroundColor: '#fff', fontSize: '13px', outline: 'none' }}
             />
-            <span className="student-search-icon"><Search size={16} /></span>
+            <span style={{ position: 'absolute', right: '14px', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8', display: 'flex', pointerEvents: 'none' }}>
+              <Search size={16} />
+            </span>
           </div>
 
           {/* Bộ lọc Khối */}
-          <div style={{ minWidth: '160px' }}>
+          <div style={{ minWidth: '150px' }}>
             <select 
               value={selectedGradeFilter} 
               onChange={(e) => {
                 setSelectedGradeFilter(e.target.value);
                 setSelectedClassFilter(''); 
               }}
-              style={{ width: '100%', padding: '8px 12px', borderRadius: '8px', border: '1px solid #cbd5e1', backgroundColor: '#fff', fontSize: '14px', color: '#1e293b', fontWeight: '500', outline: 'none', cursor: 'pointer' }}
+              style={{ width: '100%', height: '40px', padding: '0 12px', borderRadius: '10px', border: '1px solid #dfe7f2', backgroundColor: '#fff', fontSize: '13px', color: '#172033', outline: 'none', cursor: 'pointer' }}
             >
-              <option value="" style={{ fontWeight: '600', color: '#2563eb', backgroundColor: '#f1f5f9' }}>Tất cả các khối</option>
-              <option disabled style={{ fontSize: '4px', backgroundColor: '#e2e8f0' }}>──────────</option>
+              <option value="">Tất cả các khối</option>
               <option value="10">Khối 10</option>
               <option value="11">Khối 11</option>
               <option value="12">Khối 12</option>
@@ -360,14 +426,13 @@ export default function StudentManagementPanel() {
           </div>
 
           {/* Bộ lọc Lớp */}
-          <div style={{ minWidth: '160px' }}>
+          <div style={{ minWidth: '150px' }}>
             <select 
               value={selectedClassFilter} 
               onChange={(e) => setSelectedClassFilter(e.target.value)}
-              style={{ width: '100%', padding: '8px 12px', borderRadius: '8px', border: '1px solid #cbd5e1', backgroundColor: '#fff', fontSize: '14px', color: '#1e293b', fontWeight: '500', outline: 'none', cursor: 'pointer' }}
+              style={{ width: '100%', height: '40px', padding: '0 12px', borderRadius: '10px', border: '1px solid #dfe7f2', backgroundColor: '#fff', fontSize: '13px', color: '#172033', outline: 'none', cursor: 'pointer' }}
             >
-              <option value="" style={{ fontWeight: '600', color: '#2563eb', backgroundColor: '#f1f5f9' }}>Tất cả các lớp</option>
-              <option disabled style={{ fontSize: '4px', backgroundColor: '#e2e8f0' }}>──────────</option>
+              <option value="">Tất cả các lớp</option>
               {classList
                 .filter(c => !selectedGradeFilter || (c.name && c.name.startsWith(selectedGradeFilter)))
                 .map(c => (
@@ -381,10 +446,9 @@ export default function StudentManagementPanel() {
             <select 
               value={selectedStatusFilter} 
               onChange={(e) => setSelectedStatusFilter(e.target.value)}
-              style={{ width: '100%', padding: '8px 12px', borderRadius: '8px', border: '1px solid #cbd5e1', backgroundColor: '#fff', fontSize: '14px', color: '#1e293b', fontWeight: '500', outline: 'none', cursor: 'pointer' }}
+              style={{ width: '100%', height: '40px', padding: '0 12px', borderRadius: '10px', border: '1px solid #dfe7f2', backgroundColor: '#fff', fontSize: '13px', color: '#172033', outline: 'none', cursor: 'pointer' }}
             >
-              <option value="" style={{ fontWeight: '600', color: '#2563eb', backgroundColor: '#f1f5f9' }}>Tất cả trạng thái</option>
-              <option disabled style={{ fontSize: '4px', backgroundColor: '#e2e8f0' }}>──────────</option>
+              <option value="">Tất cả trạng thái</option>
               <option value="Đang học">Đang học</option>
               <option value="Tạm nghỉ">Tạm nghỉ</option>
               <option value="Đã thôi học">Đã thôi học</option>
@@ -393,7 +457,7 @@ export default function StudentManagementPanel() {
 
           <button onClick={() => {
             sessionStorage.removeItem('app_students_cache_data');
-            fetchStudents(true);
+            fetchStudents(false);
           }} className="refresh-button" title="Làm mới">
             <RefreshCw size={15} /> Làm mới
           </button>
@@ -416,22 +480,23 @@ export default function StudentManagementPanel() {
               </tr>
             </thead>
             <tbody>
-              {loading ? (
+              {loading && students.length === 0 ? (
                 <tr><td colSpan="9" style={{ textAlign: 'center', padding: '40px' }}>Đang tải dữ liệu học sinh...</td></tr>
               ) : paginatedStudents.length === 0 ? (
                 <tr><td colSpan="9" style={{ textAlign: 'center', padding: '40px', color: '#64748b' }}>Không tìm thấy học sinh nào trong cơ sở dữ liệu</td></tr>
               ) : (
-                paginatedStudents.map((student, index) => {
-                  const stt = (currentPage - 1) * pageSize + index + 1;
+                paginatedStudents.map((student) => {
                   return (
                     <tr
-                      key={student.id || index}
+                      key={student.id}
                       title="Nhấn đúp để xem thông tin"
                       onDoubleClick={(e) => {
                         if (!e.target.closest('button')) handleOpenDetail(student); // nhấn đúp vào nút thì nút xử lý
                       }}
                     >
-                      <td style={{ textAlign: 'center', fontWeight: 600, color: '#64748b' }}>{stt}</td>
+                      <td style={{ textAlign: 'center', fontWeight: 600, color: '#64748b' }}>
+                        {student.originalIndex}
+                      </td>
                       <td>
                         <span 
                           onClick={() => handleOpenDetail(student)}
@@ -452,28 +517,14 @@ export default function StudentManagementPanel() {
                           {student.status}
                         </span>
                       </td>
-                      <td>{student.phone_number || '---'}</td>
+                      <td>{student.phone_number || student.parent_phonenumber || '---'}</td>
                       <td>{student.parent_name || '---'}</td>
                       <td>
-                        {/* Cập nhật các nút thao tác danh sách chính có hiệu ứng hover đổi màu nền nổi bật */}
                         <div className="row-actions" style={{ justifyContent: 'center', display: 'flex', gap: '6px' }}>
                           <button 
                             onClick={() => handleOpenDetail(student)} 
                             title="Xem chi tiết"
-                            style={{
-                              padding: '6px',
-                              borderRadius: '6px',
-                              border: '1px solid #cbd5e1',
-                              backgroundColor: '#fff',
-                              color: '#2563eb',
-                              cursor: 'pointer',
-                              display: 'flex',
-                              alignItems: 'center',
-                              justifyContent: 'center',
-                              transition: 'all 0.2s ease'
-                            }}
-                            onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = '#eff6ff'; e.currentTarget.style.borderColor = '#2563eb'; }}
-                            onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = '#fff'; e.currentTarget.style.borderColor = '#cbd5e1'; }}
+                            style={{ padding: '6px', borderRadius: '6px', border: '1px solid #cbd5e1', backgroundColor: '#fff', color: '#2563eb', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
                           >
                             <Eye size={15} />
                           </button>
@@ -484,7 +535,7 @@ export default function StudentManagementPanel() {
                                 full_name: student.full_name || '',
                                 birthday: getBirthdayForInput(student.birthday),
                                 gender: student.gender === 'female' || student.gender === 'Female' || student.gender === 'Nữ' ? 'Nữ' : 'Nam',
-                                parent_phonenumber: student.phone_number || '',
+                                parent_phonenumber: student.phone_number || student.parent_phonenumber || '',
                                 parent_name: student.parent_name || '',
                                 class_id: student.class_id || '',
                                 status: student.status || 'Đang học'
@@ -492,40 +543,14 @@ export default function StudentManagementPanel() {
                               setShowEditModal(true);
                             }} 
                             title="Chỉnh sửa"
-                            style={{
-                              padding: '6px',
-                              borderRadius: '6px',
-                              border: '1px solid #cbd5e1',
-                              backgroundColor: '#fff',
-                              color: '#475569',
-                              cursor: 'pointer',
-                              display: 'flex',
-                              alignItems: 'center',
-                              justifyContent: 'center',
-                              transition: 'all 0.2s ease'
-                            }}
-                            onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = '#f1f5f9'; e.currentTarget.style.borderColor = '#475569'; }}
-                            onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = '#fff'; e.currentTarget.style.borderColor = '#cbd5e1'; }}
+                            style={{ padding: '6px', borderRadius: '6px', border: '1px solid #cbd5e1', backgroundColor: '#fff', color: '#475569', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
                           >
                             <Edit size={15} />
                           </button>
                           <button 
                             onClick={() => handleDelete(student.id)} 
                             title="Xóa/Thôi học" 
-                            style={{
-                              padding: '6px',
-                              borderRadius: '6px',
-                              border: '1px solid #fecaca',
-                              backgroundColor: '#fff',
-                              color: '#dc2626',
-                              cursor: 'pointer',
-                              display: 'flex',
-                              alignItems: 'center',
-                              justifyContent: 'center',
-                              transition: 'all 0.2s ease'
-                            }}
-                            onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = '#fef2f2'; e.currentTarget.style.borderColor = '#dc2626'; }}
-                            onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = '#fff'; e.currentTarget.style.borderColor = '#fecaca'; }}
+                            style={{ padding: '6px', borderRadius: '6px', border: '1px solid #fecaca', backgroundColor: '#fff', color: '#dc2626', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
                           >
                             <Trash2 size={15} />
                           </button>
@@ -541,11 +566,18 @@ export default function StudentManagementPanel() {
 
         {/* Thanh phân trang */}
         <div className="class-pagination" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '16px 28px' }}>
-          <span>Hiển thị {(currentPage - 1) * pageSize + 1} - {Math.min(currentPage * pageSize, filteredStudents.length)} trong tổng số {filteredStudents.length} học sinh</span>
+          <span>Hiển thị {displayStart}-{displayEnd} trên {filteredStudents.length} học sinh</span>
           <div style={{ display: 'flex', gap: '6px' }}>
             <button 
-              disabled={currentPage === 1} 
-              onClick={() => handlePageChange(currentPage - 1)}
+              disabled={safeCurrentPage === 1} 
+              onClick={() => handlePageChange(1)}
+              title="Trang đầu"
+            >
+              <ChevronLeft size={16} />
+            </button>
+            <button 
+              disabled={safeCurrentPage === 1} 
+              onClick={() => handlePageChange(Math.max(1, safeCurrentPage - 1))}
               title="Trang trước"
             >
               <ChevronLeft size={16} />
@@ -553,16 +585,23 @@ export default function StudentManagementPanel() {
             {Array.from({ length: totalPages }, (_, i) => i + 1).map(page => (
               <button 
                 key={page} 
-                className={currentPage === page ? 'current-page' : ''}
+                className={safeCurrentPage === page ? 'current-page' : ''} 
                 onClick={() => handlePageChange(page)}
               >
                 {page}
               </button>
             ))}
             <button 
-              disabled={currentPage === totalPages} 
-              onClick={() => handlePageChange(currentPage + 1)}
+              disabled={totalPages === 0 || safeCurrentPage === totalPages} 
+              onClick={() => handlePageChange(Math.min(totalPages, safeCurrentPage + 1))}
               title="Trang sau"
+            >
+              <ChevronRight size={16} />
+            </button>
+            <button 
+              disabled={totalPages === 0 || safeCurrentPage === totalPages} 
+              onClick={() => handlePageChange(totalPages)}
+              title="Trang cuối"
             >
               <ChevronRight size={16} />
             </button>
@@ -595,35 +634,21 @@ export default function StudentManagementPanel() {
                 <h3>Thêm học sinh mới</h3>
                 <p>Tạo hồ sơ học sinh mới trong hệ thống quản lý.</p>
               </div>
-              <button onClick={() => setShowAddModal(false)} className="student-modal-close" title="Đóng">
-                <X size={18} />
-              </button>
+              <button onClick={() => setShowAddModal(false)} className="student-modal-close" title="Đóng"><X size={18} /></button>
             </div>
             <form onSubmit={handleCreateStudent} className="student-modal-form">
               <div className="form-group">
                 <label>Họ và tên *</label>
-                <input 
-                  type="text" required 
-                  value={formData.full_name} 
-                  onChange={(e) => setFormData({...formData, full_name: e.target.value})}
-                  placeholder="Nhập họ và tên học sinh"
-                />
+                <input type="text" required value={formData.full_name} onChange={(e) => setFormData({...formData, full_name: e.target.value})} placeholder="Nhập họ và tên học sinh" />
               </div>
               <div className="form-row">
                 <div className="form-group">
                   <label>Ngày sinh</label>
-                  <input 
-                    type="date" 
-                    value={formData.birthday} 
-                    onChange={(e) => setFormData({...formData, birthday: e.target.value})}
-                  />
+                  <input type="date" value={formData.birthday} onChange={(e) => setFormData({...formData, birthday: e.target.value})} />
                 </div>
                 <div className="form-group">
                   <label>Giới tính</label>
-                  <select 
-                    value={formData.gender} 
-                    onChange={(e) => setFormData({...formData, gender: e.target.value})}
-                  >
+                  <select value={formData.gender} onChange={(e) => setFormData({...formData, gender: e.target.value})}>
                     <option value="Nam">Nam</option>
                     <option value="Nữ">Nữ</option>
                   </select>
@@ -632,22 +657,14 @@ export default function StudentManagementPanel() {
               <div className="form-row">
                 <div className="form-group">
                   <label>Gán vào lớp</label>
-                  <select 
-                    value={formData.class_id} 
-                    onChange={(e) => setFormData({...formData, class_id: e.target.value})}
-                  >
+                  <select value={formData.class_id} onChange={(e) => setFormData({...formData, class_id: e.target.value})}>
                     <option value="">-- Chưa phân lớp --</option>
-                    {classList.map(c => (
-                      <option key={c.id} value={c.id}>{c.name}</option>
-                    ))}
+                    {classList.map(c => (<option key={c.id} value={c.id}>{c.name}</option>))}
                   </select>
                 </div>
                 <div className="form-group">
                   <label>Trạng thái</label>
-                  <select 
-                    value={formData.status} 
-                    onChange={(e) => setFormData({...formData, status: e.target.value})}
-                  >
+                  <select value={formData.status} onChange={(e) => setFormData({...formData, status: e.target.value})}>
                     <option value="Đang học">Đang học</option>
                     <option value="Tạm nghỉ">Tạm nghỉ</option>
                   </select>
@@ -655,12 +672,7 @@ export default function StudentManagementPanel() {
               </div>
               <div className="form-group">
                 <label>Số điện thoại phụ huynh</label>
-                <input 
-                  type="text" 
-                  value={formData.parent_phonenumber} 
-                  onChange={(e) => setFormData({...formData, parent_phonenumber: e.target.value})}
-                  placeholder="Nhập số điện thoại"
-                />
+                <input type="text" value={formData.parent_phonenumber} onChange={(e) => setFormData({...formData, parent_phonenumber: e.target.value})} placeholder="Nhập số điện thoại" />
               </div>
               <div className="student-modal-actions">
                 <button type="button" onClick={() => setShowAddModal(false)} className="secondary-button">Hủy</button>
@@ -680,34 +692,21 @@ export default function StudentManagementPanel() {
                 <h3>Chỉnh sửa thông tin học sinh</h3>
                 <p>Cập nhật hồ sơ và thông tin liên lạc của học sinh.</p>
               </div>
-              <button onClick={() => setShowEditModal(false)} className="student-modal-close" title="Đóng">
-                <X size={18} />
-              </button>
+              <button onClick={() => setShowEditModal(false)} className="student-modal-close" title="Đóng"><X size={18} /></button>
             </div>
             <form onSubmit={handleUpdateStudent} className="student-modal-form">
               <div className="form-group">
                 <label>Họ và tên *</label>
-                <input 
-                  type="text" required 
-                  value={formData.full_name} 
-                  onChange={(e) => setFormData({...formData, full_name: e.target.value})}
-                />
+                <input type="text" required value={formData.full_name} onChange={(e) => setFormData({...formData, full_name: e.target.value})} />
               </div>
               <div className="form-row">
                 <div className="form-group">
                   <label>Ngày sinh</label>
-                  <input 
-                    type="date" 
-                    value={formData.birthday} 
-                    onChange={(e) => setFormData({...formData, birthday: e.target.value})}
-                  />
+                  <input type="date" value={formData.birthday} onChange={(e) => setFormData({...formData, birthday: e.target.value})} />
                 </div>
                 <div className="form-group">
                   <label>Giới tính</label>
-                  <select 
-                    value={formData.gender} 
-                    onChange={(e) => setFormData({...formData, gender: e.target.value})}
-                  >
+                  <select value={formData.gender} onChange={(e) => setFormData({...formData, gender: e.target.value})}>
                     <option value="Nam">Nam</option>
                     <option value="Nữ">Nữ</option>
                   </select>
@@ -716,22 +715,14 @@ export default function StudentManagementPanel() {
               <div className="form-row">
                 <div className="form-group">
                   <label>Lớp học</label>
-                  <select 
-                    value={formData.class_id} 
-                    onChange={(e) => setFormData({...formData, class_id: e.target.value})}
-                  >
+                  <select value={formData.class_id} onChange={(e) => setFormData({...formData, class_id: e.target.value})}>
                     <option value="">-- Chưa phân lớp --</option>
-                    {classList.map(c => (
-                      <option key={c.id} value={c.id}>{c.name}</option>
-                    ))}
+                    {classList.map(c => (<option key={c.id} value={c.id}>{c.name}</option>))}
                   </select>
                 </div>
                 <div className="form-group">
                   <label>Trạng thái</label>
-                  <select 
-                    value={formData.status} 
-                    onChange={(e) => setFormData({...formData, status: e.target.value})}
-                  >
+                  <select value={formData.status} onChange={(e) => setFormData({...formData, status: e.target.value})}>
                     <option value="Đang học">Đang học</option>
                     <option value="Tạm nghỉ">Tạm nghỉ</option>
                     <option value="Đã thôi học">Đã thôi học</option>
@@ -740,11 +731,7 @@ export default function StudentManagementPanel() {
               </div>
               <div className="form-group">
                 <label>Số điện thoại phụ huynh</label>
-                <input 
-                  type="text" 
-                  value={formData.parent_phonenumber} 
-                  onChange={(e) => setFormData({...formData, parent_phonenumber: e.target.value})}
-                />
+                <input type="text" value={formData.parent_phonenumber} onChange={(e) => setFormData({...formData, parent_phonenumber: e.target.value})} />
               </div>
               <div className="student-modal-actions">
                 <button type="button" onClick={() => setShowEditModal(false)} className="secondary-button">Hủy</button>
@@ -764,9 +751,7 @@ export default function StudentManagementPanel() {
                 <h3>Thông tin chi tiết học sinh</h3>
                 <p>Xem toàn bộ hồ sơ, lớp học và lịch sử báo cáo của học sinh.</p>
               </div>
-              <button onClick={() => setShowDetailModal(false)} className="student-modal-close" title="Đóng">
-                <X size={18} />
-              </button>
+              <button onClick={() => setShowDetailModal(false)} className="student-modal-close" title="Đóng"><X size={18} /></button>
             </div>
             <div className="student-modal-form">
               <div className="detail-item"><span>Họ và tên:</span><strong>{selectedStudent.full_name}</strong></div>
@@ -784,127 +769,23 @@ export default function StudentManagementPanel() {
                       <div key={idx} className="report-item" style={{ marginBottom: '12px', paddingBottom: '12px', borderBottom: '1px solid #e2e8f0', position: 'relative' }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '12px', color: '#64748b', marginBottom: '4px' }}>
                           <div>
-                            <span style={{ fontWeight: '600', color: '#2563eb', marginRight: '10px' }}>GV: {n.teacher_name || n.teacher || 'Chưa rõ giáo viên'}</span>
+                            <span style={{ fontWeight: '600', color: '#2563eb', marginRight: '10px' }}>GV: {n.teacher_name || n.teacher || 'Chưa rõ'}</span>
                             <span>{n.created_at || n.time || '---'}</span>
                           </div>
-                          {/* Nút Lưu trữ và Xóa báo cáo có hiệu ứng hover đổi màu nền nổi bật */}
                           <div style={{ display: 'flex', gap: '6px' }}>
-                            <button 
-                              type="button" 
-                              onClick={() => handleArchiveReport(idx)}
-                              title="Lưu trữ báo cáo"
-                              style={{ 
-                                background: '#f1f5f9', 
-                                border: '1px solid #cbd5e1', 
-                                borderRadius: '6px', 
-                                padding: '5px 8px', 
-                                cursor: 'pointer', 
-                                color: '#475569', 
-                                display: 'flex', 
-                                alignItems: 'center', 
-                                gap: '4px', 
-                                fontSize: '11px',
-                                fontWeight: '500',
-                                transition: 'all 0.2s ease'
-                              }}
-                              onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = '#e2e8f0'; e.currentTarget.style.color = '#1e293b'; }}
-                              onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = '#f1f5f9'; e.currentTarget.style.color = '#475569'; }}
-                            >
+                            <button type="button" onClick={() => handleArchiveReport()} title="Lưu trữ" style={{ background: '#f1f5f9', border: '1px solid #cbd5e1', borderRadius: '6px', padding: '5px 8px', cursor: 'pointer', color: '#475569', fontSize: '11px', fontWeight: '500' }}>
                               <Archive size={12} /> Lưu trữ
                             </button>
-                            <button 
-                              type="button" 
-                              onClick={() => handleDeleteReport(idx)}
-                              title="Xóa báo cáo"
-                              style={{ 
-                                background: '#fef2f2', 
-                                border: '1px solid #fecaca', 
-                                borderRadius: '6px', 
-                                padding: '5px 8px', 
-                                cursor: 'pointer', 
-                                color: '#dc2626', 
-                                display: 'flex', 
-                                alignItems: 'center', 
-                                gap: '4px', 
-                                fontSize: '11px',
-                                fontWeight: '500',
-                                transition: 'all 0.2s ease'
-                              }}
-                              onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = '#fee2e2'; e.currentTarget.style.borderColor = '#f87171'; }}
-                              onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = '#fef2f2'; e.currentTarget.style.borderColor = '#fecaca'; }}
-                            >
+                            <button type="button" onClick={() => handleDeleteReport(idx)} title="Xóa" style={{ background: '#fef2f2', border: '1px solid #fecaca', borderRadius: '6px', padding: '5px 8px', cursor: 'pointer', color: '#dc2626', fontSize: '11px', fontWeight: '500' }}>
                               <Trash2 size={12} /> Xóa
                             </button>
                           </div>
                         </div>
-                        <p style={{ margin: 0, fontSize: '13px', color: '#334155', paddingRight: '10px' }}>{n.content || n.message}</p>
+                        <p style={{ margin: 0, fontSize: '13px', color: '#334155' }}>{n.content || n.message}</p>
                       </div>
                     ))
                   ) : (
-                    <div>
-                      <div className="report-item" style={{ marginBottom: '12px', paddingBottom: '12px', borderBottom: '1px solid #e2e8f0' }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '12px', color: '#64748b', marginBottom: '4px' }}>
-                          <div>
-                            <span style={{ fontWeight: '600', color: '#2563eb', marginRight: '10px' }}>GV: Nguyễn Văn A</span>
-                            <span>14:30 - 27/10/2026</span>
-                          </div>
-                          <div style={{ display: 'flex', gap: '6px' }}>
-                            <button 
-                              type="button" 
-                              onClick={() => handleArchiveReport(0)} 
-                              title="Lưu trữ" 
-                              style={{ background: '#f1f5f9', border: '1px solid #cbd5e1', borderRadius: '6px', padding: '5px 8px', cursor: 'pointer', color: '#475569', display: 'flex', alignItems: 'center', gap: '4px', fontSize: '11px', fontWeight: '500', transition: 'all 0.2s ease' }}
-                              onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = '#e2e8f0'; e.currentTarget.style.color = '#1e293b'; }}
-                              onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = '#f1f5f9'; e.currentTarget.style.color = '#475569'; }}
-                            >
-                              <Archive size={12} /> Lưu trữ
-                            </button>
-                            <button 
-                              type="button" 
-                              onClick={() => handleDeleteReport(0)} 
-                              title="Xóa" 
-                              style={{ background: '#fef2f2', border: '1px solid #fecaca', borderRadius: '6px', padding: '5px 8px', cursor: 'pointer', color: '#dc2626', display: 'flex', alignItems: 'center', gap: '4px', fontSize: '11px', fontWeight: '500', transition: 'all 0.2s ease' }}
-                              onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = '#fee2e2'; e.currentTarget.style.borderColor = '#f87171'; }}
-                              onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = '#fef2f2'; e.currentTarget.style.borderColor = '#fecaca'; }}
-                            >
-                              <Trash2 size={12} /> Xóa
-                            </button>
-                          </div>
-                        </div>
-                        <p style={{ margin: 0, fontSize: '13px', color: '#334155' }}>Học sinh tập trung tốt trong giờ học toán, hoàn thành đầy đủ bài tập về nhà.</p>
-                      </div>
-                      <div className="report-item">
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '12px', color: '#64748b', marginBottom: '4px' }}>
-                          <div>
-                            <span style={{ fontWeight: '600', color: '#2563eb', marginRight: '10px' }}>GV: Trần Thị B</span>
-                            <span>09:15 - 24/10/2026</span>
-                          </div>
-                          <div style={{ display: 'flex', gap: '6px' }}>
-                            <button 
-                              type="button" 
-                              onClick={() => handleArchiveReport(1)} 
-                              title="Lưu trữ" 
-                              style={{ background: '#f1f5f9', border: '1px solid #cbd5e1', borderRadius: '6px', padding: '5px 8px', cursor: 'pointer', color: '#475569', display: 'flex', alignItems: 'center', gap: '4px', fontSize: '11px', fontWeight: '500', transition: 'all 0.2s ease' }}
-                              onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = '#e2e8f0'; e.currentTarget.style.color = '#1e293b'; }}
-                              onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = '#f1f5f9'; e.currentTarget.style.color = '#475569'; }}
-                            >
-                              <Archive size={12} /> Lưu trữ
-                            </button>
-                            <button 
-                              type="button" 
-                              onClick={() => handleDeleteReport(1)} 
-                              title="Xóa" 
-                              style={{ background: '#fef2f2', border: '1px solid #fecaca', borderRadius: '6px', padding: '5px 8px', cursor: 'pointer', color: '#dc2626', display: 'flex', alignItems: 'center', gap: '4px', fontSize: '11px', fontWeight: '500', transition: 'all 0.2s ease' }}
-                              onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = '#fee2e2'; e.currentTarget.style.borderColor = '#f87171'; }}
-                              onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = '#fef2f2'; e.currentTarget.style.borderColor = '#fecaca'; }}
-                            >
-                              <Trash2 size={12} /> Xóa
-                            </button>
-                          </div>
-                        </div>
-                        <p style={{ margin: 0, fontSize: '13px', color: '#334155' }}>Đi học muộn 10 phút, cần nhắc nhở tác phong.</p>
-                      </div>
-                    </div>
+                    <p style={{ textAlign: 'center', color: '#64748b', fontSize: '13px', margin: '10px 0' }}>Chưa có báo cáo nào.</p>
                   )}
                 </div>
               </div>

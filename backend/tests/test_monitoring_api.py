@@ -68,6 +68,10 @@ def set_status(client, headers, status, session_id="s1", **extra):
     ("get", "/api/admin/schedules/s1/seats"),
     ("put", "/api/admin/schedules/s1/alerts/a1"),
     ("put", "/api/admin/schedules/s1/status"),
+    ("get", "/api/v1/reports"),
+    ("post", "/api/v1/reports"),
+    ("put", "/api/v1/students/st1/reports/r1"),
+    ("delete", "/api/v1/students/st1/reports/r1"),
 ])
 def test_monitoring_and_report_endpoints_need_an_admin(client, db, method, url):
     seed(db)

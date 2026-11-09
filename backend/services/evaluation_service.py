@@ -1,6 +1,7 @@
-from routes.class_routes import get_vietnamese_sort_key, teacher_name
+from repositories.class_repository import ClassRepository
 from routes.test_helpers import db
 from services import edge_store
+from services.class_service import ClassService
 from services.monitoring_service import data_status, result_status, roster
 
 # Đánh giá theo ghế do edge node ghi (edge-data/sessions/{session}/evaluations.json): avg_concentration 0-100
@@ -64,7 +65,7 @@ class EvaluationService:
                 "id": class_id,
                 "name": data.get("class_name") or class_id,
                 "subject": data.get("subject") or "Chưa xác định",
-                "teacher": teacher_name(data.get("teacher_id")),
+                "teacher": ClassRepository.get_teacher_name(data.get("teacher_id")),
                 "students": len(scores),
                 "attention": attention,
                 "status": level(attention),
@@ -97,7 +98,7 @@ class EvaluationService:
                 "attention_score": score,
                 "status": level(score),
             })
-        students.sort(key=lambda item: get_vietnamese_sort_key(item["name"]))
+        students.sort(key=lambda item: ClassService.get_vietnamese_sort_key(item["name"]))
 
         # Từng tiết đã diễn ra, đánh dấu tiết bị gián đoạn (data_status "partial")
         by_session = {}
@@ -127,7 +128,7 @@ class EvaluationService:
             "name": class_name,
             "class_name": class_name,
             "subject": subject,
-            "teacher": teacher_name(data.get("teacher_id")),
+            "teacher": ClassRepository.get_teacher_name(data.get("teacher_id")),
             "classroom": class_name,
             "students": students,
             "sessions": session_rows,

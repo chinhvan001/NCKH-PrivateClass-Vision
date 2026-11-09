@@ -14,8 +14,8 @@ from flask import Blueprint, jsonify, request
 from openpyxl import load_workbook
 
 from repositories.student_repository import StudentRepository
-from routes.admin_routes import new_teacher
 from routes.test_helpers import admin_only, commit_writes, db
+from services.admin_service import AdminService, new_teacher
 from services.student_service import gender_label
 
 import_bp = admin_only(Blueprint("import_bp", __name__))
@@ -207,6 +207,7 @@ def import_teachers():
         existing.add(teacher["email"])
         writes.append((db.collection("teachers").document(), teacher))
     commit_writes(writes)
+    AdminService._invalidate_teachers_cache()  # danh sách giáo viên cache 30 giây
     return _imported(len(writes), duplicates, "giáo viên")
 
 

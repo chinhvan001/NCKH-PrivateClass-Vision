@@ -657,7 +657,8 @@ const ClassManagementPanel = () => {
                           <div className="table-avatar">
                             <Icon name="school" size={18} />
                           </div>
-                          <strong style={{ color: "#2563eb", textDecoration: "underline" }}>
+                          {/* Đã loại bỏ gạch chân với textDecoration: "none" */}
+                          <strong style={{ color: "#2563eb", textDecoration: "none" }}>
                             {classItem.class_name}
                           </strong>
                         </div>
