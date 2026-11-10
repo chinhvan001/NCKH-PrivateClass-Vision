@@ -1,17 +1,15 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 
 import '../constants/firestore_constants.dart';
-import '../models/class_model.dart';
 import '../models/student_model.dart';
 import '../utils/firestore_parsers.dart';
 
 class StudentService {
   final FirebaseFirestore _db = FirebaseFirestore.instance;
+  static const int _whereInChunkSize = 30;
 
-  /// Stream of students for a class – reads seatmap from `classes2` document
-  /// and student details from `students2`.
+  /// Đọc seatmap từ document lớp (classes2), lấy chi tiết học sinh từ students.
   Stream<List<StudentModel>> getStudentsStream(String classId) {
-    // Listen to the class document for seatmap changes
     return _db
         .collection(FirestoreConstants.classes)
         .doc(classId)
@@ -20,17 +18,15 @@ class StudentService {
       if (!classSnap.exists) return <StudentModel>[];
 
       final classData = classSnap.data() ?? {};
-
-      // Parse seatmap to get student_ids + positions
       final rawSeatmap = classData['seatmap'] ?? classData['seat_map'];
-      final Map<String, Map<String, dynamic>> studentPositions = {};
+      final Map<String, Map<String, dynamic>> seatPositions = {};
 
       if (rawSeatmap is Map) {
-        rawSeatmap.forEach((seatKey, seatValue) {
+        rawSeatmap.forEach((_, seatValue) {
           if (seatValue is Map) {
             final sid = FirestoreParsers.cleanId(seatValue['student_id']);
             if (sid != null) {
-              studentPositions[sid] = {
+              seatPositions[sid] = {
                 'row': (seatValue['row'] as num?)?.toInt() ?? 0,
                 'col': (seatValue['column'] as num?)?.toInt() ?? 0,
               };
@@ -39,25 +35,33 @@ class StudentService {
         });
       }
 
-      final List<String> studentIds = studentPositions.keys.toList();
-      if (studentIds.isEmpty) return <StudentModel>[];
+      if (seatPositions.isEmpty) return <StudentModel>[];
 
-      // Fetch student details from students2 in chunks of 30
-      List<StudentModel> studentList = [];
+      final studentIds = seatPositions.keys.toList();
+      final chunks = <List<String>>[
+        for (var i = 0; i < studentIds.length; i += _whereInChunkSize)
+          studentIds.sublist(
+            i,
+            i + _whereInChunkSize > studentIds.length
+                ? studentIds.length
+                : i + _whereInChunkSize,
+          ),
+      ];
 
-      for (var i = 0; i < studentIds.length; i += 30) {
-        final chunk = studentIds.sublist(
-          i,
-          i + 30 > studentIds.length ? studentIds.length : i + 30,
-        );
+      final chunkResults = await Future.wait(
+        chunks.map(
+          (chunk) => _db
+              .collection(FirestoreConstants.students)
+              .where(FieldPath.documentId, whereIn: chunk)
+              .get(),
+        ),
+      );
 
-        final studentsSnap = await _db
-            .collection(FirestoreConstants.students)
-            .where(FieldPath.documentId, whereIn: chunk)
-            .get();
-
-        for (var doc in studentsSnap.docs) {
-          final pos = studentPositions[doc.id] ?? {'row': 0, 'col': 0};
+      final studentList = <StudentModel>[];
+      for (final snap in chunkResults) {
+        for (final doc in snap.docs) {
+          final pos = seatPositions[doc.id];
+          if (pos == null) continue;
           studentList.add(
             StudentModel.fromFirestore(
               doc,
@@ -68,6 +72,11 @@ class StudentService {
         }
       }
 
+      studentList.sort((a, b) => a.name
+          .trim()
+          .split(' ')
+          .last
+          .compareTo(b.name.trim().split(' ').last));
       return studentList;
     });
   }

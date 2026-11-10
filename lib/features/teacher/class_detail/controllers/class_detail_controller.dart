@@ -57,7 +57,7 @@ class ClassDetailController extends ChangeNotifier {
   int get classroomColumns => _classDetail?.columnCount ?? 8;
 
   String get classroomName {
-    return classroomData?['classroom_name']?.toString() ??
+    return classroomData?['room_name']?.toString() ??
         classDetail?.room ??
         'Chưa cập nhật';
   }

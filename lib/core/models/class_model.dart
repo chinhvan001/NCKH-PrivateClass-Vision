@@ -38,14 +38,13 @@ class SeatSlotModel {
         'status': studentId != null ? 'occupied' : 'empty',
       };
 }
-
 class ClassModel {
   final String id;
   final String name;
   final String grade;
   final String room; // display name resolved from camera / classroom
   final String schedule;
-  final int students; // class_size
+  final int students; // đếm từ seatmap nếu không có class_size
   final String classroomId; // kept for backward compat
   final String cameraId;
   final String teacherId;
