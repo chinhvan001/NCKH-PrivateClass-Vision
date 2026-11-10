@@ -69,6 +69,38 @@ class ClassModel {
     this.seatmap = const {},
   });
 
+  ClassModel copyWith({
+    String? id,
+    String? name,
+    String? grade,
+    String? room,
+    String? schedule,
+    int? students,
+    String? classroomId,
+    String? cameraId,
+    String? teacherId,
+    int? schoolYear,
+    int? rowCount,
+    int? columnCount,
+    Map<String, SeatSlotModel>? seatmap,
+  }) {
+    return ClassModel(
+      id: id ?? this.id,
+      name: name ?? this.name,
+      grade: grade ?? this.grade,
+      room: room ?? this.room,
+      schedule: schedule ?? this.schedule,
+      students: students ?? this.students,
+      classroomId: classroomId ?? this.classroomId,
+      cameraId: cameraId ?? this.cameraId,
+      teacherId: teacherId ?? this.teacherId,
+      schoolYear: schoolYear ?? this.schoolYear,
+      rowCount: rowCount ?? this.rowCount,
+      columnCount: columnCount ?? this.columnCount,
+      seatmap: seatmap ?? this.seatmap,
+    );
+  }
+
   /// Factory parse document from collection `classes2`.
   factory ClassModel.fromFirestore(DocumentSnapshot doc, {String? roomName}) {
     final data = doc.data() as Map<String, dynamic>? ?? {};
@@ -78,12 +110,38 @@ class ClassModel {
       ['class_name', 'name'],
       'Lớp học',
     );
-    final String cId = FirestoreParsers.string(data, ['classroom_id']);
+    final String roomStr = FirestoreParsers.string(data, ['room', 'room_name', 'classroom_id'], 'Chưa xếp phòng');
     final String camId = FirestoreParsers.string(data, ['camera_id']);
     final String tId = FirestoreParsers.string(data, ['teacher_id']);
-    final String roomField = FirestoreParsers.string(data, ['room']);
-    final int size = FirestoreParsers.integer(data, ['class_size', 'students']);
-    final int year = FirestoreParsers.integer(data, ['school_year']);
+    
+    // Parse seatmap (Map<String, Map>) với fallback seatmap hoặc seat_map
+    final Map<String, SeatSlotModel> parsedSeatmap = {};
+    final rawSeatmap = data['seatmap'] ?? data['seat_map'];
+    if (rawSeatmap is Map) {
+      rawSeatmap.forEach((key, value) {
+        if (value is Map) {
+          parsedSeatmap[key.toString()] = SeatSlotModel.fromMap(
+              key.toString(), Map<String, dynamic>.from(value));
+        }
+      });
+    }
+
+    // Tính sĩ số từ seatmap nếu class_size không có
+    int size = FirestoreParsers.integer(data, ['class_size', 'students']);
+    if (size == 0 && parsedSeatmap.isNotEmpty) {
+      size = parsedSeatmap.values.where((s) => s.studentId != null && s.studentId!.isNotEmpty).length;
+    }
+
+    // school_year trên Firestore là string "2026-2027"
+    final rawYear = data['school_year'];
+    int yearInt = 0;
+    if (rawYear is num) {
+      yearInt = rawYear.toInt();
+    } else if (rawYear is String) {
+      final firstNum = RegExp(r'\d+').firstMatch(rawYear)?.group(0);
+      if (firstNum != null) yearInt = int.tryParse(firstNum) ?? 0;
+    }
+
     final int rows = FirestoreParsers.integer(data, ['row_count', 'rows'], 5);
     final int cols =
         FirestoreParsers.integer(data, ['column_count', 'columns'], 8);
@@ -97,35 +155,17 @@ class ClassModel {
                     ? 'Khối 10'
                     : '');
 
-    final Map<String, SeatSlotModel> parsedSeatmap = {};
-    final rawSeatmap = data['seatmap'] ?? data['seat_map'];
-    if (rawSeatmap is Map) {
-      rawSeatmap.forEach((key, value) {
-        if (value is Map) {
-          parsedSeatmap[key.toString()] = SeatSlotModel.fromMap(
-              key.toString(), Map<String, dynamic>.from(value));
-        }
-      });
-    }
-
-    final int counted = parsedSeatmap.values
-        .where((s) => s.studentId != null && s.studentId!.isNotEmpty)
-        .length;
-
     return ClassModel(
       id: doc.id,
       name: name,
       grade: gradeStr,
-      room: roomName ??
-          (roomField.isNotEmpty
-              ? roomField
-              : (cId.isNotEmpty ? cId : 'Chưa xếp phòng')),
+      room: roomName ?? roomStr,
       schedule: data['schedule']?.toString() ?? '',
-      students: size > 0 ? size : counted,
-      classroomId: cId,
+      students: size,
+      classroomId: roomStr,
       cameraId: camId,
       teacherId: tId,
-      schoolYear: year,
+      schoolYear: yearInt,
       rowCount: rows,
       columnCount: cols,
       seatmap: parsedSeatmap,
