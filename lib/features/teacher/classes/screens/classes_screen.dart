@@ -81,7 +81,69 @@ class _ClassScreenState extends State<ClassScreen> {
                     topRight: Radius.circular(24),
                   ),
                 ),
-                child: _buildBody(),
+                child: StreamBuilder<QuerySnapshot>(
+                  stream: FirebaseFirestore.instance
+                      .collection(FirestoreConstants.classes)
+                      .snapshots(),
+                  builder: (context, snapshot) {
+                    if (snapshot.connectionState == ConnectionState.waiting) {
+                      return const Center(child: CircularProgressIndicator());
+                    }
+
+                    if (snapshot.hasError) {
+                      return Center(
+                        child: Text(
+                          'Lỗi tải dữ liệu: ${snapshot.error}',
+                          style: const TextStyle(color: Colors.red),
+                        ),
+                      );
+                    }
+
+                    final docs = snapshot.data?.docs ?? [];
+
+                    if (docs.isEmpty) {
+                      return const Center(
+                        child: Text(
+                          'Chưa có lớp học nào trên hệ thống.',
+                          style: TextStyle(color: AppColors.muted),
+                        ),
+                      );
+                    }
+
+                    return ListView.builder(
+                      padding: const EdgeInsets.fromLTRB(16, 20, 16, 24),
+                      itemCount: docs.length,
+                      itemBuilder: (context, index) {
+                        final doc = docs[index];
+                        final data = doc.data() as Map<String, dynamic>;
+                        final String camId = data['camera_id']?.toString() ?? '';
+
+                        return FutureBuilder<(String, int)>(
+                          future: Future.wait([
+                            camId.isNotEmpty
+                                ? classroomService.getClassroomName(camId)
+                                : Future.value(data['room']?.toString() ?? 'Chưa xếp phòng'),
+                            classroomService.getClassStudentCount(doc.id, data),
+                          ]).then((results) => (results[0] as String, results[1] as int)),
+                          builder: (context, snapshot) {
+                            final String displayRoom = snapshot.data?.$1 ??
+                                data['room']?.toString() ??
+                                'Chưa xếp phòng';
+                            final int studentCount = snapshot.data?.$2 ??
+                                ClassModel.fromFirestore(doc).students;
+
+                            final ClassModel cls = ClassModel.fromFirestore(
+                              doc,
+                              roomName: displayRoom,
+                            ).copyWith(students: studentCount);
+
+                            return _buildClassCard(context, cls, doc.id);
+                          },
+                        );
+                      },
+                    );
+                  },
+                ),
               ),
             ),
           ),

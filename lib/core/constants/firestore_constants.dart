@@ -13,6 +13,13 @@ class FirestoreConstants {
   static const String teachers = 'teachers';
   static const String admins = 'admins';
   static const String cameras = 'cameras';
+  static const String cameraConfigs = 'camera_configs';
   static const String sessionResults = 'session_results';
-  static const String enrollments = 'enrollments';
+  static const String sessionEvaluations = 'session_evaluations';
+  static const String classMembers = 'class_members';
+  static const String edgeNodes = 'edge_nodes';
+
+  /// Giữ lại alias cho backward-compat – mọi nơi dùng `enrollments`
+  /// sẽ tự trỏ sang `class_members`.
+  static const String enrollments = classMembers;
 }

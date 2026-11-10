@@ -20,12 +20,17 @@ class SessionService {
         query = query.where('teacher_id', isEqualTo: teacherId);
       }
 
+      // Firestore schema: session_date là chuỗi dạng "2026-11-09" (ISO yyyy-MM-dd)
+      // Cần query theo session_date dạng chuỗi, không phải start_time dạng Timestamp!
       if (startDate != null && endDate != null) {
+        final startStr =
+            '${startDate.year.toString().padLeft(4, '0')}-${startDate.month.toString().padLeft(2, '0')}-${startDate.day.toString().padLeft(2, '0')}';
+        final endStr =
+            '${endDate.year.toString().padLeft(4, '0')}-${endDate.month.toString().padLeft(2, '0')}-${endDate.day.toString().padLeft(2, '0')}';
+
         query = query
-            .where('start_time',
-                isGreaterThanOrEqualTo: Timestamp.fromDate(startDate))
-            .where('start_time',
-                isLessThanOrEqualTo: Timestamp.fromDate(endDate));
+            .where('session_date', isGreaterThanOrEqualTo: startStr)
+            .where('session_date', isLessThanOrEqualTo: endStr);
       }
 
       final querySnapshot = await query.get();
@@ -96,11 +101,14 @@ class SessionService {
     }
 
     if (startDate != null && endDate != null) {
+      final startStr =
+          '${startDate.year.toString().padLeft(4, '0')}-${startDate.month.toString().padLeft(2, '0')}-${startDate.day.toString().padLeft(2, '0')}';
+      final endStr =
+          '${endDate.year.toString().padLeft(4, '0')}-${endDate.month.toString().padLeft(2, '0')}-${endDate.day.toString().padLeft(2, '0')}';
+
       query = query
-          .where('start_time',
-              isGreaterThanOrEqualTo: Timestamp.fromDate(startDate))
-          .where('start_time',
-              isLessThanOrEqualTo: Timestamp.fromDate(endDate));
+          .where('session_date', isGreaterThanOrEqualTo: startStr)
+          .where('session_date', isLessThanOrEqualTo: endStr);
     }
 
     return query.snapshots().asyncMap((querySnapshot) async {
