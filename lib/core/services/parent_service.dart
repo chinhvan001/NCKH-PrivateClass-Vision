@@ -153,89 +153,84 @@ class ParentService {
     return null;
   }
 
+  /// Đồng bộ chi tiết điểm danh từ collection sessions theo khoảng thời gian được chọn
   Future<AttendanceSummary> getAttendanceSummary({
     required String studentId,
     String? classId,
+    String period = 'Học kỳ 1', // 'Cả năm', 'Học kỳ 1', 'Học kỳ 2', 'Tháng này'
   }) async {
     try {
-      String? targetSeatId;
-      if (classId != null && classId.isNotEmpty) {
-        targetSeatId =
-            await getSeatIdForStudent(classId: classId, studentId: studentId);
-      }
+      final classIds = (classId != null && classId.isNotEmpty) ? [classId] : <String>[];
+      final docs = await _fetchSessionDocs(classIds);
+      final now = DateTime.now();
 
-      final resultsSnap = await _db.collection('session_results').get();
+      DateTime? startDate;
+      DateTime? endDate;
+
+      // Năm học hiện tại (ví dụ 2026-2027: HK1 từ 01/08 đến 31/12, HK2 từ 01/01 đến 31/05)
+      final baseYear = now.month >= 8 ? now.year : now.year - 1;
+
+      if (period == 'Tháng này') {
+        startDate = DateTime(now.year, now.month, 1);
+        endDate = DateTime(now.year, now.month + 1, 0, 23, 59, 59);
+      } else if (period == 'Học kỳ 1') {
+        startDate = DateTime(baseYear, 8, 1);
+        endDate = DateTime(baseYear, 12, 31, 23, 59, 59);
+      } else if (period == 'Học kỳ 2') {
+        startDate = DateTime(baseYear + 1, 1, 1);
+        endDate = DateTime(baseYear + 1, 5, 31, 23, 59, 59);
+      } // 'Cả năm' thì để startDate và endDate = null (quét toàn bộ)
+
       int total = 0;
       int attended = 0;
-      int excused = 0;
       int unexcused = 0;
-      int lateCount = 0;
       final List<AbsenceRecord> absences = [];
 
-      for (final doc in resultsSnap.docs) {
-        final data = doc.data();
-        final rawResultMap = data['result_map'];
-        if (rawResultMap == null) continue;
+      for (final doc in docs) {
+        final data = doc.data() as Map<String, dynamic>? ?? {};
+        final seat = _findSeat(data, studentId);
+        if (seat == null) continue;
 
-        final Map<String, dynamic> resultMap =
-            Map<String, dynamic>.from(rawResultMap as Map);
+        final start = _parseDateTime(data['start_time']) ??
+            _parseDateTime(data['session_date']);
+        final end = _parseDateTime(data['end_time']);
 
-        Map<String, dynamic>? studentMetric;
-        if (targetSeatId != null && resultMap.containsKey(targetSeatId)) {
-          final m = resultMap[targetSeatId];
-          if (m is Map) studentMetric = Map<String, dynamic>.from(m);
+        // Chỉ tính các buổi học đã kết thúc
+        if (!_hasEnded(data, start, end, now)) continue;
+
+        final sessionTime = start ?? end ?? now;
+
+        // Lọc theo khoảng thời gian
+        if (startDate != null && sessionTime.isBefore(startDate)) continue;
+        if (endDate != null && sessionTime.isAfter(endDate)) continue;
+
+        total++;
+        final isPresent = seat['is_present'] == true;
+
+        if (isPresent) {
+          attended++;
         } else {
-          for (final seat in resultMap.values) {
-            if (seat is Map &&
-                (seat['student_id']?.toString() == studentId ||
-                    seat['seat_id']?.toString() == targetSeatId)) {
-              studentMetric = Map<String, dynamic>.from(seat);
-              break;
-            }
-          }
-        }
+          unexcused++;
+          final dateStr =
+              '${_two(sessionTime.day)}/${_two(sessionTime.month)}/${sessionTime.year}';
+          final subject = _subjectOf(doc.id, data);
 
-        if (studentMetric != null) {
-          total++;
-          final status =
-              (studentMetric['status'] ?? '').toString().toLowerCase();
-          final captureTime = data['captured_at'];
-          String dateStr = '';
-          if (captureTime is Timestamp) {
-            final dt = captureTime.toDate();
-            dateStr =
-                '${dt.day.toString().padLeft(2, '0')}/${dt.month.toString().padLeft(2, '0')}/${dt.year}';
-          }
-
-          if (status == 'absent_excused') {
-            excused++;
-            absences.add(AbsenceRecord(
-              date: dateStr,
-              type: 'Vắng có phép',
-              reason: 'Có đơn xin phép',
-            ));
-          } else if (status == 'absent') {
-            unexcused++;
-            absences.add(AbsenceRecord(
-              date: dateStr,
-              type: 'Vắng không phép',
-              reason: 'Không phép',
-            ));
-          } else if (status == 'late') {
-            lateCount++;
-            attended++;
-          } else {
-            attended++;
-          }
+          absences.add(AbsenceRecord(
+            date: dateStr,
+            type: 'Vắng không phép',
+            reason: 'Buổi học môn $subject',
+          ));
         }
       }
+
+      absences.sort((a, b) => b.date.compareTo(a.date));
 
       return AttendanceSummary(
         totalSessions: total,
         attendedSessions: attended,
-        excusedAbsences: excused,
+        excusedAbsences: 0,
         unexcusedAbsences: unexcused,
-        lateSessions: lateCount,
+        lateSessions: 0,
         absenceList: absences,
       );
     } catch (e) {
@@ -244,16 +239,6 @@ class ParentService {
     }
   }
 
-  /// Lấy thông báo của một học sinh từ collection sessions.
-  ///
-  /// Cách đọc dữ liệu (tối ưu số lần đọc):
-  /// - Chỉ truy vấn các buổi học thuộc lớp của học sinh (`class_id`), không quét cả collection.
-  /// - Mỗi buổi chỉ lấy đúng ghế có `student_id` trùng học sinh.
-  /// - Tên giáo viên chỉ đọc khi thật sự có thông báo và được cache theo `teacher_id`.
-  ///
-  /// Quy tắc:
-  /// - Vắng mặt: `is_present == false` và buổi học ĐÃ kết thúc (tránh báo nhầm buổi chưa diễn ra).
-  /// - Nhắc nhở: `note` không rỗng (null, "", '""' đều bị bỏ qua).
   Future<List<ParentNotification>> getNotificationsForStudent({
     required String studentId,
     required List<String> classIds,
@@ -269,9 +254,8 @@ class ParentService {
       final result = <ParentNotification>[];
 
       for (final doc in docs) {
-        final data = doc.data();
+        final data = doc.data() as Map<String, dynamic>? ?? {};
 
-        // Tìm ghế của học sinh trong buổi học
         final seat = _findSeat(data, studentId);
         if (seat == null) continue;
 
@@ -321,15 +305,186 @@ class ParentService {
       result.sort((a, b) => b.timestamp.compareTo(a.timestamp));
       return result;
     } catch (e) {
-      debugPrint('--> [Notification] Lỗi trích xuất thông báo: $e');
+      debugPrint('--> [Notification] Lỗi: $e');
       rethrow;
     }
   }
 
-  /// Lấy các buổi học của học sinh để dựng lịch tuần (collection sessions).
-  ///
-  /// Chỉ truy vấn theo `class_id` của các lớp con đang học, mỗi buổi chỉ lấy đúng ghế của con.
-  /// Trả về toàn bộ buổi để màn hình lịch tự lọc theo tuần (chuyển tuần không phải đọc lại).
+  Future<HomeStats> getHomeStats({
+    required String studentId,
+    required List<String> classIds,
+  }) async {
+    final ids = classIds.where((e) => e.isNotEmpty).toSet().toList();
+    if (ids.isEmpty) return const HomeStats();
+
+    try {
+      final docs = await _fetchSessionDocs(ids);
+      final now = DateTime.now();
+
+      DateTime? nearestNextStart;
+      int totalEnded = 0;
+      int attended = 0;
+      int unexcused = 0;
+      double totalScore = 0.0;
+      int scoreCount = 0;
+
+      for (final doc in docs) {
+        final data = doc.data() as Map<String, dynamic>? ?? {};
+        final seat = _findSeat(data, studentId);
+        if (seat == null) continue;
+
+        final start = _parseDateTime(data['start_time']) ??
+            _parseDateTime(data['session_date']);
+        final end = _parseDateTime(data['end_time']);
+
+        if (start != null && start.isAfter(now)) {
+          if (nearestNextStart == null || start.isBefore(nearestNextStart)) {
+            nearestNextStart = start;
+          }
+        }
+
+        final ended = _hasEnded(data, start, end, now);
+        if (ended) {
+          totalEnded++;
+          final isPresent = seat['is_present'] == true;
+          if (isPresent) {
+            attended++;
+            final score = seat['attention_score'];
+            if (score is num && score > 0) {
+              totalScore += score.toDouble();
+              scoreCount++;
+            }
+          } else {
+            unexcused++;
+          }
+        }
+      }
+
+      String nextTimeStr = '--:--';
+      if (nearestNextStart != null) {
+        final isToday = nearestNextStart.year == now.year &&
+            nearestNextStart.month == now.month &&
+            nearestNextStart.day == now.day;
+        final timePart =
+            '${_two(nearestNextStart.hour)}:${_two(nearestNextStart.minute)}';
+        nextTimeStr = isToday ? timePart : 'T${nearestNextStart.weekday} $timePart';
+      }
+
+      int notiCount = 0;
+      try {
+        final notifications = await getNotificationsForStudent(
+          studentId: studentId,
+          classIds: ids,
+        );
+        notiCount = notifications.length;
+      } catch (_) {}
+
+      final double avgScore =
+          scoreCount > 0 ? (totalScore / scoreCount) : 0.0;
+
+      return HomeStats(
+        nextSessionTime: nextTimeStr,
+        avgAttention: avgScore,
+        totalEnded: totalEnded,
+        attended: attended,
+        unexcusedAbsence: unexcused,
+        excusedAbsence: 0,
+        lateCount: 0,
+        notificationCount: notiCount,
+      );
+    } catch (e) {
+      debugPrint('--> [HomeStats] Lỗi: $e');
+      return const HomeStats();
+    }
+  }
+
+  /// Lấy thống kê mức độ tập trung theo môn và điểm danh cho màn hình Tổng quan
+  Future<OverviewStats> getOverviewStats({
+    required String studentId,
+    required List<String> classIds,
+    required String period, // 'Hôm nay', 'Tuần này', 'Tháng này'
+  }) async {
+    final ids = classIds.where((e) => e.isNotEmpty).toSet().toList();
+    if (ids.isEmpty) return const OverviewStats();
+
+    try {
+      final docs = await _fetchSessionDocs(ids);
+      final now = DateTime.now();
+
+      DateTime startDate;
+      if (period == 'Hôm nay') {
+        startDate = DateTime(now.year, now.month, now.day);
+      } else if (period == 'Tuần này') {
+        startDate = DateTime(now.year, now.month, now.day - (now.weekday - 1));
+      } else {
+        // Tháng này
+        startDate = DateTime(now.year, now.month, 1);
+      }
+
+      int total = 0;
+      int attended = 0;
+      int unexcused = 0;
+
+      final Map<String, List<double>> subjectScores = {};
+
+      for (final doc in docs) {
+        final data = doc.data() as Map<String, dynamic>? ?? {};
+        final seat = _findSeat(data, studentId);
+        if (seat == null) continue;
+
+        final start = _parseDateTime(data['start_time']) ??
+            _parseDateTime(data['session_date']);
+        final end = _parseDateTime(data['end_time']);
+
+        if (!_hasEnded(data, start, end, now)) continue;
+
+        final sessionTime = start ?? end ?? now;
+        if (sessionTime.isBefore(startDate)) continue;
+
+        total++;
+        final isPresent = seat['is_present'] == true;
+        final subject = _subjectOf(doc.id, data);
+
+        if (isPresent) {
+          attended++;
+          final score = seat['attention_score'];
+          // Chấp nhận mọi giá trị số kể cả 0 để hiển thị thanh môn học
+          if (score is num) {
+            subjectScores.putIfAbsent(subject, () => []).add(score.toDouble());
+          }
+        } else {
+          unexcused++;
+        }
+      }
+
+      final List<SubjectFocus> subjectsList = [];
+      subjectScores.forEach((subj, scores) {
+        final avg = scores.isNotEmpty
+            ? scores.reduce((a, b) => a + b) / scores.length
+            : 0.0;
+        subjectsList.add(
+          SubjectFocus(
+            subject: subj,
+            percent: avg.round().clamp(0, 100),
+          ),
+        );
+      });
+
+      subjectsList.sort((a, b) => a.subject.compareTo(b.subject));
+
+      return OverviewStats(
+        subjects: subjectsList,
+        totalSessions: total,
+        attendedSessions: attended,
+        excusedAbsences: 0,
+        unexcusedAbsences: unexcused,
+      );
+    } catch (e) {
+      debugPrint('--> [OverviewStats] Lỗi tính toán: $e');
+      return const OverviewStats();
+    }
+  }
+
   Future<List<StudentSession>> getSessionsForStudent({
     required String studentId,
     required List<ChildClass> classes,
@@ -345,18 +500,18 @@ class ParentService {
       final result = <StudentSession>[];
 
       for (final doc in docs) {
-        final data = doc.data();
+        final data = doc.data() as Map<String, dynamic>? ?? {};
         final seat = _findSeat(data, studentId);
         if (seat == null) continue;
 
         final period = _toInt(data['period']);
-        if (period == null || period < 1) continue; // không biết xếp vào tiết nào
+        if (period == null || period < 1) continue;
 
         final sessionDate = _parseDateTime(data['session_date']);
         final start = _parseDateTime(data['start_time'], base: sessionDate);
         final end = _parseDateTime(data['end_time'], base: sessionDate ?? start);
         final day = start ?? sessionDate ?? end;
-        if (day == null) continue; // không biết buổi học ở ngày nào
+        if (day == null) continue;
 
         final classId = (data['class_id'] ?? '').toString();
         var teacherName = await _teacherName(
@@ -389,16 +544,13 @@ class ParentService {
       }
       return result;
     } catch (e) {
-      debugPrint('--> [Schedule] Lỗi tải lịch học: $e');
+      debugPrint('--> [Schedule] Lỗi: $e');
       rethrow;
     }
   }
 
-  /// Đọc các buổi học theo danh sách lớp (whereIn tối đa 30 giá trị nên chia nhóm)
-  Future<List<QueryDocumentSnapshot<Map<String, dynamic>>>> _fetchSessionDocs(
-    List<String> classIds,
-  ) async {
-    final docs = <QueryDocumentSnapshot<Map<String, dynamic>>>[];
+  Future<List<DocumentSnapshot>> _fetchSessionDocs(List<String> classIds) async {
+    final docs = <DocumentSnapshot>[];
     final col = _db.collection('sessions');
     for (var i = 0; i < classIds.length; i += 30) {
       final end = i + 30 > classIds.length ? classIds.length : i + 30;
@@ -411,8 +563,6 @@ class ParentService {
     return docs;
   }
 
-  /// Tìm ghế của học sinh trong buổi học. Thử các tên map đã biết trước,
-  /// nếu không thấy thì duyệt các map con còn lại của tài liệu.
   Map? _findSeat(Map<String, dynamic> data, String studentId) {
     Map? scan(dynamic raw) {
       if (raw is! Map) return null;
@@ -441,7 +591,6 @@ class ParentService {
 
   static const _endedStatuses = ['completed', 'ended', 'finished', 'done', 'closed'];
 
-  /// Buổi học đã kết thúc: ưu tiên end_time, không có thì xét status, cuối cùng là ngày học
   bool _hasEnded(
     Map<String, dynamic> data,
     DateTime? start,
@@ -497,8 +646,8 @@ class ParentService {
     return null;
   }
 
-  /// Đọc ngày giờ từ Timestamp, DateTime hoặc chuỗi ("yyyy-MM-dd...", "dd/MM/yyyy", "HH:mm").
-  /// Chuỗi chỉ có giờ ("07:30") được ghép với ngày [base].
+  String _two(int v) => v.toString().padLeft(2, '0');
+
   DateTime? _parseDateTime(dynamic v, {DateTime? base}) {
     if (v is Timestamp) return v.toDate();
     if (v is DateTime) return v;

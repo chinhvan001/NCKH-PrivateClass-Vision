@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_privateclass_vision/core/models/parent_model.dart';
+import 'package:flutter_privateclass_vision/core/services/parent_service.dart';
 import 'package:flutter_privateclass_vision/features/parent/controllers/parent_session.dart';
 import 'package:flutter_privateclass_vision/features/parent/screens/widgets/bottom_nav_bar.dart';
 import 'package:flutter_privateclass_vision/features/parent/screens/widgets/common_widgets.dart';
@@ -84,362 +86,422 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 }
 
-// ─── Home content ──────────────────────────────────────────────────────────────
-class _HomeContent extends StatelessWidget {
+// ─── Home content (Dữ liệu thật từ Firestore) ──────────────────────────────────
+class _HomeContent extends StatefulWidget {
   const _HomeContent();
 
   @override
+  State<_HomeContent> createState() => _HomeContentState();
+}
+
+class _HomeContentState extends State<_HomeContent> {
+  final ParentService _parentService = ParentService();
+  final ParentSession _session = ParentSession.instance;
+
+  Future<HomeStats>? _statsFuture;
+  String? _loadedKey;
+
+  @override
+  void initState() {
+    super.initState();
+    _session.addListener(_onSessionChanged);
+    _loadStats();
+  }
+
+  @override
+  void dispose() {
+    _session.removeListener(_onSessionChanged);
+    super.dispose();
+  }
+
+  String? _keyOf(LinkedChild? child) =>
+      child == null ? null : '${child.id}|${child.classes.map((c) => c.id).join(',')}';
+
+  void _onSessionChanged() {
+    if (!mounted) return;
+    if (_keyOf(_session.selectedChild) != _loadedKey) {
+      _loadStats();
+    }
+  }
+
+  void _loadStats() {
+    final child = _session.selectedChild;
+    _loadedKey = _keyOf(child);
+    if (child != null) {
+      setState(() {
+        _statsFuture = _parentService.getHomeStats(
+          studentId: child.id,
+          classIds: child.classes.map((c) => c.id).toList(),
+        );
+      });
+    } else {
+      setState(() {
+        _statsFuture = Future.value(const HomeStats());
+      });
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
-    return SafeArea(
-      child: SingleChildScrollView(
-        physics: const BouncingScrollPhysics(),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // ── Header bar ──────────────────────────────────────────────────
-            Container(
-              color: Colors.white,
-              padding: const EdgeInsets.fromLTRB(16, 14, 8, 14),
-              child: Row(
+    return FutureBuilder<HomeStats>(
+      future: _statsFuture,
+      builder: (context, snapshot) {
+        final stats = snapshot.data ?? const HomeStats();
+
+        return SafeArea(
+          child: RefreshIndicator(
+            onRefresh: () async => _loadStats(),
+            child: SingleChildScrollView(
+              physics: const AlwaysScrollableScrollPhysics(),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: const [
-                        Text('Lớp học của con', style: AppTextStyles.heading2),
+                  // ── Header bar ─────────────────────────────────────────────
+                  Container(
+                    color: Colors.white,
+                    padding: const EdgeInsets.fromLTRB(16, 14, 8, 14),
+                    child: Row(
+                      children: [
+                        const Expanded(
+                          child: Text('Lớp học của con', style: AppTextStyles.heading2),
+                        ),
+                        _IconBadgeButton(
+                          icon: Icons.notifications_none_rounded,
+                          activeIcon: Icons.notifications_rounded,
+                          count: stats.notificationCount,
+                          onTap: () {
+                            final state = context.findAncestorStateOfType<_HomeScreenState>();
+                            if (state != null) {
+                              state.setState(() => state._currentIndex = 2);
+                            }
+                          },
+                        ),
                       ],
                     ),
                   ),
-                  _IconBadgeButton(
-                    icon: Icons.notifications_none_rounded,
-                    activeIcon: Icons.notifications_rounded,
-                    count: 3,
-                    onTap: () {},
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 12),
+                  const SizedBox(height: 12),
 
-            // ── Student card ────────────────────────────────────────────────
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              child: AppCard(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    // Student info + switch account (theo con đang chọn)
-                    ListenableBuilder(
-                      listenable: ParentSession.instance,
-                      builder: (context, _) {
-                        final session = ParentSession.instance;
-                        final child = session.selectedChild;
-                        return Row(
+                  // ── Student card ───────────────────────────────────────────
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    child: AppCard(
+                      padding: const EdgeInsets.all(16),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          ListenableBuilder(
+                            listenable: _session,
+                            builder: (context, _) {
+                              final child = _session.selectedChild;
+                              return Row(
+                                children: [
+                                  AvatarWidget(name: child?.name ?? '', size: 46),
+                                  const SizedBox(width: 12),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          child?.name ?? '',
+                                          style: AppTextStyles.heading3,
+                                        ),
+                                        const SizedBox(height: 2),
+                                        Text(
+                                          child?.classDisplay ?? '',
+                                          style: AppTextStyles.caption,
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                  if (_session.children.length > 1)
+                                    _TapScaleWidget(
+                                      onTap: () {
+                                        showModalBottomSheet(
+                                          context: context,
+                                          isScrollControlled: true,
+                                          backgroundColor: Colors.transparent,
+                                          builder: (_) => const SwitchAccountScreen(),
+                                        );
+                                      },
+                                      child: Container(
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 10,
+                                          vertical: 6,
+                                        ),
+                                        decoration: BoxDecoration(
+                                          color: AppColors.accentLight,
+                                          borderRadius: BorderRadius.circular(20),
+                                        ),
+                                        child: Row(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: const [
+                                            Text(
+                                              'Đổi',
+                                              style: TextStyle(
+                                                fontSize: 12,
+                                                fontWeight: FontWeight.w600,
+                                                color: AppColors.primary,
+                                              ),
+                                            ),
+                                            SizedBox(width: 2),
+                                            Icon(
+                                              Icons.swap_horiz_rounded,
+                                              color: AppColors.primary,
+                                              size: 16,
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    ),
+                                ],
+                              );
+                            },
+                          ),
+
+                          const SizedBox(height: 12),
+
+                          // Banner trạng thái học tập
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 12,
+                              vertical: 9,
+                            ),
+                            decoration: BoxDecoration(
+                              color: AppColors.accentLight,
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            child: Row(
+                              children: [
+                                const Icon(
+                                  Icons.trending_up_rounded,
+                                  color: AppColors.primary,
+                                  size: 18,
+                                ),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: ListenableBuilder(
+                                    listenable: _session,
+                                    builder: (context, _) {
+                                      final child = _session.selectedChild;
+                                      final displayName = child != null && child.name.trim().isNotEmpty
+                                          ? child.name.trim().split(' ').last
+                                          : 'con';
+                                      return Text(
+                                        stats.attended > 0
+                                            ? 'Điểm danh đạt ${stats.attendancePercent}% số buổi trong kỳ.'
+                                            : 'Bé $displayName có ${stats.unexcusedAbsence} buổi vắng cần lưu ý.',
+                                        style: AppTextStyles.caption.copyWith(
+                                          color: AppColors.primary,
+                                        ),
+                                      );
+                                    },
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+
+                          const SizedBox(height: 16),
+                          const Divider(height: 1, color: AppColors.divider),
+                          const SizedBox(height: 16),
+
+                          // ── Stats row (Dữ liệu thật) ───────────────────────
+                          IntrinsicHeight(
+                            child: Row(
+                              children: [
+                                _StatBlock(
+                                  icon: Icons.access_time_rounded,
+                                  iconColor: AppColors.primary,
+                                  value: stats.nextSessionTime,
+                                  label: 'Lịch buổi tới',
+                                ),
+                                const _VertDivider(),
+                                _StatBlock(
+                                  icon: Icons.psychology_rounded,
+                                  iconColor: AppColors.primary,
+                                  value: '${stats.attentionPercent}%',
+                                  label: 'Tập trung TB',
+                                  valueColor: AppColors.primary,
+                                ),
+                                const _VertDivider(),
+                                _StatBlock(
+                                  icon: Icons.fact_check_rounded,
+                                  iconColor: AppColors.green,
+                                  value: stats.attendanceDisplay,
+                                  label: 'Điểm danh',
+                                  valueColor: AppColors.green,
+                                ),
+                              ],
+                            ),
+                          ),
+
+                          const SizedBox(height: 16),
+
+                          // ── Progress circles (Dữ liệu thật) ────────────────
+                          Row(
+                            children: [
+                              Expanded(
+                                child: _FocusCard(
+                                  icon: Icons.psychology_rounded,
+                                  iconColor: AppColors.primary,
+                                  bgColor: AppColors.accentLight,
+                                  label: 'Tập trung',
+                                  percent: stats.attentionPercent,
+                                  color: AppColors.primary,
+                                ),
+                              ),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: _FocusCard(
+                                  icon: Icons.how_to_reg_rounded,
+                                  iconColor: AppColors.green,
+                                  bgColor: AppColors.greenLight,
+                                  label: 'Điểm danh',
+                                  percent: stats.attendancePercent,
+                                  color: AppColors.green,
+                                  centerText: stats.attendanceDisplay,
+                                ),
+                              ),
+                            ],
+                          ),
+
+                          const SizedBox(height: 14),
+
+                          // ── Attendance badges (Dữ liệu thật) ───────────────
+                          Row(
+                            children: [
+                              _AttendanceBadge(
+                                icon: Icons.check_circle_rounded,
+                                color: AppColors.green,
+                                bgColor: AppColors.greenLight,
+                                label: 'Có phép',
+                                value: '${stats.excusedAbsence} buổi',
+                              ),
+                              const SizedBox(width: 8),
+                              _AttendanceBadge(
+                                icon: Icons.cancel_rounded,
+                                color: AppColors.red,
+                                bgColor: AppColors.redLight,
+                                label: 'Không phép',
+                                value: '${stats.unexcusedAbsence} buổi',
+                              ),
+                              const SizedBox(width: 8),
+                              _AttendanceBadge(
+                                icon: Icons.watch_later_rounded,
+                                color: AppColors.orange,
+                                bgColor: AppColors.orangeLight,
+                                label: 'Đi muộn',
+                                value: '${stats.lateCount} buổi',
+                              ),
+                            ],
+                          ),
+
+                          const SizedBox(height: 14),
+
+                          // ── View history button ─────────────────────────────
+                          _AnimatedButton(
+                            label: 'Xem lịch sử các buổi học',
+                            icon: Icons.history_rounded,
+                            onTap: () => Navigator.push(
+                              context,
+                              _slideRoute(const SessionHistoryScreen()),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+
+                  const SizedBox(height: 12),
+
+                  // ── Daily overview card ────────────────────────────────────
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    child: _TapScaleWidget(
+                      onTap: () => Navigator.push(
+                        context,
+                        _slideRoute(const DailyOverviewScreen()),
+                      ),
+                      child: Container(
+                        padding: const EdgeInsets.all(14),
+                        decoration: BoxDecoration(
+                          gradient: const LinearGradient(
+                            colors: [AppColors.primary, AppColors.primaryLight],
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight,
+                          ),
+                          borderRadius: BorderRadius.circular(14),
+                          boxShadow: [
+                            BoxShadow(
+                              color: AppColors.primary.withValues(alpha: 0.28),
+                              blurRadius: 12,
+                              offset: const Offset(0, 4),
+                            ),
+                          ],
+                        ),
+                        child: Row(
                           children: [
-                            AvatarWidget(name: child?.name ?? '', size: 46),
-                            const SizedBox(width: 12),
-                            Expanded(
+                            Container(
+                              padding: const EdgeInsets.all(10),
+                              decoration: BoxDecoration(
+                                color: Colors.white.withValues(alpha: 0.18),
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                              child: const Icon(
+                                Icons.bar_chart_rounded,
+                                color: Colors.white,
+                                size: 26,
+                              ),
+                            ),
+                            const SizedBox(width: 14),
+                            const Expanded(
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
                                   Text(
-                                    child?.name ?? '',
-                                    style: AppTextStyles.heading3,
+                                    'Tổng quan trong ngày',
+                                    style: TextStyle(
+                                      fontSize: 15,
+                                      fontWeight: FontWeight.bold,
+                                      color: Colors.white,
+                                    ),
                                   ),
-                                  const SizedBox(height: 2),
+                                  SizedBox(height: 3),
                                   Text(
-                                    child?.classDisplay ?? '',
-                                    style: AppTextStyles.caption,
+                                    'Tập trung & điểm danh chi tiết',
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      color: Colors.white70,
+                                    ),
                                   ),
                                 ],
                               ),
                             ),
-                            // Chỉ hiện nút "Đổi" khi phụ huynh có từ 2 con trở lên
-                            if (session.children.length > 1)
-                              _TapScaleWidget(
-                                onTap: () {
-                                  showModalBottomSheet(
-                                    context: context,
-                                    isScrollControlled: true,
-                                    backgroundColor: Colors.transparent,
-                                    builder: (_) => const SwitchAccountScreen(),
-                                  );
-                                },
-                                child: Container(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 10,
-                                    vertical: 6,
-                                  ),
-                                  decoration: BoxDecoration(
-                                    color: AppColors.accentLight,
-                                    borderRadius: BorderRadius.circular(20),
-                                  ),
-                                  child: Row(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: const [
-                                      Text(
-                                        'Đổi',
-                                        style: TextStyle(
-                                          fontSize: 12,
-                                          fontWeight: FontWeight.w600,
-                                          color: AppColors.primary,
-                                        ),
-                                      ),
-                                      SizedBox(width: 2),
-                                      Icon(
-                                        Icons.swap_horiz_rounded,
-                                        color: AppColors.primary,
-                                        size: 16,
-                                      ),
-                                    ],
-                                  ),
-                                ),
+                            Container(
+                              padding: const EdgeInsets.all(6),
+                              decoration: BoxDecoration(
+                                color: Colors.white.withValues(alpha: 0.18),
+                                shape: BoxShape.circle,
                               ),
-                          ],
-                        );
-                      },
-                    ),
-
-                    const SizedBox(height: 12),
-
-                    // Info banner
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 12,
-                        vertical: 9,
-                      ),
-                      decoration: BoxDecoration(
-                        color: AppColors.accentLight,
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                      child: Row(
-                        children: [
-                          const Icon(
-                            Icons.trending_up_rounded,
-                            color: AppColors.primary,
-                            size: 18,
-                          ),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: ListenableBuilder(
-                              listenable: ParentSession.instance,
-                              builder: (context, _) {
-                                final child = ParentSession.instance.selectedChild;
-                                final displayName = child != null && child.name.trim().isNotEmpty
-                                    ? child.name.trim().split(' ').last
-                                    : 'con';
-                                return Text(
-                                  'Hôm nay $displayName tập trung tốt hơn 15% so với buổi trước.',
-                                  style: AppTextStyles.caption.copyWith(
-                                    color: AppColors.primary,
-                                  ),
-                                );
-                              },
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-
-                    const SizedBox(height: 16),
-                    const Divider(height: 1, color: AppColors.divider),
-                    const SizedBox(height: 16),
-
-                    // ── Stats row ──────────────────────────────────────────
-                    IntrinsicHeight(
-                      child: Row(
-                        children: [
-                          _StatBlock(
-                            icon: Icons.access_time_rounded,
-                            iconColor: AppColors.primary,
-                            value: '15:30',
-                            label: 'Lịch buổi tới',
-                          ),
-                          const _VertDivider(),
-                          _StatBlock(
-                            icon: Icons.psychology_rounded,
-                            iconColor: AppColors.primary,
-                            value: '78%',
-                            label: 'Tập trung TB',
-                            valueColor: AppColors.primary,
-                          ),
-                          const _VertDivider(),
-                          _StatBlock(
-                            icon: Icons.fact_check_rounded,
-                            iconColor: AppColors.green,
-                            value: '9/10',
-                            label: 'Điểm danh',
-                            valueColor: AppColors.green,
-                          ),
-                        ],
-                      ),
-                    ),
-
-                    const SizedBox(height: 16),
-
-                    // ── Progress circles ───────────────────────────────────
-                    Row(
-                      children: [
-                        Expanded(
-                          child: _FocusCard(
-                            icon: Icons.psychology_rounded,
-                            iconColor: AppColors.primary,
-                            bgColor: AppColors.accentLight,
-                            label: 'Tập trung',
-                            percent: 78,
-                            color: AppColors.primary,
-                          ),
-                        ),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: _FocusCard(
-                            icon: Icons.how_to_reg_rounded,
-                            iconColor: AppColors.green,
-                            bgColor: AppColors.greenLight,
-                            label: 'Điểm danh',
-                            percent: 90,
-                            color: AppColors.green,
-                            centerText: '9/10',
-                          ),
-                        ),
-                      ],
-                    ),
-
-                    const SizedBox(height: 14),
-
-                    // ── Attendance badges ──────────────────────────────────
-                    Row(
-                      children: [
-                        _AttendanceBadge(
-                          icon: Icons.check_circle_rounded,
-                          color: AppColors.green,
-                          bgColor: AppColors.greenLight,
-                          label: 'Có phép',
-                          value: '0 buổi',
-                        ),
-                        const SizedBox(width: 8),
-                        _AttendanceBadge(
-                          icon: Icons.cancel_rounded,
-                          color: AppColors.red,
-                          bgColor: AppColors.redLight,
-                          label: 'Không phép',
-                          value: '0 buổi',
-                        ),
-                        const SizedBox(width: 8),
-                        _AttendanceBadge(
-                          icon: Icons.watch_later_rounded,
-                          color: AppColors.orange,
-                          bgColor: AppColors.orangeLight,
-                          label: 'Đi muộn',
-                          value: '1 buổi',
-                        ),
-                      ],
-                    ),
-
-                    const SizedBox(height: 14),
-
-                    // ── View history button ────────────────────────────────
-                    _AnimatedButton(
-                      label: 'Xem lịch sử các buổi học',
-                      icon: Icons.history_rounded,
-                      onTap: () => Navigator.push(
-                        context,
-                        _slideRoute(const SessionHistoryScreen()),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-
-            const SizedBox(height: 12),
-
-            // ── Daily overview card ─────────────────────────────────────────
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              child: _TapScaleWidget(
-                onTap: () => Navigator.push(
-                  context,
-                  _slideRoute(const DailyOverviewScreen()),
-                ),
-                child: Container(
-                  padding: const EdgeInsets.all(14),
-                  decoration: BoxDecoration(
-                    gradient: const LinearGradient(
-                      colors: [AppColors.primary, AppColors.primaryLight],
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                    ),
-                    borderRadius: BorderRadius.circular(14),
-                    boxShadow: [
-                      BoxShadow(
-                        color: AppColors.primary.withOpacity(0.28),
-                        blurRadius: 12,
-                        offset: const Offset(0, 4),
-                      ),
-                    ],
-                  ),
-                  child: Row(
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.all(10),
-                        decoration: BoxDecoration(
-                          color: Colors.white.withOpacity(0.18),
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                        child: const Icon(
-                          Icons.bar_chart_rounded,
-                          color: Colors.white,
-                          size: 26,
-                        ),
-                      ),
-                      const SizedBox(width: 14),
-                      const Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              'Tổng quan trong ngày',
-                              style: TextStyle(
-                                fontSize: 15,
-                                fontWeight: FontWeight.bold,
+                              child: const Icon(
+                                Icons.arrow_forward_rounded,
                                 color: Colors.white,
-                              ),
-                            ),
-                            SizedBox(height: 3),
-                            Text(
-                              'Tập trung & điểm danh chi tiết',
-                              style: TextStyle(
-                                fontSize: 12,
-                                color: Colors.white70,
+                                size: 18,
                               ),
                             ),
                           ],
                         ),
                       ),
-                      Container(
-                        padding: const EdgeInsets.all(6),
-                        decoration: BoxDecoration(
-                          color: Colors.white.withOpacity(0.18),
-                          shape: BoxShape.circle,
-                        ),
-                        child: const Icon(
-                          Icons.arrow_forward_rounded,
-                          color: Colors.white,
-                          size: 18,
-                        ),
-                      ),
-                    ],
+                    ),
                   ),
-                ),
+
+                  const SizedBox(height: 20),
+                ],
               ),
             ),
-
-            const SizedBox(height: 20),
-          ],
-        ),
-      ),
+          ),
+        );
+      },
     );
   }
 }
@@ -543,7 +605,7 @@ class _AnimatedButtonState extends State<_AnimatedButton>
     ).animate(CurvedAnimation(parent: _ctrl, curve: Curves.easeInOut));
     _color = ColorTween(
       begin: Colors.transparent,
-      end: AppColors.primary.withOpacity(0.08),
+      end: AppColors.primary.withValues(alpha: 0.08),
     ).animate(_ctrl);
   }
 
@@ -656,7 +718,7 @@ class _IconBadgeButtonState extends State<_IconBadgeButton>
             Container(
               width: 42,
               height: 42,
-              decoration: BoxDecoration(
+              decoration: const BoxDecoration(
                 color: AppColors.backgroundGrey,
                 shape: BoxShape.circle,
               ),
@@ -781,7 +843,7 @@ class _FocusCard extends StatelessWidget {
                   value: percent / 100,
                   strokeWidth: 5,
                   strokeCap: StrokeCap.round,
-                  backgroundColor: Colors.white.withOpacity(0.6),
+                  backgroundColor: Colors.white.withValues(alpha: 0.6),
                   valueColor: AlwaysStoppedAnimation<Color>(color),
                 ),
                 Text(

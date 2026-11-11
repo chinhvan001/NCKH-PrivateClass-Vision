@@ -289,3 +289,59 @@ class ParentNotification {
     this.note = '',
   });
 }
+
+/// Model thống kê hiển thị trang chủ phụ huynh (tính toán từ sessions)
+class HomeStats {
+  final String nextSessionTime; // Ví dụ: "15:30" hoặc "Mai 07:30"
+  final double avgAttention;    // Trung bình % tập trung
+  final int totalEnded;         // Tổng số buổi đã học
+  final int attended;           // Số buổi có mặt
+  final int excusedAbsence;     // Vắng có phép
+  final int unexcusedAbsence;   // Vắng không phép
+  final int lateCount;          // Đi muộn
+  final int notificationCount;  // Số lượng thông báo chưa đọc / thông báo mới
+
+  const HomeStats({
+    this.nextSessionTime = '--:--',
+    this.avgAttention = 0.0,
+    this.totalEnded = 0,
+    this.attended = 0,
+    this.excusedAbsence = 0,
+    this.unexcusedAbsence = 0,
+    this.lateCount = 0,
+    this.notificationCount = 0,
+  });
+
+  String get attendanceDisplay => '$attended/$totalEnded';
+  int get attendancePercent =>
+      totalEnded > 0 ? ((attended / totalEnded) * 100).round() : 0;
+  int get attentionPercent => avgAttention.round().clamp(0, 100);
+}
+
+/// Thống kê mức độ tập trung theo từng môn (màn hình Tổng quan)
+class SubjectFocus {
+  final String subject;
+  final int percent;
+
+  const SubjectFocus({
+    required this.subject,
+    required this.percent,
+  });
+}
+
+/// Thống kê tổng hợp cho màn hình Tổng quan (DailyOverviewScreen)
+class OverviewStats {
+  final List<SubjectFocus> subjects;
+  final int totalSessions;
+  final int attendedSessions;
+  final int excusedAbsences;
+  final int unexcusedAbsences;
+
+  const OverviewStats({
+    this.subjects = const [],
+    this.totalSessions = 0,
+    this.attendedSessions = 0,
+    this.excusedAbsences = 0,
+    this.unexcusedAbsences = 0,
+  });
+}
