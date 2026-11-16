@@ -398,7 +398,7 @@ class ParentService {
     }
   }
 
-  /// Lấy thống kê mức độ tập trung theo môn và điểm danh cho màn hình Tổng quan
+  /// Lấy thống kê mức độ tập trung theo môn (kèm chi tiết từng ngày) và điểm danh
   Future<OverviewStats> getOverviewStats({
     required String studentId,
     required List<String> classIds,
@@ -425,7 +425,8 @@ class ParentService {
       int attended = 0;
       int unexcused = 0;
 
-      final Map<String, List<double>> subjectScores = {};
+      // Gom chi tiết từng buổi theo môn: subject -> List<SubjectDailyFocus>
+      final Map<String, List<SubjectDailyFocus>> subjectRecords = {};
 
       for (final doc in docs) {
         final data = doc.data() as Map<String, dynamic>? ?? {};
@@ -444,28 +445,46 @@ class ParentService {
         total++;
         final isPresent = seat['is_present'] == true;
         final subject = _subjectOf(doc.id, data);
+        final periodNum = _toInt(data['period']) ?? 1;
+        final dateStr =
+            '${_two(sessionTime.day)}/${_two(sessionTime.month)}/${sessionTime.year}';
+
+        // Luôn khởi tạo môn học trong danh sách để hiện đủ các môn
+        subjectRecords.putIfAbsent(subject, () => []);
 
         if (isPresent) {
           attended++;
           final score = seat['attention_score'];
-          // Chấp nhận mọi giá trị số kể cả 0 để hiển thị thanh môn học
-          if (score is num) {
-            subjectScores.putIfAbsent(subject, () => []).add(score.toDouble());
-          }
+          final int scorePercent =
+              (score is num) ? score.round().clamp(0, 100) : 0;
+
+          subjectRecords[subject]!.add(
+            SubjectDailyFocus(
+              date: dateStr,
+              period: periodNum,
+              percent: scorePercent,
+              isPresent: true,
+            ),
+          );
         } else {
           unexcused++;
         }
       }
 
       final List<SubjectFocus> subjectsList = [];
-      subjectScores.forEach((subj, scores) {
-        final avg = scores.isNotEmpty
-            ? scores.reduce((a, b) => a + b) / scores.length
+      subjectRecords.forEach((subj, records) {
+        // Sắp xếp ngày mới nhất lên đầu
+        records.sort((a, b) => b.date.compareTo(a.date));
+
+        final avg = records.isNotEmpty
+            ? records.map((e) => e.percent).reduce((a, b) => a + b) / records.length
             : 0.0;
+
         subjectsList.add(
           SubjectFocus(
             subject: subj,
             percent: avg.round().clamp(0, 100),
+            dailyRecords: records,
           ),
         );
       });

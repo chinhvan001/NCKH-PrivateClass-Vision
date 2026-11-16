@@ -23,7 +23,6 @@ class _DailyOverviewScreenState extends State<DailyOverviewScreen> {
 
   Future<OverviewStats>? _statsFuture;
 
-  // Bảng màu cho thanh tiến độ từng môn học
   static const List<Color> _palette = [
     AppColors.primary,
     AppColors.green,
@@ -61,6 +60,158 @@ class _DailyOverviewScreenState extends State<DailyOverviewScreen> {
       _selectedPeriod = period;
     });
     _fetchStats();
+  }
+
+  /// Mở bảng chi tiết độ tập trung từng ngày của môn học được chọn
+  void _showSubjectDailyDetail(SubjectFocus item, Color color) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (context) {
+        return DraggableScrollableSheet(
+          initialChildSize: 0.55,
+          minChildSize: 0.35,
+          maxChildSize: 0.85,
+          expand: false,
+          builder: (_, scrollController) {
+            return Padding(
+              padding: const EdgeInsets.fromLTRB(20, 12, 20, 20),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Center(
+                    child: Container(
+                      width: 40,
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: AppColors.divider,
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Môn ${item.subject}',
+                            style: AppTextStyles.heading2,
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            'Chi tiết tập trung từng ngày ($_selectedPeriod)',
+                            style: AppTextStyles.caption,
+                          ),
+                        ],
+                      ),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 6,
+                        ),
+                        decoration: BoxDecoration(
+                          color: color.withOpacity(0.12),
+                          borderRadius: BorderRadius.circular(20),
+                        ),
+                        child: Text(
+                          'TB: ${item.percent}%',
+                          style: TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.bold,
+                            color: color,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  const Divider(height: 1),
+                  const SizedBox(height: 12),
+                  Expanded(
+                    child: item.dailyRecords.isEmpty
+                        ? const Center(
+                            child: Text(
+                              'Chưa có dữ liệu từng ngày cho môn này',
+                              style: AppTextStyles.caption,
+                            ),
+                          )
+                        : ListView.separated(
+                            controller: scrollController,
+                            itemCount: item.dailyRecords.length,
+                            separatorBuilder: (_, __) =>
+                                const SizedBox(height: 10),
+                            itemBuilder: (context, idx) {
+                              final record = item.dailyRecords[idx];
+                              return Container(
+                                padding: const EdgeInsets.all(12),
+                                decoration: BoxDecoration(
+                                  color: AppColors.backgroundGrey,
+                                  borderRadius: BorderRadius.circular(10),
+                                ),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Row(
+                                      mainAxisAlignment:
+                                          MainAxisAlignment.spaceBetween,
+                                      children: [
+                                        Row(
+                                          children: [
+                                            Icon(
+                                              Icons.calendar_today_rounded,
+                                              size: 14,
+                                              color: color,
+                                            ),
+                                            const SizedBox(width: 6),
+                                            Text(
+                                              '${record.date} · Tiết ${record.period}',
+                                              style: AppTextStyles.body2.copyWith(
+                                                fontWeight: FontWeight.w600,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                        Text(
+                                          '${record.percent}%',
+                                          style: TextStyle(
+                                            fontSize: 14,
+                                            fontWeight: FontWeight.bold,
+                                            color: color,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                    const SizedBox(height: 8),
+                                    ClipRRect(
+                                      borderRadius: BorderRadius.circular(6),
+                                      child: LinearProgressIndicator(
+                                        value: record.percent / 100.0,
+                                        minHeight: 7,
+                                        backgroundColor: Colors.white,
+                                        valueColor:
+                                            AlwaysStoppedAnimation<Color>(color),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              );
+                            },
+                          ),
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
   }
 
   @override
@@ -144,43 +295,7 @@ class _DailyOverviewScreenState extends State<DailyOverviewScreen> {
 
                   return Column(
                     children: [
-                      // Card Mức độ tập trung theo môn
-                      AppCard(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const Text(
-                              'Mức độ tập trung theo môn',
-                              style: AppTextStyles.heading3,
-                            ),
-                            const SizedBox(height: 14),
-                            if (stats.subjects.isEmpty)
-                              const Padding(
-                                padding: EdgeInsets.symmetric(vertical: 16),
-                                child: Center(
-                                  child: Text(
-                                    'Chưa có dữ liệu tập trung trong khoảng thời gian này',
-                                    style: AppTextStyles.caption,
-                                  ),
-                                ),
-                              )
-                            else
-                              ...stats.subjects.asMap().entries.map((entry) {
-                                final index = entry.key;
-                                final item = entry.value;
-                                final color = _palette[index % _palette.length];
-                                return SubjectProgressBar(
-                                  subject: item.subject,
-                                  percent: item.percent,
-                                  color: color,
-                                );
-                              }),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(height: 14),
-
-                      // Card Điểm danh
+                      // 1. KHỐI ĐIỂM DANH LÊN TRÊN CÙNG
                       AppCard(
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
@@ -241,6 +356,75 @@ class _DailyOverviewScreenState extends State<DailyOverviewScreen> {
                                 ),
                               ),
                             ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 14),
+
+                      // 2. LIST MỨC ĐỘ TẬP TRUNG THEO MÔN Ở DƯỚI (BẤM ĐƯỢC)
+                      AppCard(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                const Expanded(
+                                  child: Text(
+                                    'Mức độ tập trung theo môn',
+                                    style: AppTextStyles.heading3,
+                                  ),
+                                ),
+                                if (stats.subjects.isNotEmpty) ...[
+                                  const SizedBox(width: 8),
+                                  const Text(
+                                    'Xem từng ngày',
+                                    style: AppTextStyles.caption,
+                                  ),
+                                ],
+                              ],
+                            ),
+                            const SizedBox(height: 14),
+                            if (stats.subjects.isEmpty)
+                              const Padding(
+                                padding: EdgeInsets.symmetric(vertical: 16),
+                                child: Center(
+                                  child: Text(
+                                    'Chưa có dữ liệu tập trung trong khoảng thời gian này',
+                                    style: AppTextStyles.caption,
+                                  ),
+                                ),
+                              )
+                            else
+                              ...stats.subjects.asMap().entries.map((entry) {
+                                final index = entry.key;
+                                final item = entry.value;
+                                final color = _palette[index % _palette.length];
+                                return InkWell(
+                                  onTap: () => _showSubjectDailyDetail(item, color),
+                                  borderRadius: BorderRadius.circular(8),
+                                  child: Padding(
+                                    padding: const EdgeInsets.symmetric(vertical: 4),
+                                    child: Row(
+                                      children: [
+                                        Expanded(
+                                          child: SubjectProgressBar(
+                                            subject: item.subject,
+                                            percent: item.percent,
+                                            color: color,
+                                          ),
+                                        ),
+                                        const SizedBox(width: 6),
+                                        const Icon(
+                                          Icons.chevron_right_rounded,
+                                          size: 20,
+                                          color: AppColors.textSecondary,
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                );
+                              }),
                           ],
                         ),
                       ),

@@ -318,14 +318,31 @@ class HomeStats {
   int get attentionPercent => avgAttention.round().clamp(0, 100);
 }
 
-/// Thống kê mức độ tập trung theo từng môn (màn hình Tổng quan)
+/// Chi tiết mức độ tập trung của 1 tiết/ngày cụ thể trong một môn
+class SubjectDailyFocus {
+  final String date;      // VD: "09/11/2026"
+  final int period;       // VD: 1 (Tiết 1)
+  final int percent;      // Mức độ tập trung (0 - 100%)
+  final bool isPresent;   // Có mặt hay vắng
+
+  const SubjectDailyFocus({
+    required this.date,
+    required this.period,
+    required this.percent,
+    required this.isPresent,
+  });
+}
+
+/// Thống kê mức độ tập trung theo từng môn (kèm danh sách chi tiết từng ngày)
 class SubjectFocus {
   final String subject;
   final int percent;
+  final List<SubjectDailyFocus> dailyRecords;
 
   const SubjectFocus({
     required this.subject,
     required this.percent,
+    this.dailyRecords = const [],
   });
 }
 

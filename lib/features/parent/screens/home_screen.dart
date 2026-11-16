@@ -86,7 +86,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 }
 
-// ─── Home content (Dữ liệu thật từ Firestore) ──────────────────────────────────
+// ─── Home content (Tích hợp trực tiếp Mức độ tập trung theo môn) ─────────────
 class _HomeContent extends StatefulWidget {
   const _HomeContent();
 
@@ -99,13 +99,25 @@ class _HomeContentState extends State<_HomeContent> {
   final ParentSession _session = ParentSession.instance;
 
   Future<HomeStats>? _statsFuture;
+  Future<OverviewStats>? _overviewFuture;
   String? _loadedKey;
+
+  String _selectedPeriod = 'Tuần này';
+  final List<String> _periods = ['Hôm nay', 'Tuần này', 'Tháng này'];
+
+  static const List<Color> _palette = [
+    AppColors.primary,
+    AppColors.green,
+    AppColors.orange,
+    AppColors.red,
+    AppColors.accent,
+  ];
 
   @override
   void initState() {
     super.initState();
     _session.addListener(_onSessionChanged);
-    _loadStats();
+    _loadAllData();
   }
 
   @override
@@ -120,25 +132,201 @@ class _HomeContentState extends State<_HomeContent> {
   void _onSessionChanged() {
     if (!mounted) return;
     if (_keyOf(_session.selectedChild) != _loadedKey) {
-      _loadStats();
+      _loadAllData();
     }
   }
 
-  void _loadStats() {
+  void _loadAllData() {
     final child = _session.selectedChild;
     _loadedKey = _keyOf(child);
     if (child != null) {
+      final classIds = child.classes.map((c) => c.id).toList();
       setState(() {
         _statsFuture = _parentService.getHomeStats(
           studentId: child.id,
-          classIds: child.classes.map((c) => c.id).toList(),
+          classIds: classIds,
+        );
+        _overviewFuture = _parentService.getOverviewStats(
+          studentId: child.id,
+          classIds: classIds,
+          period: _selectedPeriod,
         );
       });
     } else {
       setState(() {
         _statsFuture = Future.value(const HomeStats());
+        _overviewFuture = Future.value(const OverviewStats());
       });
     }
+  }
+
+  void _onPeriodChanged(String period) {
+    if (_selectedPeriod == period) return;
+    setState(() {
+      _selectedPeriod = period;
+    });
+    final child = _session.selectedChild;
+    if (child != null) {
+      setState(() {
+        _overviewFuture = _parentService.getOverviewStats(
+          studentId: child.id,
+          classIds: child.classes.map((c) => c.id).toList(),
+          period: _selectedPeriod,
+        );
+      });
+    }
+  }
+
+  /// Mở bảng chi tiết độ tập trung từng ngày của môn học được chọn
+  void _showSubjectDailyDetail(SubjectFocus item, Color color) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (context) {
+        return DraggableScrollableSheet(
+          initialChildSize: 0.55,
+          minChildSize: 0.35,
+          maxChildSize: 0.85,
+          expand: false,
+          builder: (_, scrollController) {
+            return Padding(
+              padding: const EdgeInsets.fromLTRB(20, 12, 20, 20),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Center(
+                    child: Container(
+                      width: 40,
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: AppColors.divider,
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Môn ${item.subject}',
+                            style: AppTextStyles.heading2,
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            'Chi tiết tập trung từng ngày ($_selectedPeriod)',
+                            style: AppTextStyles.caption,
+                          ),
+                        ],
+                      ),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 6,
+                        ),
+                        decoration: BoxDecoration(
+                          color: color.withValues(alpha: 0.12),
+                          borderRadius: BorderRadius.circular(20),
+                        ),
+                        child: Text(
+                          'TB: ${item.percent}%',
+                          style: TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.bold,
+                            color: color,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  const Divider(height: 1),
+                  const SizedBox(height: 12),
+                  Expanded(
+                    child: item.dailyRecords.isEmpty
+                        ? const Center(
+                            child: Text(
+                              'Chưa có dữ liệu từng ngày cho môn này',
+                              style: AppTextStyles.caption,
+                            ),
+                          )
+                        : ListView.separated(
+                            controller: scrollController,
+                            itemCount: item.dailyRecords.length,
+                            separatorBuilder: (_, __) =>
+                                const SizedBox(height: 10),
+                            itemBuilder: (context, idx) {
+                              final record = item.dailyRecords[idx];
+                              return Container(
+                                padding: const EdgeInsets.all(12),
+                                decoration: BoxDecoration(
+                                  color: AppColors.backgroundGrey,
+                                  borderRadius: BorderRadius.circular(10),
+                                ),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Row(
+                                      mainAxisAlignment:
+                                          MainAxisAlignment.spaceBetween,
+                                      children: [
+                                        Row(
+                                          children: [
+                                            Icon(
+                                              Icons.calendar_today_rounded,
+                                              size: 14,
+                                              color: color,
+                                            ),
+                                            const SizedBox(width: 6),
+                                            Text(
+                                              '${record.date} · Tiết ${record.period}',
+                                              style: AppTextStyles.body2.copyWith(
+                                                fontWeight: FontWeight.w600,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                        Text(
+                                          '${record.percent}%',
+                                          style: TextStyle(
+                                            fontSize: 14,
+                                            fontWeight: FontWeight.bold,
+                                            color: color,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                    const SizedBox(height: 8),
+                                    ClipRRect(
+                                      borderRadius: BorderRadius.circular(6),
+                                      child: LinearProgressIndicator(
+                                        value: record.percent / 100.0,
+                                        minHeight: 7,
+                                        backgroundColor: Colors.white,
+                                        valueColor:
+                                            AlwaysStoppedAnimation<Color>(color),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              );
+                            },
+                          ),
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
   }
 
   @override
@@ -150,7 +338,7 @@ class _HomeContentState extends State<_HomeContent> {
 
         return SafeArea(
           child: RefreshIndicator(
-            onRefresh: () async => _loadStats(),
+            onRefresh: () async => _loadAllData(),
             child: SingleChildScrollView(
               physics: const AlwaysScrollableScrollPhysics(),
               child: Column(
@@ -232,9 +420,9 @@ class _HomeContentState extends State<_HomeContent> {
                                           color: AppColors.accentLight,
                                           borderRadius: BorderRadius.circular(20),
                                         ),
-                                        child: Row(
+                                        child: const Row(
                                           mainAxisSize: MainAxisSize.min,
-                                          children: const [
+                                          children: [
                                             Text(
                                               'Đổi',
                                               style: TextStyle(
@@ -305,7 +493,7 @@ class _HomeContentState extends State<_HomeContent> {
                           const Divider(height: 1, color: AppColors.divider),
                           const SizedBox(height: 16),
 
-                          // ── Stats row (Dữ liệu thật) ───────────────────────
+                          // ── Stats row ──────────────────────────────────────
                           IntrinsicHeight(
                             child: Row(
                               children: [
@@ -337,7 +525,7 @@ class _HomeContentState extends State<_HomeContent> {
 
                           const SizedBox(height: 16),
 
-                          // ── Progress circles (Dữ liệu thật) ────────────────
+                          // ── Progress circles ───────────────────────────────
                           Row(
                             children: [
                               Expanded(
@@ -367,7 +555,7 @@ class _HomeContentState extends State<_HomeContent> {
 
                           const SizedBox(height: 14),
 
-                          // ── Attendance badges (Dữ liệu thật) ───────────────
+                          // ── Attendance badges ──────────────────────────────
                           Row(
                             children: [
                               _AttendanceBadge(
@@ -412,90 +600,163 @@ class _HomeContentState extends State<_HomeContent> {
                     ),
                   ),
 
-                  const SizedBox(height: 12),
+                  const SizedBox(height: 14),
 
-                  // ── Daily overview card ────────────────────────────────────
+                  // ── KHỐI MỨC ĐỘ TẬP TRUNG THEO MÔN (CHẠM XEM TỪNG NGÀY) ──
                   Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 16),
-                    child: _TapScaleWidget(
-                      onTap: () => Navigator.push(
-                        context,
-                        _slideRoute(const DailyOverviewScreen()),
-                      ),
-                      child: Container(
-                        padding: const EdgeInsets.all(14),
-                        decoration: BoxDecoration(
-                          gradient: const LinearGradient(
-                            colors: [AppColors.primary, AppColors.primaryLight],
-                            begin: Alignment.topLeft,
-                            end: Alignment.bottomRight,
+                    child: AppCard(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              const Expanded(
+                                child: Text(
+                                  'Mức độ tập trung theo môn',
+                                  style: AppTextStyles.heading3,
+                                ),
+                              ),
+                              GestureDetector(
+                                onTap: () => Navigator.push(
+                                  context,
+                                  _slideRoute(const DailyOverviewScreen()),
+                                ),
+                                child: const Text(
+                                  'Chi tiết >',
+                                  style: AppTextStyles.linkText,
+                                ),
+                              ),
+                            ],
                           ),
-                          borderRadius: BorderRadius.circular(14),
-                          boxShadow: [
-                            BoxShadow(
-                              color: AppColors.primary.withValues(alpha: 0.28),
-                              blurRadius: 12,
-                              offset: const Offset(0, 4),
+                          const SizedBox(height: 12),
+
+                          // Thanh chọn Hôm nay / Tuần này / Tháng này
+                          Container(
+                            padding: const EdgeInsets.all(3),
+                            decoration: BoxDecoration(
+                              color: AppColors.backgroundGrey,
+                              borderRadius: BorderRadius.circular(9),
                             ),
-                          ],
-                        ),
-                        child: Row(
-                          children: [
-                            Container(
-                              padding: const EdgeInsets.all(10),
-                              decoration: BoxDecoration(
-                                color: Colors.white.withValues(alpha: 0.18),
-                                borderRadius: BorderRadius.circular(10),
-                              ),
-                              child: const Icon(
-                                Icons.bar_chart_rounded,
-                                color: Colors.white,
-                                size: 26,
-                              ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: _periods.map((p) {
+                                final selected = p == _selectedPeriod;
+                                return GestureDetector(
+                                  onTap: () => _onPeriodChanged(p),
+                                  child: Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 14,
+                                      vertical: 6,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: selected
+                                          ? AppColors.primary
+                                          : Colors.transparent,
+                                      borderRadius: BorderRadius.circular(7),
+                                    ),
+                                    child: Text(
+                                      p,
+                                      style: TextStyle(
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w600,
+                                        color: selected
+                                            ? Colors.white
+                                            : AppColors.textSecondary,
+                                      ),
+                                    ),
+                                  ),
+                                );
+                              }).toList(),
                             ),
-                            const SizedBox(width: 14),
-                            const Expanded(
-                              child: Column(
+                          ),
+                          const SizedBox(height: 14),
+
+                          FutureBuilder<OverviewStats>(
+                            future: _overviewFuture,
+                            builder: (context, ovSnapshot) {
+                              if (ovSnapshot.connectionState ==
+                                  ConnectionState.waiting) {
+                                return const Padding(
+                                  padding: EdgeInsets.symmetric(vertical: 20),
+                                  child: Center(
+                                    child: CircularProgressIndicator(),
+                                  ),
+                                );
+                              }
+
+                              final ovStats =
+                                  ovSnapshot.data ?? const OverviewStats();
+
+                              if (ovStats.subjects.isEmpty) {
+                                return const Padding(
+                                  padding: EdgeInsets.symmetric(vertical: 16),
+                                  child: Center(
+                                    child: Text(
+                                      'Chưa có dữ liệu tập trung trong khoảng thời gian này',
+                                      style: AppTextStyles.caption,
+                                    ),
+                                  ),
+                                );
+                              }
+
+                              return Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  Text(
-                                    'Tổng quan trong ngày',
-                                    style: TextStyle(
-                                      fontSize: 15,
-                                      fontWeight: FontWeight.bold,
-                                      color: Colors.white,
-                                    ),
+                                  const Text(
+                                    'Chạm vào môn học để xem độ tập trung từng ngày',
+                                    style: AppTextStyles.caption,
                                   ),
-                                  SizedBox(height: 3),
-                                  Text(
-                                    'Tập trung & điểm danh chi tiết',
-                                    style: TextStyle(
-                                      fontSize: 12,
-                                      color: Colors.white70,
-                                    ),
-                                  ),
+                                  const SizedBox(height: 10),
+                                  ...ovStats.subjects
+                                      .asMap()
+                                      .entries
+                                      .map((entry) {
+                                    final index = entry.key;
+                                    final item = entry.value;
+                                    final color =
+                                        _palette[index % _palette.length];
+                                    return InkWell(
+                                      onTap: () => _showSubjectDailyDetail(
+                                        item,
+                                        color,
+                                      ),
+                                      borderRadius: BorderRadius.circular(8),
+                                      child: Padding(
+                                        padding: const EdgeInsets.symmetric(
+                                          vertical: 4,
+                                        ),
+                                        child: Row(
+                                          children: [
+                                            Expanded(
+                                              child: SubjectProgressBar(
+                                                subject: item.subject,
+                                                percent: item.percent,
+                                                color: color,
+                                              ),
+                                            ),
+                                            const SizedBox(width: 6),
+                                            const Icon(
+                                              Icons.chevron_right_rounded,
+                                              size: 20,
+                                              color: AppColors.textSecondary,
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    );
+                                  }),
                                 ],
-                              ),
-                            ),
-                            Container(
-                              padding: const EdgeInsets.all(6),
-                              decoration: BoxDecoration(
-                                color: Colors.white.withValues(alpha: 0.18),
-                                shape: BoxShape.circle,
-                              ),
-                              child: const Icon(
-                                Icons.arrow_forward_rounded,
-                                color: Colors.white,
-                                size: 18,
-                              ),
-                            ),
-                          ],
-                        ),
+                              );
+                            },
+                          ),
+                        ],
                       ),
                     ),
                   ),
 
-                  const SizedBox(height: 20),
+                  const SizedBox(height: 24),
                 ],
               ),
             ),
