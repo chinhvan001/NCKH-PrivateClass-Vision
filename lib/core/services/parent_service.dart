@@ -153,11 +153,10 @@ class ParentService {
     return null;
   }
 
-  /// Đồng bộ chi tiết điểm danh từ collection sessions theo khoảng thời gian được chọn
   Future<AttendanceSummary> getAttendanceSummary({
     required String studentId,
     String? classId,
-    String period = 'Học kỳ 1', // 'Cả năm', 'Học kỳ 1', 'Học kỳ 2', 'Tháng này'
+    String period = 'Học kỳ 1',
   }) async {
     try {
       final classIds = (classId != null && classId.isNotEmpty) ? [classId] : <String>[];
@@ -166,8 +165,6 @@ class ParentService {
 
       DateTime? startDate;
       DateTime? endDate;
-
-      // Năm học hiện tại (ví dụ 2026-2027: HK1 từ 01/08 đến 31/12, HK2 từ 01/01 đến 31/05)
       final baseYear = now.month >= 8 ? now.year : now.year - 1;
 
       if (period == 'Tháng này') {
@@ -179,7 +176,7 @@ class ParentService {
       } else if (period == 'Học kỳ 2') {
         startDate = DateTime(baseYear + 1, 1, 1);
         endDate = DateTime(baseYear + 1, 5, 31, 23, 59, 59);
-      } // 'Cả năm' thì để startDate và endDate = null (quét toàn bộ)
+      }
 
       int total = 0;
       int attended = 0;
@@ -195,12 +192,9 @@ class ParentService {
             _parseDateTime(data['session_date']);
         final end = _parseDateTime(data['end_time']);
 
-        // Chỉ tính các buổi học đã kết thúc
         if (!_hasEnded(data, start, end, now)) continue;
 
         final sessionTime = start ?? end ?? now;
-
-        // Lọc theo khoảng thời gian
         if (startDate != null && sessionTime.isBefore(startDate)) continue;
         if (endDate != null && sessionTime.isAfter(endDate)) continue;
 
@@ -248,14 +242,12 @@ class ParentService {
 
     try {
       final docs = await _fetchSessionDocs(ids);
-
       final now = DateTime.now();
       final teacherCache = <String, String>{};
       final result = <ParentNotification>[];
 
       for (final doc in docs) {
         final data = doc.data() as Map<String, dynamic>? ?? {};
-
         final seat = _findSeat(data, studentId);
         if (seat == null) continue;
 
@@ -321,7 +313,6 @@ class ParentService {
       final docs = await _fetchSessionDocs(ids);
       final now = DateTime.now();
 
-      DateTime? nearestNextStart;
       int totalEnded = 0;
       int attended = 0;
       int unexcused = 0;
@@ -337,14 +328,7 @@ class ParentService {
             _parseDateTime(data['session_date']);
         final end = _parseDateTime(data['end_time']);
 
-        if (start != null && start.isAfter(now)) {
-          if (nearestNextStart == null || start.isBefore(nearestNextStart)) {
-            nearestNextStart = start;
-          }
-        }
-
-        final ended = _hasEnded(data, start, end, now);
-        if (ended) {
+        if (_hasEnded(data, start, end, now)) {
           totalEnded++;
           final isPresent = seat['is_present'] == true;
           if (isPresent) {
@@ -360,16 +344,6 @@ class ParentService {
         }
       }
 
-      String nextTimeStr = '--:--';
-      if (nearestNextStart != null) {
-        final isToday = nearestNextStart.year == now.year &&
-            nearestNextStart.month == now.month &&
-            nearestNextStart.day == now.day;
-        final timePart =
-            '${_two(nearestNextStart.hour)}:${_two(nearestNextStart.minute)}';
-        nextTimeStr = isToday ? timePart : 'T${nearestNextStart.weekday} $timePart';
-      }
-
       int notiCount = 0;
       try {
         final notifications = await getNotificationsForStudent(
@@ -379,17 +353,13 @@ class ParentService {
         notiCount = notifications.length;
       } catch (_) {}
 
-      final double avgScore =
-          scoreCount > 0 ? (totalScore / scoreCount) : 0.0;
+      final double avgScore = scoreCount > 0 ? (totalScore / scoreCount) : 0.0;
 
       return HomeStats(
-        nextSessionTime: nextTimeStr,
         avgAttention: avgScore,
         totalEnded: totalEnded,
         attended: attended,
         unexcusedAbsence: unexcused,
-        excusedAbsence: 0,
-        lateCount: 0,
         notificationCount: notiCount,
       );
     } catch (e) {
@@ -398,11 +368,11 @@ class ParentService {
     }
   }
 
-  /// Lấy thống kê mức độ tập trung theo môn (kèm chi tiết từng ngày) và điểm danh
+  /// Lấy thống kê từng môn: giảng viên phụ trách, tổng tiết, tiết có mặt, tiết vắng, điểm tập trung TB và lịch sử từng ngày
   Future<OverviewStats> getOverviewStats({
     required String studentId,
     required List<String> classIds,
-    required String period, // 'Hôm nay', 'Tuần này', 'Tháng này'
+    required String period, // 'Tuần này', 'Tháng này'
   }) async {
     final ids = classIds.where((e) => e.isNotEmpty).toSet().toList();
     if (ids.isEmpty) return const OverviewStats();
@@ -410,11 +380,10 @@ class ParentService {
     try {
       final docs = await _fetchSessionDocs(ids);
       final now = DateTime.now();
+      final teacherCache = <String, String>{};
 
       DateTime startDate;
-      if (period == 'Hôm nay') {
-        startDate = DateTime(now.year, now.month, now.day);
-      } else if (period == 'Tuần này') {
+      if (period == 'Tuần này') {
         startDate = DateTime(now.year, now.month, now.day - (now.weekday - 1));
       } else {
         // Tháng này
@@ -425,8 +394,11 @@ class ParentService {
       int attended = 0;
       int unexcused = 0;
 
-      // Gom chi tiết từng buổi theo môn: subject -> List<SubjectDailyFocus>
       final Map<String, List<SubjectDailyFocus>> subjectRecords = {};
+      final Map<String, String> subjectTeachers = {};
+      final Map<String, int> subjectTotalCount = {};
+      final Map<String, int> subjectAttendedCount = {};
+      final Map<String, int> subjectAbsentCount = {};
 
       for (final doc in docs) {
         final data = doc.data() as Map<String, dynamic>? ?? {};
@@ -449,11 +421,21 @@ class ParentService {
         final dateStr =
             '${_two(sessionTime.day)}/${_two(sessionTime.month)}/${sessionTime.year}';
 
-        // Luôn khởi tạo môn học trong danh sách để hiện đủ các môn
+        // Lấy tên giảng viên đứng lớp môn này
+        final teacherId = (data['teacher_id'] ?? '').toString();
+        if (teacherId.isNotEmpty && !subjectTeachers.containsKey(subject)) {
+          final tName = await _teacherName(teacherId, teacherCache);
+          if (tName.isNotEmpty) {
+            subjectTeachers[subject] = tName;
+          }
+        }
+
         subjectRecords.putIfAbsent(subject, () => []);
+        subjectTotalCount[subject] = (subjectTotalCount[subject] ?? 0) + 1;
 
         if (isPresent) {
           attended++;
+          subjectAttendedCount[subject] = (subjectAttendedCount[subject] ?? 0) + 1;
           final score = seat['attention_score'];
           final int scorePercent =
               (score is num) ? score.round().clamp(0, 100) : 0;
@@ -468,12 +450,12 @@ class ParentService {
           );
         } else {
           unexcused++;
+          subjectAbsentCount[subject] = (subjectAbsentCount[subject] ?? 0) + 1;
         }
       }
 
       final List<SubjectFocus> subjectsList = [];
       subjectRecords.forEach((subj, records) {
-        // Sắp xếp ngày mới nhất lên đầu
         records.sort((a, b) => b.date.compareTo(a.date));
 
         final avg = records.isNotEmpty
@@ -484,6 +466,10 @@ class ParentService {
           SubjectFocus(
             subject: subj,
             percent: avg.round().clamp(0, 100),
+            teacherName: subjectTeachers[subj] ?? 'Giảng viên bộ môn',
+            totalSessions: subjectTotalCount[subj] ?? 0,
+            attendedSessions: subjectAttendedCount[subj] ?? 0,
+            absentSessions: subjectAbsentCount[subj] ?? 0,
             dailyRecords: records,
           ),
         );
