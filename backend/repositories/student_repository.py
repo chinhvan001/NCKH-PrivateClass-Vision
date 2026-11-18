@@ -1,6 +1,6 @@
 from firebase_admin import firestore
 
-from routes.test_helpers import commit_writes
+from routes.test_helpers import account_uid, commit_writes
 
 db = firestore.client()
 
@@ -60,10 +60,32 @@ class StudentRepository:
         return data
 
     @staticmethod
+    def link_parent(student_data):
+        """parent_email -> tài khoản parents/{uid} và students2.parent_id (app phụ huynh tìm con theo parent_id)."""
+        email = str(student_data.pop('parent_email', '') or '').strip().lower()
+        if not email:
+            return
+        student_data['parent_email'] = email
+        uid = account_uid(email, student_data.get('parent_name', ''))
+        if not uid:
+            return
+        student_data['parent_id'] = uid
+        ref = db.collection('parents').document(uid)
+        current = ref.get().to_dict() or {}
+        ref.set({
+            **current,
+            'name': student_data.get('parent_name') or current.get('name', ''),
+            'email': email,
+            'phone_number': student_data.get('parent_phonenumber') or current.get('phone_number', ''),
+            'is_active': current.get('is_active', True),
+        })
+
+    @staticmethod
     def new_student_writes(student_data):
         """[(ref, data)] thêm 1 học sinh, kèm class_members nếu có class_id (form Thêm học sinh và nhập từ file)."""
         timestamp = firestore.SERVER_TIMESTAMP
         class_id = student_data.pop('class_id', None)
+        StudentRepository.link_parent(student_data)
 
         student_data['created_at'] = timestamp
         student_data['updated_at'] = timestamp
@@ -103,6 +125,7 @@ class StudentRepository:
             elif status_val == "Đã thôi học":
                 student_data['is_active'] = False
 
+        StudentRepository.link_parent(student_data)
         student_data['updated_at'] = timestamp
         
         doc_ref = db.collection('students2').document(student_id)

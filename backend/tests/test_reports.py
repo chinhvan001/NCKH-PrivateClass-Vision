@@ -179,8 +179,9 @@ def test_deleting_a_session_removes_everything_it_owns(client, school, admin, ed
     finished_session(school, "s2")
     report_service.build_pending_reports()
     school.document("sessions/live").set({"class_id": "c1", "status": "paused"})
-    # tiết, 2 ghế trong monitored_students, báo cáo của An; trên máy: kết quả, đánh giá, cảnh báo của camera AI
-    assert len([path for path in school.docs if owned(path, "s1")]) == 4
+    # tiết, 2 ghế trong monitored_students, báo cáo của An, session_results cho app; trên máy: kết quả, đánh giá,
+    # cảnh báo của camera AI
+    assert len([path for path in school.docs if owned(path, "s1")]) == 5
     assert [path for path in edge_files.files() if "/s1/" in path] == [
         "sessions/s1/alerts.jsonl",
         "sessions/s1/evaluations.json",

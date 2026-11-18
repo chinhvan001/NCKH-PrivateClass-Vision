@@ -182,6 +182,26 @@ def freeze_roster(session_id, class_data):
         )
         for seat, student_id in seat_assignments(class_data).items()
     ])
+    # App giáo viên/phụ huynh đọc map monitored_students trên document tiết: ghi thêm bản sao (có mặt và điểm
+    # được report_service điền khi tiết kết thúc)
+    db.collection("sessions").document(session_id).update({"monitored_students": roster_map(class_data)})
+
+
+def roster_map(class_data):
+    """Map monitored_students của app giáo viên/phụ huynh (ghế -> học sinh, có mặt, điểm) từ seat_map của lớp."""
+    seat_map = class_data.get("seat_map") or {}
+    return {
+        seat: {
+            "student_id": student_id,
+            "row": seat_map[seat].get("row"),
+            "column": seat_map[seat].get("column"),
+            "is_present": True,
+            "is_attention": True,
+            "attention_score": None,
+            "note": "",
+        }
+        for seat, student_id in seat_assignments(class_data).items()
+    }
 
 
 def recent_alerts(session_id, limit=ALERT_LIMIT):
@@ -270,8 +290,9 @@ def delete_session(session_id):
         (db.collection("students2").document(student_id).collection("reports").document(session_id), None)
         for student_id in students
     ]
-    # session_rosters: bản chốt ghế kiểu cũ (trước monitored_students), xóa nếu còn
+    # session_rosters: bản chốt ghế kiểu cũ (trước monitored_students), xóa nếu còn; session_results: bản cho app
     writes.append((db.collection("session_rosters").document(session_id), None))
+    writes.append((db.collection("session_results").document(session_id), None))
     commit_writes(writes)
     edge_store.delete_session(session_id)
     session_ref.delete()  # xóa sau cùng: lỗi giữa chừng thì tiết vẫn còn để xóa lại

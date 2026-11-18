@@ -38,7 +38,7 @@ class AdminRepository:
 
     @staticmethod
     def create_teacher(teacher_data):
-        doc_ref = db.collection("teachers").document()
+        doc_ref = db.collection("teachers").document(teacher_data.get("uid"))  # id = uid để app tìm thấy
         doc_ref.set(teacher_data)
         return doc_ref.id
 

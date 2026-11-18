@@ -10,10 +10,13 @@ FIREBASE_SIGN_IN_URL = (
     "https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword"
 )
 
+from routes.test_helpers import account_uid
+
+
 def new_teacher(name, email, phone_number, subject, is_active=True):
     """Tài khoản giáo viên chờ đăng nhập Google lần đầu (nút Thêm giáo viên và nhập từ file)."""
     return {
-        "uid": None,
+        "uid": account_uid(email, name),  # app tìm teachers/{uid}
         "email": email,
         "name": name,
         "phone_number": phone_number,

@@ -42,7 +42,7 @@ def test_teachers_are_added_like_the_add_button_and_known_emails_skipped(client,
     assert body["duplicates"] == ["Lê Thu Hà (ha@school.edu.vn)", "Trần Văn Nam (nam.tran@school.edu.vn)"]
     added = {teacher["email"]: teacher for key, teacher in documents(db, "teachers").items() if key != "t1"}
     assert added["nam.tran@school.edu.vn"] == {
-        "uid": None,
+        "uid": "uid-nam.tran",  # tài khoản Firebase Auth tạo theo email: app giáo viên tìm teachers/{uid}
         "email": "nam.tran@school.edu.vn",
         "name": "Trần Văn Nam",
         "phone_number": "0912345678",

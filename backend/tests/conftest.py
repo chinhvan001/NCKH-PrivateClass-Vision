@@ -42,7 +42,33 @@ _firebase_admin.firestore = _module(
     Query=types.SimpleNamespace(ASCENDING="ASCENDING", DESCENDING="DESCENDING"),
 )
 _firebase_admin.credentials = _module("firebase_admin.credentials", Certificate=lambda path: None)
-_firebase_admin.auth = _module("firebase_admin.auth", verify_id_token=_verify_id_token)
+AUTH_USERS = {}  # email -> uid của Firebase Auth giả
+
+
+class _UserNotFoundError(Exception):
+    pass
+
+
+def _get_user_by_email(email):
+    if email not in AUTH_USERS:
+        raise _UserNotFoundError(email)
+    return types.SimpleNamespace(uid=AUTH_USERS[email], email=email)
+
+
+def _create_user(email, **attributes):
+    AUTH_USERS[email] = "uid-" + email.split("@")[0]
+    return types.SimpleNamespace(uid=AUTH_USERS[email], email=email)
+
+
+_firebase_admin.auth = _module(
+    "firebase_admin.auth",
+    verify_id_token=_verify_id_token,
+    get_user_by_email=_get_user_by_email,
+    create_user=_create_user,
+    delete_user=lambda uid: None,
+    update_user=lambda uid, **attributes: None,
+    UserNotFoundError=_UserNotFoundError,
+)
 _module("dotenv", load_dotenv=lambda *args, **kwargs: None)
 
 
@@ -91,6 +117,7 @@ def edge_files(tmp_path, monkeypatch):
 def db():
     DB.__init__()  # giữ nguyên object: các module backend đã giữ tham chiếu tới nó
     TOKENS.clear()
+    AUTH_USERS.clear()
     return DB
 
 

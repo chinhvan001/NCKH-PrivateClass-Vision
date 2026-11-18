@@ -2,6 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_privateclass_vision/core/models/session_model.dart';
+import 'package:flutter_privateclass_vision/core/utils/firestore_parsers.dart';
 
 import '../../../../../core/constants/app_colors.dart';         
 import '../widgets/session_list_card.dart';
@@ -84,8 +85,8 @@ class _SessionListScreenState extends State<SessionListScreen> {
       // Bỏ qua phiên thiếu giờ bắt đầu/kết thúc.
       final docs = snapshot.docs.where((d) {
         final data = d.data();
-        return data['start_time'] is Timestamp &&
-            data['end_time'] is Timestamp;
+        return FirestoreParsers.sessionTime(data, 'start_time') != null &&
+            FirestoreParsers.sessionTime(data, 'end_time') != null;
       }).toList();
 
       await _loadClassNames({

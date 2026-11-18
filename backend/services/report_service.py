@@ -117,9 +117,33 @@ def build_session_reports(session_id, force=False):
         report_ref = db.collection("students2").document(student_id).collection("reports").document(session_id)
         writes.append((report_ref, report))
 
+    # App giáo viên/phụ huynh: điền có mặt và điểm vào map monitored_students, và session_results cho màn điểm danh
+    roster = dict(session.get("monitored_students") or {})
+    live = (edge_store.result(session_id) or {}).get("result_map") or {}
+    result_map = {}
+    for seat, student_id in seats.items():
+        evaluation = evaluations.get(seat)
+        present = evaluation is not None and usable(evaluation)
+        score = evaluation["avg_concentration"] if present else None
+        entry = dict(roster.get(seat) or {"student_id": student_id})
+        entry.update({"is_present": present, "attention_score": score, "is_attention": bool(present and score >= 70)})
+        roster[seat] = entry
+        seat_status = live.get(seat, {}).get("status", "focused") if present else "absent"
+        result_map[seat] = {"student_id": student_id, "status": seat_status}
+    writes.append((db.collection("session_results").document(session_id), {
+        "session_id": session_id,
+        "class_id": class_id,
+        "captured_at": session.get("ended_at") or server_timestamp(),
+        "monitoring_status": "completed" if status == "complete" else "incomplete",
+        "result_map": result_map,
+    }))
     commit_writes(writes)
-    db.collection("sessions").document(session_id).update({"reports_at": server_timestamp(), "report_count": len(writes)})
-    return len(writes)
+    db.collection("sessions").document(session_id).update({
+        "reports_at": server_timestamp(),
+        "report_count": len(writes) - 1,
+        "monitored_students": roster,
+    })
+    return len(writes) - 1
 
 
 def build_pending_reports():

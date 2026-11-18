@@ -1,6 +1,6 @@
 from datetime import datetime, timedelta
 from repositories.session_repository import SessionRepository
-from routes.test_helpers import json_value, server_timestamp
+from routes.test_helpers import db, json_value, server_timestamp
 from services import edge_store, monitoring_service
 
 # Giờ từng tiết, như periodsConfigMap trong frontend SessionPanel.jsx (sửa cả hai chỗ). start_time/end_time
@@ -38,6 +38,9 @@ class SessionService:
 
         if not class_id or not SessionRepository.get_class_exists(class_id):
             return {"success": False, "message": "Không tìm thấy lớp học.", "status": 404}
+        class_doc = db.collection("classes2").document(class_id).get()
+        # App phụ huynh/giáo viên xem lịch theo map monitored_students: ghi sơ đồ hiện tại, chốt lại lúc tiết bắt đầu
+        roster = monitoring_service.roster_map(class_doc.to_dict() or {})
         if not teacher_id or not SessionRepository.get_teacher_exists(teacher_id):
             return {"success": False, "message": "Không tìm thấy giáo viên.", "status": 404}
 
@@ -88,6 +91,7 @@ class SessionService:
                     "start_time": start_time,
                     "end_time": end_time,
                     "room": room,
+                    "monitored_students": roster,
                 }
                 sessions_to_create.append(payload)
                 created_count += 1

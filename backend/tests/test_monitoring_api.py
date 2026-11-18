@@ -100,10 +100,11 @@ def test_start_freezes_the_seat_plan_and_completion_keeps_the_timetable(client, 
     session = db.docs["sessions/s1"]
     assert session["status"] == "running" and isinstance(session["started_at"], datetime)
     assert session["camera_id"] == "CAM-1"  # camera của lớp lúc bắt đầu, theo sơ đồ đã chốt
-    # monitored_student của sơ đồ đã chốt: subcollection, để edge node nghe document tiết không thấy mã học sinh
+    # monitored_student của sơ đồ đã chốt: subcollection cho web, và map trên document tiết cho app giáo viên/phụ huynh
+    # (camera AI không đọc Firestore nữa, chỉ nhận file camera_sessions bên dưới)
     assert db.docs["sessions/s1/monitored_students/S01"] == {"student_id": "st1", "row": 1, "column": 1}
     assert [path for path in db.docs if "/monitored_students/" in path] == ["sessions/s1/monitored_students/S01"]
-    assert "student" not in str(session)
+    assert session["monitored_students"]["S01"]["student_id"] == "st1"
     # Tiết giao cho camera AI cùng máy: sơ đồ và ô ghế chốt lúc bắt đầu, không có mã học sinh
     order = edge_files.read("camera_sessions/CAM-1.json")
     assert order == {

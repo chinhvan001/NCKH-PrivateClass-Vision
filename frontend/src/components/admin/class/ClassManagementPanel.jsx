@@ -164,6 +164,10 @@ const ClassManagementPanel = () => {
   const [detailError, setDetailError] = useState("");
   const [selectedStudentId, setSelectedStudentId] = useState(null);
   const [studentSearch, setStudentSearch] = useState(""); // Thanh tìm kiếm học sinh trong modal chi tiết
+  // Xếp học sinh vào ghế: ghế đang chọn và học sinh muốn đặt vào
+  const [seatEdit, setSeatEdit] = useState(null);
+  const [seatSaving, setSeatSaving] = useState(false);
+  const [seatError, setSeatError] = useState("");
 
   const getToken = () => localStorage.getItem("idToken");
 
@@ -397,6 +401,7 @@ const ClassManagementPanel = () => {
       setDetailLoading(true);
       setSelectedStudentId(null);
       setStudentSearch("");
+      setSeatEdit(null);
 
       const [classData, studentsData, seatsData] = await Promise.all([
         request(`${CLASSES_API}/${classItem.id}`),
@@ -458,6 +463,26 @@ const ClassManagementPanel = () => {
   };
 
   const detailClass = detail?.classInfo || selectedClass;
+
+  // Lưu học sinh vào ghế (seat_map): camera AI, báo cáo phụ huynh và app biết ai ngồi đâu nhờ sơ đồ này
+  const saveSeat = async () => {
+    if (!seatEdit || !detailClass?.id) return;
+    setSeatSaving(true);
+    setSeatError("");
+    try {
+      await request(`${CLASSES_API}/${detailClass.id}/seats/${encodeURIComponent(seatEdit.seat_id)}`, {
+        method: "PUT",
+        body: JSON.stringify({ student_id: seatEdit.student_id || null }),
+      });
+      setSeatEdit(null);
+      await loadClassDetailAndSeatMap(detailClass);
+    } catch (seatSaveError) {
+      setSeatError(getErrorMessage(seatSaveError));
+    } finally {
+      setSeatSaving(false);
+    }
+  };
+
   const detailRows = getRowCount(detailClass);
   const detailColumns = getColumnCount(detailClass);
 
@@ -1083,6 +1108,8 @@ const ClassManagementPanel = () => {
                             <div
                               key={index}
                               onClick={() => {
+                                setSeatEdit({ seat_id: seat.seat_id, student_id: seat.student_id || "" });
+                                setSeatError("");
                                 if (seat.student_id) {
                                   setSelectedStudentId(seat.student_id);
                                 } else if (isOccupied) {
@@ -1096,7 +1123,7 @@ const ClassManagementPanel = () => {
                                 borderRadius: "8px",
                                 padding: "8px 4px",
                                 textAlign: "center",
-                                cursor: isOccupied ? "pointer" : "default",
+                                cursor: "pointer",
                                 transition: "all 0.2s ease",
                                 boxShadow: isSelected ? "0 0 8px rgba(37, 99, 235, 0.3)" : "none"
                               }}
@@ -1124,6 +1151,36 @@ const ClassManagementPanel = () => {
                         })}
                       </div>
                     </CustomScrollbar>
+
+                    {seatEdit ? (
+                      <div style={{ marginTop: "12px", display: "flex", gap: "8px", alignItems: "center", flexWrap: "wrap" }}>
+                        <span style={{ fontSize: "13px", fontWeight: 600, color: "#0f172a" }}>Ghế {seatEdit.seat_id}:</span>
+                        <select
+                          aria-label={`Học sinh ngồi ghế ${seatEdit.seat_id}`}
+                          value={seatEdit.student_id}
+                          onChange={(e) => setSeatEdit({ ...seatEdit, student_id: e.target.value })}
+                          disabled={seatSaving}
+                        >
+                          <option value="">Ghế trống</option>
+                          {(detail?.students || []).map((student) => (
+                            <option key={student.student_id || student.id} value={student.student_id || student.id}>
+                              {student.full_name}
+                            </option>
+                          ))}
+                        </select>
+                        <button type="button" className="primary-button" onClick={saveSeat} disabled={seatSaving}>
+                          {seatSaving ? "Đang lưu..." : "Lưu chỗ ngồi"}
+                        </button>
+                        <button type="button" className="secondary-button" onClick={() => setSeatEdit(null)} disabled={seatSaving}>
+                          Hủy
+                        </button>
+                        {seatError ? <span style={{ color: "#dc2626", fontSize: "12px" }}>{seatError}</span> : null}
+                      </div>
+                    ) : (
+                      <p style={{ marginTop: "12px", fontSize: "12px", color: "#64748b" }}>
+                        Bấm vào một ghế để xếp học sinh vào ghế đó.
+                      </p>
+                    )}
                   </div>
 
                   {/* DANH SÁCH HỌC SINH */}

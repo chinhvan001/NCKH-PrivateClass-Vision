@@ -45,6 +45,7 @@ STUDENT_COLUMNS = {
     "gender": ("Giới tính",),
     "class_name": ("Lớp",),
     "parent_name": ("Họ tên phụ huynh", "Họ và tên phụ huynh", "Tên phụ huynh", "Phụ huynh"),
+    "parent_email": ("Email phụ huynh", "Gmail phụ huynh", "Email"),
     "parent_phonenumber": ("Số điện thoại phụ huynh", "SĐT phụ huynh", "Điện thoại phụ huynh", "Số điện thoại", "SĐT"),
 }
 
@@ -205,7 +206,7 @@ def import_teachers():
             duplicates.append(f"{teacher['name']} ({teacher['email']})")
             continue
         existing.add(teacher["email"])
-        writes.append((db.collection("teachers").document(), teacher))
+        writes.append((db.collection("teachers").document(teacher.get("uid")), teacher))
     commit_writes(writes)
     AdminService._invalidate_teachers_cache()  # danh sách giáo viên cache 30 giây
     return _imported(len(writes), duplicates, "giáo viên")
@@ -229,6 +230,7 @@ def import_students():
             "birthday": date_text(row.get("birthday")),
             "parent_name": cell_text(row.get("parent_name")),
             "parent_phonenumber": phone_text(row.get("parent_phonenumber")),
+            "parent_email": cell_text(row.get("parent_email")),
         }
         gender, class_name = cell_text(row.get("gender")), cell_text(row.get("class_name"))
         if not student["full_name"]:

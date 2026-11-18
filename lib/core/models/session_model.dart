@@ -42,12 +42,8 @@ class ScheduleItem {
   }) {
     final data = doc.data() as Map<String, dynamic>? ?? {};
 
-    final start = data['start_time'] is Timestamp
-        ? (data['start_time'] as Timestamp).toDate()
-        : DateTime.now();
-    final end = data['end_time'] is Timestamp
-        ? (data['end_time'] as Timestamp).toDate()
-        : DateTime.now();
+    final start = FirestoreParsers.sessionTime(data, 'start_time') ?? DateTime.now();
+    final end = FirestoreParsers.sessionTime(data, 'end_time') ?? DateTime.now();
 
     final room = (data['room'] ?? roomName ?? '').toString();
 
@@ -261,63 +257,3 @@ class SessionModel {
     );
   }
 }
-
-class ScheduleItem {
-  final String id;
-  final String classId;
-  final String className;
-  final String classroomId;
-  final String roomName;
-  final DateTime startTime;
-  final DateTime endTime;
-  final String teacherId;
-
-  ScheduleItem({
-    required this.id, required this.classId, required this.className,
-    required this.classroomId, required this.roomName,
-    required this.startTime, required this.endTime, required this.teacherId,
-  });
-
-  factory ScheduleItem.fromFirestore(
-    DocumentSnapshot doc, {
-    required String className, required String roomName,
-  }) {
-    final data = doc.data() as Map<String, dynamic>? ?? {};
-    DateTime parseToDateTime(dynamic timeVal, dynamic dateVal) {
-      if (timeVal is Timestamp) return timeVal.toDate();
-      if (timeVal is String && timeVal.contains(':')) {
-        final parts = timeVal.split(':');
-        final hour = int.tryParse(parts[0]) ?? 0;
-        final minute = parts.length > 1 ? (int.tryParse(parts[1]) ?? 0) : 0;
-        DateTime baseDate = DateTime.now();
-        if (dateVal is String && dateVal.contains('-')) {
-          baseDate = DateTime.tryParse(dateVal) ?? DateTime.now();
-        } else if (dateVal is Timestamp) {
-          baseDate = dateVal.toDate();
-        }
-        return DateTime(baseDate.year, baseDate.month, baseDate.day, hour, minute);
-      }
-      return DateTime.now();
-    }
-    final rawDate = data['session_date'];
-    final start = parseToDateTime(data['start_time'], rawDate);
-    final end = parseToDateTime(data['end_time'], rawDate);
-    return ScheduleItem(
-      id: doc.id,
-      classId: data['class_id']?.toString() ?? '',
-      className: className,
-      classroomId: data['room']?.toString() ?? '',
-      roomName: roomName,
-      startTime: start, endTime: end,
-      teacherId: data['teacher_id']?.toString() ?? '',
-    );
-  }
-
-  String get status {
-    final now = DateTime.now();
-    if (now.isAfter(endTime)) return 'Đã kết thúc';
-    if (now.isBefore(startTime)) return 'Sắp diễn ra';
-    return 'Đang diễn ra';
-  }
-}
-

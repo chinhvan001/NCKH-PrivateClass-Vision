@@ -120,7 +120,7 @@ class EvaluationService:
                 "seats": len(items),
                 "attention": round(weighted / observed, 1) if observed else None,
             })
-        session_rows.sort(key=lambda row: (row["session_date"] or "", row["start_time"] or ""), reverse=True)
+        session_rows.sort(key=lambda row: (str(row["session_date"] or ""), str(row["start_time"] or "")), reverse=True)
 
         class_name = data.get("class_name") or class_id
         subject = data.get("subject") or next((s["subject"] for s in sessions.values() if s.get("subject")), "Chưa rõ")
