@@ -49,7 +49,11 @@ class AdminRepository:
 
     @staticmethod
     def delete_teacher(teacher_id, firebase_uid=None):
-        if firebase_uid:
+        # Tai khoan Auth lay theo email (account_uid) co the cung la admin hoac phu huynh: chi xoa khi khong ai khac dung
+        shared = firebase_uid and any(
+            db.collection(role).document(firebase_uid).get().exists for role in ("admins", "parents")
+        )
+        if firebase_uid and not shared:
             try:
                 auth.delete_user(firebase_uid)
             except auth.UserNotFoundError:

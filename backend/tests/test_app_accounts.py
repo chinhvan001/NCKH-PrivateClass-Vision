@@ -100,3 +100,20 @@ def test_admin_seats_a_class_student_from_the_class_page(client, db, admin):
     assert (seat_map["S02"]["student_id"], seat_map["S02"]["status"]) == (student_id, "occupied")
     assert client.put(f"/api/admin/classes/{class_id}/seats/S02", headers=admin, json={"student_id": None}).status_code == 200
     assert db.document(f"classes2/{class_id}").get().to_dict()["seat_map"]["S02"]["student_id"] is None
+
+
+def test_deleting_a_teacher_keeps_an_account_that_is_also_a_parent(client, db, admin):
+    """account_uid dung lai tai khoan Auth theo email: xoa giao vien khong duoc xoa tai khoan cua phu huynh/admin."""
+    client.post("/api/v1/students", headers=admin, json={"full_name": "An", "parent_email": "mai@gmail.com"})
+    uid = conftest.AUTH_USERS["mai@gmail.com"]
+    created = client.post("/api/admin/teachers", headers=admin, json={"name": "Mai", "email": "mai@gmail.com", "subject": "Toán"})
+    assert created.get_json()["user"]["uid"] == uid  # cung 1 nguoi: phu huynh kiem giao vien
+
+    assert client.delete(f"/api/admin/teachers/{uid}", headers=admin).status_code == 200
+    assert not db.document(f"teachers/{uid}").get().exists
+    assert conftest.AUTH_USERS["mai@gmail.com"] == uid  # van dang nhap duoc bang vai tro phu huynh
+    assert db.document(f"parents/{uid}").get().exists
+
+    only_teacher = client.post("/api/admin/teachers", headers=admin, json={"name": "Hà", "email": "ha@example.com", "subject": "Toán"})
+    assert client.delete(f"/api/admin/teachers/{only_teacher.get_json()['user']['uid']}", headers=admin).status_code == 200
+    assert "ha@example.com" not in conftest.AUTH_USERS  # chi la giao vien: tai khoan Auth bi xoa nhu truoc

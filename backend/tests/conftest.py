@@ -60,12 +60,17 @@ def _create_user(email, **attributes):
     return types.SimpleNamespace(uid=AUTH_USERS[email], email=email)
 
 
+def _delete_user(uid):
+    for email in [email for email, value in AUTH_USERS.items() if value == uid]:
+        del AUTH_USERS[email]
+
+
 _firebase_admin.auth = _module(
     "firebase_admin.auth",
     verify_id_token=_verify_id_token,
     get_user_by_email=_get_user_by_email,
     create_user=_create_user,
-    delete_user=lambda uid: None,
+    delete_user=_delete_user,
     update_user=lambda uid, **attributes: None,
     UserNotFoundError=_UserNotFoundError,
 )

@@ -1,4 +1,3 @@
-from google.cloud import firestore
 from firebase_admin import firestore as admin_firestore
 from repositories.student_repository import StudentRepository
 
@@ -143,7 +142,7 @@ class ReportRepository:
 
     @staticmethod
     def create_report(student_id, report_data):
-        timestamp = firestore.SERVER_TIMESTAMP
+        timestamp = admin_firestore.SERVER_TIMESTAMP
         report_data['created_at'] = timestamp
         ref = db.collection('students2').document(student_id).collection('student_note').document()
         ref.set(report_data)
@@ -154,7 +153,7 @@ class ReportRepository:
         doc_ref = db.collection('students2').document(student_id).collection('student_note').document(report_id)
         if not doc_ref.get().exists:
             return False
-        report_data['updated_at'] = firestore.SERVER_TIMESTAMP
+        report_data['updated_at'] = admin_firestore.SERVER_TIMESTAMP
         doc_ref.update(report_data)
         return True
 
