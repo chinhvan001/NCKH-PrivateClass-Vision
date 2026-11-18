@@ -14,6 +14,9 @@ from src.engagement.posture_monitor import (
     PostureMonitor,
     PostureThresholds,
     RollingSmoother,
+    RunningMedian,
+    head_signal_for,
+    is_slumped_over,
 )
 
 
@@ -236,3 +239,44 @@ def test_head_drop_since_tracks_start_of_current_head_drop_run():
     assert monitor.head_drop_since == 1.0
     monitor.update(4.0, 1.0, 0.0)  # ngang dau lai
     assert monitor.head_drop_since is None
+
+
+# ----------------------------------------------------------------------
+# Gục, cui xuong ban, quay dau (danh gia 120 clip that ngay 17/11/2026)
+# ----------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "ratio, deviation, slumped",
+    [
+        (-0.4, None, True),  # mui duoi duong vai: gục (hoc sinh gục that -0.35..-0.55)
+        (0.2, 20.0, True),  # cui va than lech > 15 do: gục
+        (0.1, 5.0, False),  # cui xuong ban (viet): khong phai buon ngu
+        (0.2, None, False),  # khong biet than: chi la cui xuong ban
+        (0.6, 30.0, False),  # than lech nhung dau ngang: khong phai gục
+        (None, 30.0, False),
+    ],
+)
+def test_only_a_slumped_over_head_counts_as_drowsy(ratio, deviation, slumped):
+    assert is_slumped_over(ratio, deviation, PostureThresholds()) is slumped
+
+
+def test_a_turned_head_is_not_a_lowered_head_unless_slumped_over():
+    thresholds = PostureThresholds()
+    assert head_signal_for(0.1, head_turned=True, thresholds=thresholds) == 0.4  # nang len nguong: khong cui
+    assert head_signal_for(0.1, head_turned=False, thresholds=thresholds) == 0.1
+    assert head_signal_for(-0.4, head_turned=True, thresholds=thresholds) == -0.4  # gục van la gục
+    assert head_signal_for(None, head_turned=True, thresholds=thresholds) is None
+
+
+def test_running_median_follows_the_seat_usual_head_turn():
+    baseline = RunningMedian(max_samples=5, min_samples=3, refresh_every=1)
+    assert baseline.add(-0.3) == 0.0  # chua du mau: 0
+    baseline.add(None)  # thieu keypoint: bo qua
+    baseline.add(-0.35)
+    assert baseline.add(-0.28) == pytest.approx(-0.3)  # ghe ngoi lech goc camera
+    for value in (-0.31, -0.29, 0.4):  # 1 lan quay that khong keo trung vi
+        baseline.add(value)
+    assert baseline.value == pytest.approx(-0.29)
+    with pytest.raises(ValueError):
+        RunningMedian(max_samples=2, min_samples=3)

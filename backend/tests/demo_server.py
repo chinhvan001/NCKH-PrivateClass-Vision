@@ -229,7 +229,7 @@ def person(x, y, head_drop=False, turn=0.0, face=True):
     """Skeleton giả: chỉ mũi, vai, hông, cổ tay. turn: mũi lệch ngang (quay sang bạn bên cạnh)."""
     points = [(0.0, 0.0, 0.0)] * 17
     values = {
-        "nose": (x + turn, y + (-4.0 if head_drop else -50.0), 0.95 if face else 0.0),
+        "nose": (x + turn, y + (16.0 if head_drop else -50.0), 0.95 if face else 0.0),  # cúi đầu = gục: mũi dưới vai
         "left_shoulder": (x - 20.0, y, 0.95),
         "right_shoulder": (x + 20.0, y, 0.95),
         "left_hip": (x - 20.0, y + 60.0, 0.95),
@@ -346,6 +346,12 @@ def main():
     if not firebase_js.exists():  # file bị gitignore; frontend cần nó để chạy
         firebase_js.write_text(FIREBASE_STUB, encoding="utf-8")
         print(f"Đã tạo {firebase_js} giả cho demo (đăng nhập Google sẽ không chạy).")
+    # Import trước khi chạy thread: thread báo cáo cũng import backend, import song song gây _DeadlockError
+    from flask import Response, abort, jsonify
+
+    from app import app
+    from routes.test_helpers import json_document
+
     threading.Thread(target=report_loop, daemon=True).start()
     threading.Thread(target=edge_loop, args=(video,), daemon=True).start()
     if video:
@@ -354,11 +360,6 @@ def main():
             " Xác định chỗ ngồi -> Lấy ảnh từ camera, vẽ ô cho từng chỗ ngồi rồi lưu.",
             flush=True,
         )
-
-    from flask import Response, abort, jsonify
-
-    from app import app
-    from routes.test_helpers import json_document
 
     @app.get("/api/demo-login")
     def demo_login():

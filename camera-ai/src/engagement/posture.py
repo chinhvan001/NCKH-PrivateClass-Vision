@@ -110,6 +110,27 @@ def compute_head_drop_ratio(person: PersonPose) -> Optional[float]:
     return vertical_distance / shoulder_width
 
 
+# Mui lech ngang so voi trung diem vai >= 12% do rong vai: dau quay sang ben (nguong cu cua nhan dien noi chuyen).
+DEFAULT_HEAD_TURN_RATIO = 0.12
+
+
+def compute_head_turn_ratio(person: PersonPose) -> Optional[float]:
+    """Do lech ngang cua mui so voi trung diem vai, chia do rong vai: am = sang trai anh, duong = sang phai.
+
+    Hoc sinh ngoi lech goc camera co gia tri khac 0 ngay ca khi nhin thang (danh gia clip ngay 17/11/2026: ghe o
+    ria khung lech -0.3 den -0.5), nen so sanh voi trung vi cua chinh ghe do (posture_monitor.RunningMedian),
+    khong so voi 0. Tra ve None neu thieu mui/vai tin cay hoac vai qua hep."""
+    nose = person.get_keypoint("nose")
+    left_shoulder = person.get_keypoint("left_shoulder")
+    right_shoulder = person.get_keypoint("right_shoulder")
+    if not _keypoints_confident(nose, left_shoulder, right_shoulder):
+        return None
+    shoulder_width = math.hypot(left_shoulder[0] - right_shoulder[0], left_shoulder[1] - right_shoulder[1])
+    if shoulder_width < MIN_SHOULDER_WIDTH_PIXELS:
+        return None
+    return (nose[0] - (left_shoulder[0] + right_shoulder[0]) / 2.0) / shoulder_width
+
+
 # ----------------------------------------------------------------------
 # Head Drop -- camera TOP-DOWN (tin hieu moi, 13/09/2026)
 # ----------------------------------------------------------------------

@@ -21,6 +21,7 @@ def classify_posture_state(
     is_head_drop_event: bool,
     is_slumping_event: bool,
     hand_activity: Optional[bool] = None,
+    is_slumped_over: Optional[bool] = None,
 ) -> str:
     """Phan loai 1 thoi diem vao DUNG MOT trong 3 trang thai TICH LUY
     (normal/slumping/head_drop), dung chung boi ca SeatEngagementTracker
@@ -57,7 +58,18 @@ def classify_posture_state(
     phan khi is_head_drop_event=True bat ke hand_activity), goi ham nay voi
     is_head_drop_event=False va tu xu ly logic rieng thay vi dua vao mac
     dinh cua tham so nay.
+
+    CAP NHAT 17/11/2026 (danh gia 120 clip that, docs/calibration.md): khi
+    biet ``is_slumped_over`` (EngagementEngine luon truyen), cui dau CHI la
+    "head_drop" (buon ngu) khi gục han -- tay khong doi duoc ket luan, vi
+    keypoint rung o nguoi gục bi doc thanh tay cu dong. Cui nhe la doc/viet:
+    tay cu dong -> "normal", con lai -> "slumping" (tin chi mot phan), khong
+    bao gio "head_drop". None: giu hanh vi cu o tren.
     """
+    if is_head_drop_event and is_slumped_over is not None:
+        if is_slumped_over:
+            return "head_drop"
+        return "normal" if hand_activity is True else "slumping"
     if is_head_drop_event:
         if hand_activity is True:
             return "normal"
@@ -156,9 +168,10 @@ class SeatEngagementTracker:
         is_head_drop_event: bool,
         is_slumping_event: bool,
         hand_activity: Optional[bool] = None,
+        is_slumped_over: Optional[bool] = None,
     ) -> None:
         """Goi MOT LAN moi khi PostureMonitor.update() tra ve ket qua moi
-        cho seat nay.
+        cho seat nay. is_slumped_over: xem classify_posture_state().
 
         hand_activity: ket qua tu HandActivityMonitor.update() cho CUNG
             thoi diem nay (True/False/None) -- xem classify_posture_state()
@@ -171,7 +184,7 @@ class SeatEngagementTracker:
         dung suot tu lan quan sat truoc den gio -- day la cach dien giai tu
         nhien khi lay mau dinh ky (frame moi xac nhan "van dang o trang thai
         X" tuc la X dung suot khoang vua troi qua)."""
-        current_state = classify_posture_state(is_head_drop_event, is_slumping_event, hand_activity)
+        current_state = classify_posture_state(is_head_drop_event, is_slumping_event, hand_activity, is_slumped_over)
 
         if self._last_timestamp is not None:
             elapsed = timestamp - self._last_timestamp

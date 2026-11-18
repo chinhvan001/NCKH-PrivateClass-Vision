@@ -297,14 +297,14 @@ def parse_args() -> argparse.Namespace:
         default=0.70,
         help="Nguong NMS person detector (0.70 giu nguoi ngoi sat nhau).",
     )
-    parser.add_argument("--imgsz", type=int, default=960, help="Kich thuoc input YOLO (mac dinh 960, thay vi 640).")
+    parser.add_argument("--imgsz", type=int, default=1280, help="Kich thuoc input YOLO (mac dinh 1280, nhu edge node).")
     parser.add_argument("--iou", type=float, default=0.50, help="Nguong IoU cho NMS (mac dinh 0.50).")
     parser.add_argument("--max-detections", type=int, default=100, help="So nguoi toi da moi khung hinh.")
     parser.add_argument(
         "--tile-size",
         type=int,
-        default=960,
-        help="Chia video thanh o vuong de bat nguoi o xa (0 de tat; mac dinh 960).",
+        default=0,
+        help="Chia video thanh o vuong de bat nguoi o xa (0: tat, mac dinh nhu edge node; vd 960 cho camera 4K).",
     )
     parser.add_argument("--tile-overlap", type=float, default=0.20, help="Phan giao nhau giua cac o (0-<1).")
     parser.add_argument(

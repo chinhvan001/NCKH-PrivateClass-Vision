@@ -51,7 +51,9 @@ pip install torch==2.14.0+cu130 torchvision==0.29.0+cu130 --index-url https://do
 
 The edge node then runs pose inference on the GPU without any setting, and logs the device when the model loads: `Da nap YOLOv8-pose tu '...' tren GPU NVIDIA GeForce RTX 3050 Laptop GPU`. To force the CPU, set `CUDA_VISIBLE_DEVICES=-1`.
 
-Measured on 1 November on the RTX 3050 Laptop GPU (4 GB), with the default settings (1280x720 frames, `image_size` 960, two tiles of 960):
+Since 15 November the defaults run one pass at `image_size` 1280 without tiles: on a 2880x1620 video it takes 28 ms a frame, against 189 ms with tiles of 960, and it finds more students (`docs/calibration.md`).
+
+Measured on 1 November on the RTX 3050 Laptop GPU (4 GB), with the settings of that time (1280x720 frames, `image_size` 960, two tiles of 960):
 
 - **Speed:** 43 ms a frame, against 184–357 ms on the laptop's CPU.
 - **Detections:** the same people and confidences as on the CPU.

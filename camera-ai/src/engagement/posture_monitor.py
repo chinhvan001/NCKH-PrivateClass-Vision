@@ -17,8 +17,11 @@ dinh -- neu dung so luong frame co dinh (vi du "150 frame = 5 giay" gia dinh
 
 import logging
 import statistics
+from collections import deque
 from dataclasses import dataclass
-from typing import List, Optional, Tuple
+from typing import Deque, List, Optional, Tuple
+
+from src.engagement.posture import DEFAULT_HEAD_TURN_RATIO
 
 logger = logging.getLogger("camera_ai.engagement")
 
@@ -35,10 +38,23 @@ class PostureThresholds:
     ========================================================================
 
     head_drop_ratio_threshold: head_drop_ratio (tu posture.py) THAP HON gia
-        tri nay duoc coi la "dau da cui thap". Gia tri khoi diem 0.4: theo
-        test round-trip o task 3.5, tu the ngoi thang thu duoc ty le ~1.0-1.5;
-        giam xuong duoi 0.4 nghia la khoang cach mui-vai chi con ~40% do
-        rong vai, tuong ung dau da cui dang ke ve phia vai.
+        tri nay duoc coi la "dau da cui thap". Gia tri 0.4 da do tren
+        SCB-Dataset ngay 15/11/2026 (camera phia truoc lop, docs/calibration.md):
+        hoc sinh gio tay co trung vi ~0.62 (chi 4-8% duoi 0.4), doc ~0.31,
+        viet ~0.08 (~70% doc/viet duoi 0.4); nguong tach tot nhat 0.35-0.45.
+        Ngoi thang that chi ~0.6, khong phai ~1.0-1.5 nhu uoc luong ban dau.
+        Duoi nguong nay la "cui xuong ban" (doc/viet), KHONG phai buon ngu:
+        danh gia 120 clip that ngay 17/11/2026 (docs/calibration.md) cho thay
+        37/40 lan bao "buon ngu" theo nguong nay la sai (quay dau, dang viet,
+        ngoi binh thuong). Buon ngu can them slumped_head_ratio_threshold.
+    slumped_head_ratio_threshold: "gục" (buon ngu, phat toan phan) khi ty so
+        THAP HON gia tri nay (mui ngang hoac thap hon duong vai), hoac khi dau
+        cui (duoi head_drop_ratio_threshold) kem than lech qua
+        torso_deviation_threshold_deg. Tren 120 clip: 5/5 lan bao la dung.
+    head_turn_ratio_threshold: |huong dau - huong dau thuong ngay cua ghe|
+        (posture.compute_head_turn_ratio, RunningMedian) tu gia tri nay tro
+        len la "quay dau": quay dau lam ty so cui dau giam ma dau khong cui,
+        nen frame quay dau khong tinh la cui xuong ban.
     torso_deviation_threshold_deg: do lech goc than tren (so voi baseline)
         VUOT QUA gia tri nay (tri tuyet doi) duoc coi la "slumping". Gia tri
         khoi diem 15.0 do -- muc lech duoc chon vi lon hon dang ke so voi
@@ -56,6 +72,64 @@ class PostureThresholds:
     head_drop_ratio_threshold: float = 0.4
     torso_deviation_threshold_deg: float = 15.0
     sustained_duration_sec: float = 5.0
+    slumped_head_ratio_threshold: float = 0.0
+    head_turn_ratio_threshold: float = DEFAULT_HEAD_TURN_RATIO
+
+
+def head_signal_for(
+    head_drop_ratio: Optional[float], head_turned: bool, thresholds: PostureThresholds
+) -> Optional[float]:
+    """Ty so cui dau dua vao PostureMonitor. Dau quay sang ben (so voi tu the thuong ngay cua ghe) lam mui gan
+    duong vai ma khong cui: frame do tinh la KHONG cui xuong ban (nang len bang nguong), tru khi da gục han."""
+    if head_drop_ratio is None or not head_turned or head_drop_ratio < thresholds.slumped_head_ratio_threshold:
+        return head_drop_ratio
+    return max(head_drop_ratio, thresholds.head_drop_ratio_threshold)
+
+
+def is_slumped_over(
+    head_drop_ratio: Optional[float], torso_deviation_deg: Optional[float], thresholds: PostureThresholds
+) -> bool:
+    """Gục (buon ngu): mui ngang/thap hon vai, hoac dau cui kem than lech qua nguong. Cui nhe la doc/viet."""
+    if head_drop_ratio is None:
+        return False
+    if head_drop_ratio < thresholds.slumped_head_ratio_threshold:
+        return True
+    return (
+        head_drop_ratio < thresholds.head_drop_ratio_threshold
+        and torso_deviation_deg is not None
+        and abs(torso_deviation_deg) > thresholds.torso_deviation_threshold_deg
+    )
+
+
+class RunningMedian:
+    """Trung vi cac mau gan day cua 1 ghe, vd huong dau thuong ngay: goc camera lam hoc sinh ngoi lech tam trong nhu
+    dang quay dau du nhin thang, nen tin hieu tinh so voi trung vi nay. Chua du ``min_samples`` thi bang 0.
+
+    ponytail: tinh lai trung vi moi ``refresh_every`` mau (sort toi da ``max_samples``); nang cap len 2 heap neu
+    so ghe x FPS lon hon nhieu so voi 40 ghe x 5 Hz."""
+
+    def __init__(self, max_samples: int = 1500, min_samples: int = 10, refresh_every: int = 25):
+        if max_samples < min_samples or min_samples < 1 or refresh_every < 1:
+            raise ValueError("RunningMedian: can 1 <= min_samples <= max_samples va refresh_every >= 1.")
+        self._samples: Deque[float] = deque(maxlen=max_samples)
+        self._min_samples = min_samples
+        self._refresh_every = refresh_every
+        self._since_refresh = 0
+        self._value = 0.0
+
+    def add(self, value: Optional[float]) -> float:
+        if value is not None:
+            self._samples.append(value)
+            self._since_refresh += 1
+            ready = len(self._samples) >= self._min_samples
+            if ready and (self._since_refresh >= self._refresh_every or len(self._samples) == self._min_samples):
+                self._value = statistics.median(self._samples)
+                self._since_refresh = 0
+        return self.value
+
+    @property
+    def value(self) -> float:
+        return self._value if len(self._samples) >= self._min_samples else 0.0
 
 
 class RollingSmoother:

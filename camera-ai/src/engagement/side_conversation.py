@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from typing import Dict, List, Mapping, Optional, Tuple
 
 from src.detection.pose_detector import PersonPose
+from src.engagement.posture import DEFAULT_HEAD_TURN_RATIO, compute_head_turn_ratio
 
 
 @dataclass(frozen=True)
@@ -41,7 +42,7 @@ class SideConversationDetector:
     def __init__(
         self,
         max_pair_distance: float = 260.0,
-        min_head_turn_ratio: float = 0.12,
+        min_head_turn_ratio: float = DEFAULT_HEAD_TURN_RATIO,
         min_duration_sec: float = 3.0,
         max_gap_sec: float = 2.0,
     ) -> None:
@@ -58,12 +59,20 @@ class SideConversationDetector:
         self.max_gap_sec = max_gap_sec
         self._states: Dict[Tuple[str, str], _PairState] = {}
 
-    def update(self, timestamp: float, people_by_seat: Mapping[str, PersonPose]) -> List[SideConversationEvent]:
+    def update(
+        self,
+        timestamp: float,
+        people_by_seat: Mapping[str, PersonPose],
+        turn_baselines: Optional[Mapping[str, float]] = None,
+    ) -> List[SideConversationEvent]:
         """Cap nhat mot frame va tra ve cac cap da duy tri du lau.
 
         Chi ghep moi nguoi voi mot nguoi gan nhat trong frame, tranh mot hoc
         sinh tao nhieu canh bao dong thoi khi ngoi giua hai ban khac.
+        turn_baselines: huong dau thuong ngay cua tung ghe (posture_monitor.RunningMedian); ghe ngoi lech goc
+        camera trong nhu dang quay dau du nhin thang. None hoac thieu ghe: 0 nhu truoc.
         """
+        baselines = turn_baselines or {}
         candidates = []
         items = sorted(people_by_seat.items())
         for index, (first_id, first) in enumerate(items):
@@ -77,7 +86,9 @@ class SideConversationDetector:
                 distance = math.dist(first_center, second_center)
                 if distance > self.max_pair_distance:
                     continue
-                if self._faces_toward_each_other(first, first_center, second, second_center):
+                first_turn = self._relative_turn(first_id, first, baselines)
+                second_turn = self._relative_turn(second_id, second, baselines)
+                if self._faces_toward_each_other(first_turn, first_center, second_turn, second_center):
                     candidates.append((distance, (first_id, second_id)))
 
         active_pairs = set()
@@ -120,31 +131,22 @@ class SideConversationDetector:
             return None
         return ((left[0] + right[0]) / 2.0, (left[1] + right[1]) / 2.0)
 
+    @staticmethod
+    def _relative_turn(seat_id: str, person: PersonPose, baselines: Mapping[str, float]) -> Optional[float]:
+        """Huong dau so voi huong dau thuong ngay cua ghe (am = trai, duong = phai)."""
+        turn = compute_head_turn_ratio(person)
+        return None if turn is None else turn - baselines.get(seat_id, 0.0)
+
     def _faces_toward_each_other(
         self,
-        first: PersonPose,
+        first_turn: Optional[float],
         first_center: Tuple[float, float],
-        second: PersonPose,
+        second_turn: Optional[float],
         second_center: Tuple[float, float],
     ) -> bool:
-        first_turn = self._head_turn_ratio(first, first_center)
-        second_turn = self._head_turn_ratio(second, second_center)
         if first_turn is None or second_turn is None:
             return False
         direction = 1 if second_center[0] > first_center[0] else -1
         return (
             first_turn * direction >= self.min_head_turn_ratio and second_turn * direction <= -self.min_head_turn_ratio
         )
-
-    @staticmethod
-    def _head_turn_ratio(person: PersonPose, shoulder_center: Tuple[float, float]) -> Optional[float]:
-        """Do lech ngang cua mui theo be rong vai; am=trai, duong=phai."""
-        nose = person.get_keypoint("nose")
-        left = person.get_keypoint("left_shoulder")
-        right = person.get_keypoint("right_shoulder")
-        if nose is None or left is None or right is None or nose[2] < 0.3 or left[2] < 0.3 or right[2] < 0.3:
-            return None
-        shoulder_width = math.dist((left[0], left[1]), (right[0], right[1]))
-        if shoulder_width < 5.0:
-            return None
-        return (nose[0] - shoulder_center[0]) / shoulder_width

@@ -7,8 +7,8 @@
   "thresholds": {
     "pose_confidence": 0.2,
     "iou_threshold": 0.5,
-    "image_size": 960,
-    "tile_size": 960,
+    "image_size": 1280,
+    "tile_size": null,
     "tile_overlap": 0.2,
     "max_detections": 100,
     "conversation_duration_sec": 3,

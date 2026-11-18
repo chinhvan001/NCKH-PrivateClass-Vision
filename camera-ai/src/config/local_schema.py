@@ -27,15 +27,16 @@ _WEEKDAYS = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")  # thu tu cua date
 _DAYS = set(_WEEKDAYS)
 CAMERA_ANGLE_TYPES = ("frontal", "top_down")
 _SETTINGS_SECTIONS = {"schema_version", "sampling", "thresholds", "schedule", "privacy"}
-# Khong co file --settings: gia tri da chay voi camera that. Lich: thu 2 den thu 7 (thoi khoa bieu web co thu 7),
-# rong hon tiet 1 sang (07:00) va tiet 5 chieu (17:25) cua web.
+# Khong co file --settings. Lich: thu 2 den thu 7 (thoi khoa bieu web co thu 7), rong hon tiet 1 sang (07:00) va
+# tiet 5 chieu (17:25) cua web. Nhan dien: 1 lan suy luan imgsz 1280, khong chia o, hieu chinh ngay 15/11/2026 tren
+# SCB-Dataset va video lop (docs/calibration.md); chua chay voi camera that.
 DEFAULT_SETTINGS = {
     "sampling": {"capture_fps": 10, "inference_every_n_frames": 2},
     "thresholds": {
         "pose_confidence": 0.2,
         "iou_threshold": 0.5,
-        "image_size": 960,
-        "tile_size": 960,
+        "image_size": 1280,
+        "tile_size": None,
         "tile_overlap": 0.2,
         "max_detections": 100,
         "conversation_duration_sec": 3,

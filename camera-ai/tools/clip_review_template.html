@@ -1,0 +1,176 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Đánh giá nhận diện</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --card: #ffffff; --text: #1d2330; --muted: #5d6677; --line: #dde1e8;
+    --ok: #1f8a4c; --ok-bg: #e3f4ea; --bad: #c0392b; --bad-bg: #fbe5e2; --accent: #2457d6;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #14171d; --card: #1d222b; --text: #e7eaf0; --muted: #9aa3b4; --line: #2e3542;
+      --ok: #4cc27f; --ok-bg: #1b3326; --bad: #ef7466; --bad-bg: #3a2220; --accent: #7aa2ff;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.45 system-ui, sans-serif; }
+  header { position: sticky; top: 0; z-index: 2; background: var(--card); border-bottom: 1px solid var(--line); padding: 12px 16px; }
+  h1 { font-size: 18px; margin: 0 0 6px; }
+  .bar { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; }
+  .muted { color: var(--muted); }
+  select, button, textarea { font: inherit; color: inherit; }
+  select, textarea { background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 4px 6px; }
+  button { cursor: pointer; border: 1px solid var(--line); background: var(--bg); border-radius: 6px; padding: 5px 12px; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  table.sum { border-collapse: collapse; margin-top: 8px; font-size: 13px; }
+  table.sum td, table.sum th { border: 1px solid var(--line); padding: 3px 8px; text-align: left; }
+  main { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px; padding: 16px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 10px; display: flex; flex-direction: column; gap: 6px; }
+  .card.ok { border-color: var(--ok); background: var(--ok-bg); }
+  .card.bad { border-color: var(--bad); background: var(--bad-bg); }
+  video { width: 100%; aspect-ratio: 360 / 432; background: #000; border-radius: 6px; }
+  .pred { font-weight: 600; }
+  .vals { font-size: 12px; }
+  .judge { display: flex; gap: 6px; }
+  .judge button.on-ok { background: var(--ok); border-color: var(--ok); color: #fff; }
+  .judge button.on-bad { background: var(--bad); border-color: var(--bad); color: #fff; }
+  textarea { width: 100%; min-height: 32px; resize: vertical; }
+  details { font-size: 13px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Đánh giá nhận diện hành động theo clip</h1>
+  <div class="bar">
+    <span id="meta" class="muted"></span>
+    <label>Lọc: <select id="filter"><option value="">Tất cả</option></select></label>
+    <label>Hiện: <select id="show"><option value="">Tất cả</option><option value="todo">Chưa đánh giá</option><option value="bad">Sai</option></select></label>
+    <button class="primary" id="export">Xuất CSV</button>
+    <span id="progress" class="muted"></span>
+  </div>
+  <details>
+    <summary>Kết quả theo hành động hệ thống nhận ra và cách đọc</summary>
+    <table class="sum" id="summary"></table>
+    <p class="muted">Mỗi clip 2 giây là 1 học sinh. Hệ thống nhận diện lại từng khung hình của clip bằng ngưỡng đang
+      chạy, rồi lấy hành động chiếm nhiều khung nhất. Clip quá ngắn để kích hoạt cảnh báo (cúi đầu cần 5 giây, quay
+      lưng 2 giây), nên đây là đánh giá nhận diện tư thế. "Nói chuyện riêng" cần 2 người quay vào nhau, ở đây chỉ đánh
+      giá phần quay đầu. <span id="blurnote">Đầu mọi người được làm mờ.</span> Khung xương vàng là keypoint hệ thống thấy. Bấm Đúng/Sai, chọn
+      hành động thực tế khi sai, rồi Xuất CSV. Đánh giá được lưu trong trình duyệt này.</p>
+  </details>
+</header>
+<main id="grid"></main>
+<script>
+const DATA = /*DATA*/null;
+const KEY = "clip-review:" + DATA.meta.video + ":" + (DATA.meta.run || "");
+const ALL_LABELS = Object.assign({}, DATA.labels, { khong_thay_nguoi: "Không thấy người ở ghế", khac: "Khác" });
+let judged = {};
+try { judged = JSON.parse(localStorage.getItem(KEY) || "{}"); } catch (e) { judged = {}; }
+// Clip da cham o dot truoc: dien san hanh dong thuc te nguoi cham da chon, nguoi cham xem lai va sua neu can.
+for (const clip of DATA.clips) {
+  if (clip.truth && !judged[clip.id]) {
+    judged[clip.id] = { actual: clip.truth, verdict: clip.truth === clip.predicted ? "ok" : "bad" };
+  }
+}
+function save() { try { localStorage.setItem(KEY, JSON.stringify(judged)); } catch (e) {} }
+
+const fmt = v => v === null || v === undefined ? "–" : (typeof v === "number" ? v.toFixed(2) : String(v));
+document.getElementById("meta").textContent =
+  `${DATA.meta.video} · ${DATA.clips.length} clip · imgsz ${DATA.meta.image_size} · cúi đầu < ${DATA.meta.thresholds.head_drop_ratio}`;
+if (DATA.meta.face_blur === false) document.getElementById("blurnote").textContent = "Không che mặt (video thành viên đã đồng ý quay, chỉ xem nội bộ).";
+const filter = document.getElementById("filter");
+for (const label of [...new Set(DATA.clips.map(c => c.predicted))]) {
+  filter.add(new Option(`${ALL_LABELS[label] || label} (${DATA.clips.filter(c => c.predicted === label).length})`, label));
+}
+
+function card(clip) {
+  const el = document.createElement("section");
+  el.className = "card";
+  el.dataset.id = clip.id;
+  const options = Object.entries(ALL_LABELS).map(([k, v]) => `<option value="${k}">${v}</option>`).join("");
+  el.innerHTML = `
+    <div><b>#${clip.id}</b> <span class="muted">· ghế ${clip.seat} · ${clip.time}</span>${clip.truth ? ' <span class="muted">· đã chấm ở đợt trước: xem lại</span>' : ""}</div>
+    <video src="${clip.file}" preload="metadata" controls loop muted playsinline></video>
+    <div class="pred">${clip.predicted_text}</div>
+    <div class="vals muted">Thấy người ${clip.frames_with_person} khung · hành động chiếm ${Math.round(clip.label_share * 100)}%<br>
+      cúi đầu ${fmt(clip.head_drop_ratio)} · thấy mặt ${fmt(clip.face_visibility)} · quay đầu ${fmt(clip.head_turn_ratio)}<br>
+      thân lệch ${fmt(clip.torso_deviation_deg)}° · tay cử động ${clip.hands_active === null ? "–" : (clip.hands_active ? "có" : "không")}</div>
+    <div class="judge"><button data-v="ok">Đúng</button><button data-v="bad">Sai</button></div>
+    <label class="actual" hidden>Thực tế: <select><option value="">— chọn —</option>${options}</select></label>
+    <textarea placeholder="Ghi chú"></textarea>`;
+  const state = judged[clip.id] || {};
+  const select = el.querySelector("select");
+  const note = el.querySelector("textarea");
+  select.value = state.actual || "";
+  note.value = state.note || "";
+  function paint() {
+    const s = judged[clip.id] || {};
+    el.classList.toggle("ok", s.verdict === "ok");
+    el.classList.toggle("bad", s.verdict === "bad");
+    el.querySelector('[data-v="ok"]').classList.toggle("on-ok", s.verdict === "ok");
+    el.querySelector('[data-v="bad"]').classList.toggle("on-bad", s.verdict === "bad");
+    el.querySelector(".actual").hidden = s.verdict !== "bad";
+  }
+  el.querySelectorAll(".judge button").forEach(b => b.addEventListener("click", () => {
+    const s = judged[clip.id] || {};
+    s.verdict = s.verdict === b.dataset.v ? undefined : b.dataset.v;
+    if (s.verdict === "ok") s.actual = clip.predicted;
+    judged[clip.id] = s; save(); paint(); refresh();
+  }));
+  select.addEventListener("change", () => { (judged[clip.id] ||= {}).actual = select.value; save(); refresh(); });
+  note.addEventListener("input", () => { (judged[clip.id] ||= {}).note = note.value; save(); });
+  paint();
+  return el;
+}
+
+const grid = document.getElementById("grid");
+const cards = DATA.clips.map(c => { const el = card(c); grid.appendChild(el); return [c, el]; });
+
+function refresh() {
+  const f = filter.value, show = document.getElementById("show").value;
+  for (const [clip, el] of cards) {
+    const v = (judged[clip.id] || {}).verdict;
+    el.hidden = (f && clip.predicted !== f) || (show === "todo" && v) || (show === "bad" && v !== "bad");
+  }
+  const rows = {};
+  for (const clip of DATA.clips) {
+    const r = rows[clip.predicted] ||= { n: 0, ok: 0, bad: 0 };
+    r.n++;
+    const v = (judged[clip.id] || {}).verdict;
+    if (v === "ok") r.ok++; else if (v === "bad") r.bad++;
+  }
+  const done = Object.values(judged).filter(s => s.verdict).length;
+  const ok = Object.values(judged).filter(s => s.verdict === "ok").length;
+  document.getElementById("progress").textContent =
+    `Đã đánh giá ${done}/${DATA.clips.length}` + (done ? ` · đúng ${Math.round(100 * ok / done)}%` : "");
+  document.getElementById("summary").innerHTML =
+    "<tr><th>Hệ thống nhận ra</th><th>Số clip</th><th>Đúng</th><th>Sai</th><th>Tỷ lệ đúng</th></tr>" +
+    Object.entries(rows).map(([k, r]) => `<tr><td>${ALL_LABELS[k] || k}</td><td>${r.n}</td><td>${r.ok}</td><td>${r.bad}</td>` +
+      `<td>${r.ok + r.bad ? Math.round(100 * r.ok / (r.ok + r.bad)) + "%" : "–"}</td></tr>`).join("");
+}
+filter.addEventListener("change", refresh);
+document.getElementById("show").addEventListener("change", refresh);
+
+document.getElementById("export").addEventListener("click", () => {
+  const cols = ["id", "file", "seat", "time", "predicted", "predicted_text", "label_share", "frames_with_person",
+    "pose_confidence", "hands_active", "head_drop_ratio", "face_visibility", "head_turn_ratio", "torso_deviation_deg"];
+  const esc = v => `"${String(v === null || v === undefined ? "" : v).replace(/"/g, '""')}"`;
+  const lines = [cols.concat(["danh_gia", "hanh_dong_thuc_te", "ghi_chu"]).join(",")];
+  for (const clip of DATA.clips) {
+    const s = judged[clip.id] || {};
+    lines.push(cols.map(c => esc(clip[c])).concat([esc(s.verdict === "ok" ? "dung" : s.verdict === "bad" ? "sai" : ""),
+      esc(s.actual || ""), esc(s.note || "")]).join(","));
+  }
+  const blob = new Blob(["﻿" + lines.join("\r\n")], { type: "text/csv;charset=utf-8" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = "danh_gia_clip.csv";
+  a.click();
+  URL.revokeObjectURL(a.href);
+});
+refresh();
+</script>
+</body>
+</html>

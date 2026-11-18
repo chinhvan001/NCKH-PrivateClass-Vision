@@ -24,13 +24,15 @@ def _person(
     wrist_dx: float | None = None,
     nose_dx: float = 0.0,
     face_conf: float = 0.95,
+    desk: bool = False,
 ) -> PersonPose:
-    """wrist_dx=None: khong co wrist (hand_activity=None). Nguoc lai 2 co tay
-    nam tren ban, lech ngang wrist_dx so voi vi tri goc. nose_dx: quay dau
-    sang ngang; face_conf thap: mat khong huong camera."""
+    """head_drop: gục (mui thap hon duong vai 16px, ty so -0.4 nhu hoc sinh gục that trong clip 17/11: -0.35..-0.55).
+    desk: cui xuong ban doc/viet (mui tren vai 4px, ty so 0.1: cui nhung khong gục).
+    wrist_dx=None: khong co wrist (hand_activity=None). Nguoc lai 2 co tay nam tren ban, lech ngang wrist_dx so voi
+    vi tri goc. nose_dx: quay dau sang ngang; face_conf thap: mat khong huong camera."""
     points = [(0.0, 0.0, 0.0)] * 17
     values = {
-        "nose": (center_x + nose_dx, 96.0 if head_drop else 50.0, face_conf),
+        "nose": (center_x + nose_dx, 116.0 if head_drop else 96.0 if desk else 50.0, face_conf),
         "left_shoulder": (center_x - 20.0, 100.0, 0.95),
         "right_shoulder": (center_x + 20.0, 100.0, 0.95),
         "left_hip": (center_x - 20.0, 160.0, 0.95),
@@ -68,7 +70,7 @@ class HeadDownReplayProvider:
         self.calls += 1
         head_drop = self.calls >= 3
         writing_dx = 20.0 if self.calls % 2 else -20.0
-        return [_person(90.0, head_drop, wrist_dx=0.0), _person(230.0, head_drop, wrist_dx=writing_dx)]
+        return [_person(90.0, head_drop, wrist_dx=0.0), _person(230.0, False, wrist_dx=writing_dx, desk=head_drop)]
 
 
 def _collect(*args, **kwargs):
@@ -110,7 +112,7 @@ def test_full_pipeline_from_simulated_video_to_anonymized_engagement(tmp_path):
     assert len(records) == 16
     by_seat = {seat_id: [record for record in records if record.seat_id == seat_id] for seat_id in ("A1", "A2")}
     assert by_seat["A1"][-1].engagement_score < by_seat["A2"][-1].engagement_score
-    assert by_seat["A1"][-1].slumping_events >= 1
+    assert by_seat["A1"][-1].head_drop_events >= 1  # gục: buon ngu du khong thay tay
     allowed = {"seat_id", "observed_at_sec", "engagement_score", "posture_state", "head_drop_events", "slumping_events"}
     assert all(set(record.to_dict()) == allowed for record in records)
     assert all("image" not in json.dumps(record.to_dict()) for record in records)
@@ -141,6 +143,44 @@ def test_head_down_with_still_hands_is_head_drop_but_writing_is_normal(tmp_path)
     assert all(record.posture_state == "normal" for record in writing)
     assert writing[-1].head_drop_events == 0
     assert writing[-1].engagement_score == 100.0
+
+
+class DeskReplayProvider:
+    """Tu frame 3 ca 2 cui xuong ban, tay yen: A1 doc sach; A2 quay dau sang ben (dau quay lam ty so cui giam)."""
+
+    def __init__(self):
+        self.calls = 0
+
+    def detect(self, image_bgr):
+        self.calls += 1
+        down = self.calls >= 3
+        return [
+            _person(90.0, False, wrist_dx=0.0, desk=down),
+            _person(230.0, False, wrist_dx=0.0, desk=down, nose_dx=10.0),
+        ]
+
+
+def test_head_down_at_the_desk_is_never_drowsy(tmp_path):
+    """Danh gia 120 clip that (17/11/2026): 37/40 lan bao buon ngu theo nguong cui 0.4 la sai. Cui xuong ban la
+    doc/viet (tin chi mot phan khi tay yen), dau quay sang ben khong tinh la cui; chi gục moi la buon ngu."""
+    video = tmp_path / "desk.mp4"
+    _video(video)
+    alerts = []
+    _, records = _collect(
+        CaptureConfig(source=str(video), target_fps=2.0),
+        DeskReplayProvider(),
+        SeatGrid([Seat("A1", 90.0, 100.0), Seat("A2", 230.0, 100.0)]),
+        max_frames=8,
+        calibration_duration_sec=0.0,
+        posture_thresholds=PostureThresholds(sustained_duration_sec=1.0),
+        smoothing_window_sec=1.0,
+        alert_manager=AlertManager("sess_test"),
+        on_alert=alerts.append,
+    )
+    last = {record.seat_id: record for record in records}
+    assert (last["A1"].posture_state, last["A1"].head_drop_events) == ("slumping", 0)
+    assert (last["A2"].posture_state, last["A2"].head_drop_events, last["A2"].slumping_events) == ("normal", 0, 0)
+    assert alerts == []
 
 
 class GlitchReplayProvider:
@@ -268,10 +308,10 @@ def _run_alert_scenario(tmp_path, camera_angle_type):
 
 def test_each_behaviour_alerts_once_per_episode_on_frontal_camera(tmp_path):
     # frame n co t=n/2s. back_turn (>=2s) tu t=0.5 -> alert t=2.5; side_conversation
-    # (>=3s) tu t=0.5 -> alert t=3.5 cho CA 2 ghe; head_drop cui tu t=2.5 (sau lam muot),
-    # du sustained 1s tai t=3.5. Hanh vi con keo dai nhung khong phat lai.
+    # (>=3s) tu t=0.5 -> alert t=3.5 cho CA 2 ghe; head_drop: gục tu t=1.5, trung binh 1s duoi nguong
+    # cui tu t=2.0 (1.25, -0.4, -0.4), du sustained 1s tai t=3.0. Hanh vi con keo dai nhung khong phat lai.
     assert _run_alert_scenario(tmp_path, "frontal") == [
-        ("A1", "head_drop", 2.5, 1.0),
+        ("A1", "head_drop", 2.0, 1.0),
         ("A2", "back_turn", 0.5, 2.0),
         ("A3", "side_conversation", 0.5, 3.0),
         ("A4", "side_conversation", 0.5, 3.0),
