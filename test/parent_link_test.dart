@@ -48,8 +48,8 @@ void main() {
       expect(minhAnh.birthday, '12/03/2009');
       expect(minhAnh.gender, 'Nữ');
       expect(minhAnh.classes.map((c) => c.name).toSet(), {'12A1', '10B2'});
-      expect(minhAnh.teacherDisplay, contains('Nguyễn Văn Hùng'));
-      expect(minhAnh.teacherDisplay, contains('Lê Thu Hà'));
+      expect(minhAnh.classes.map((c) => c.teacherName).toSet(), {'Nguyễn Văn Hùng', 'Lê Thu Hà'});
+      expect(minhAnh.teacherDisplay, 'Nguyễn Văn Hùng'); // màn hình hiện giáo viên của lớp đầu tiên
 
       final giaBao = kids.firstWhere((k) => k.id == 's2');
       expect(giaBao.birthday, '05/09/2011');
@@ -70,7 +70,7 @@ void main() {
 
     test('học sinh chưa ghi danh hiển thị "Chưa xếp lớp"', () async {
       final db = await seedDb();
-      await db.collection('students').doc('s4').set({'student_name': 'Học Sinh Mới', 'parent_id': 'p1'});
+      await db.collection('students2').doc('s4').set({'full_name': 'Học Sinh Mới', 'parent_id': 'p1'});
       final kids = await ParentService(db: db).watchChildren(uid: 'p1').first;
       expect(kids.firstWhere((k) => k.id == 's4').classDisplay, 'Chưa xếp lớp');
     });
@@ -120,12 +120,12 @@ void main() {
       await waitLoaded(session);
       expect(session.children.map((k) => k.id), ['s1']);
 
-      await db.collection('students').doc('s3').update({'parent_id': 'p1'});
+      await db.collection('students2').doc('s3').update({'parent_id': 'p1'});
       await Future<void>.delayed(const Duration(milliseconds: 200));
       expect(session.children.map((k) => k.id), containsAll(['s1', 's3']));
 
       await session.selectChild(session.children.firstWhere((k) => k.id == 's3'));
-      await db.collection('students').doc('s3').update({'parent_id': 'p_other'});
+      await db.collection('students2').doc('s3').update({'parent_id': 'p_other'});
       await Future<void>.delayed(const Duration(milliseconds: 200));
       expect(session.children.map((k) => k.id), ['s1']);
       expect(session.selectedChild!.id, 's1'); // con đang chọn bị gỡ -> tự chuyển sang con còn lại
@@ -163,7 +163,7 @@ void main() {
       expect(find.text('Chọn tài khoản con'), findsNothing);
 
       expect(find.text('Trần Minh Anh'), findsOneWidget);
-      expect(find.text('12A1, 10B2'), findsOneWidget);
+      expect(find.text('12A1 · Năm học 2026-2027'), findsOneWidget); // lớp đầu tiên của con
       expect(ParentSession.instance.selectedChild!.id, 's1');
     }));
 
@@ -182,16 +182,15 @@ void main() {
       expect(find.text('Đăng xuất'), findsOneWidget);
     }));
 
-    testWidgets('hồ sơ học sinh hiển thị dữ liệu thật của con đang chọn', (tester) async => ignoringOverflow(() async {
+    testWidgets('hồ sơ hiển thị dữ liệu thật của phụ huynh và con', (tester) async => ignoringOverflow(() async {
       final db = await tester.runAsync(seedDb);
       await pumpHome(tester, db!, 'p1');
       await tester.pumpWidget(const MaterialApp(home: ProfileScreen()));
       await tester.pump();
 
       expect(find.text('Trần Minh Anh'), findsOneWidget);
-      expect(find.text('12/03/2009'), findsOneWidget);
-      expect(find.text('Nữ'), findsOneWidget);
-      expect(find.text('Trần Thị Mai'), findsOneWidget);
+      expect(find.text('12A1 · Năm học 2026-2027'), findsOneWidget);
+      expect(find.text('Trần Thị Mai'), findsWidgets); // tiêu đề thẻ và dòng họ tên
       expect(find.text('0901 234 567'), findsOneWidget);
       expect(find.text('mai@gmail.com'), findsOneWidget);
     }));
