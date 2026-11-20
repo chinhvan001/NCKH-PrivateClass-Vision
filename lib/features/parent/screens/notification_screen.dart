@@ -7,7 +7,10 @@ import 'package:flutter_privateclass_vision/features/parent/utils/app_colors.dar
 import 'package:flutter_privateclass_vision/features/parent/utils/app_text_styles.dart';
 
 class NotificationScreen extends StatefulWidget {
-  const NotificationScreen({super.key});
+  /// Được gọi khi bấm nút quay lại (dùng khi màn hình nằm trong tab của Trang chủ).
+  final VoidCallback? onBack;
+
+  const NotificationScreen({super.key, this.onBack});
 
   @override
   State<NotificationScreen> createState() => _NotificationScreenState();
@@ -122,8 +125,13 @@ class _NotificationScreenState extends State<NotificationScreen> {
                 color: AppColors.textPrimary,
                 size: 20,
               ),
-              onPressed: () =>
-                  Navigator.canPop(context) ? Navigator.pop(context) : null,
+              onPressed: () {
+                if (widget.onBack != null) {
+                  widget.onBack!();
+                } else if (Navigator.canPop(context)) {
+                  Navigator.pop(context);
+                }
+              },
             ),
             title: const Text('Thông báo', style: AppTextStyles.heading2),
           ),

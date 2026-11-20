@@ -10,13 +10,13 @@ import 'teacher_month_classes_service.dart';
 
 class ClassScreen extends StatefulWidget {
   const ClassScreen({super.key});
-  
+
   @override
   State<ClassScreen> createState() => _ClassScreenState();
 }
 
 class _ClassScreenState extends State<ClassScreen> {
-  Stream<List<QueryDocumentSnapshot<Map<String, dynamic>>>>? _classesStream;
+  Stream<List>? _classesStream;
 
   @override
   void initState() {
@@ -101,7 +101,7 @@ class _ClassScreenState extends State<ClassScreen> {
       );
     }
 
-    return StreamBuilder<List<QueryDocumentSnapshot<Map<String, dynamic>>>>(
+    return StreamBuilder<List>(
       stream: stream,
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
@@ -140,8 +140,9 @@ class _ClassScreenState extends State<ClassScreen> {
           padding: const EdgeInsets.fromLTRB(16, 20, 16, 24),
           itemCount: docs.length,
           itemBuilder: (context, index) {
-            final data = docs[index].data();
-            final String docId = docs[index].id;
+            final doc = docs[index] as QueryDocumentSnapshot;
+            final data = (doc.data() as Map?) ?? {};
+            final String docId = doc.id;
             final String name = (data['class_name'] ?? 'Lớp học').toString();
 
             final ClassModel cls = ClassModel(

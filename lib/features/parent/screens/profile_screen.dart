@@ -9,7 +9,10 @@ import 'package:flutter_privateclass_vision/features/parent/utils/app_text_style
 import 'attendance_detail_screen.dart';
 
 class ProfileScreen extends StatelessWidget {
-  const ProfileScreen({super.key});
+  /// Được gọi khi bấm nút quay lại (dùng khi màn hình nằm trong tab của Trang chủ).
+  final VoidCallback? onBack;
+
+  const ProfileScreen({super.key, this.onBack});
 
   @override
   Widget build(BuildContext context) {
@@ -24,8 +27,13 @@ class ProfileScreen extends StatelessWidget {
             color: AppColors.textPrimary,
             size: 20,
           ),
-          onPressed: () =>
-              Navigator.canPop(context) ? Navigator.pop(context) : null,
+          onPressed: () {
+            if (onBack != null) {
+              onBack!();
+            } else if (Navigator.canPop(context)) {
+              Navigator.pop(context);
+            }
+          },
         ),
         title: const Text('Hồ sơ', style: AppTextStyles.heading2),
       ),
