@@ -1,6 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 
-/// Model thông tin lớp học của học sinh (lấy từ classes2 và teachers)
 class ChildClass {
   final String id;
   final String name;
@@ -22,7 +21,6 @@ class ChildClass {
   }
 }
 
-/// Model học sinh được liên kết với phụ huynh (lấy từ students2)
 class LinkedChild {
   final String id;
   final String name;
@@ -60,7 +58,6 @@ class LinkedChild {
           : 'Chưa cập nhật';
 }
 
-/// Model hồ sơ phụ huynh (lấy từ collection parents / parent)
 class ParentModel {
   final String id;
   final String name;
@@ -97,7 +94,6 @@ class ParentModel {
   }
 }
 
-/// Model thông tin buổi học (lấy từ collection sessions)
 class SessionInfo {
   final String id;
   final String classId;
@@ -134,7 +130,6 @@ class SessionInfo {
   }
 }
 
-/// Model kết quả buổi học của học sinh (lấy từ session_results -> result_map)
 class StudentSessionResult {
   final String sessionId;
   final String seatId;
@@ -153,7 +148,6 @@ class StudentSessionResult {
   });
 }
 
-/// Model tổng hợp số liệu điểm danh cho AttendanceDetailScreen & HomeScreen
 class AttendanceSummary {
   final int totalSessions;
   final int attendedSessions;
@@ -175,7 +169,6 @@ class AttendanceSummary {
       totalSessions > 0 ? (attendedSessions / totalSessions) * 100 : 0.0;
 }
 
-/// Model bản ghi vắng / đi muộn
 class AbsenceRecord {
   final String date;
   final String type;
@@ -188,25 +181,17 @@ class AbsenceRecord {
   });
 }
 
-/// Loại thông báo phụ huynh
 enum NotificationType {
-  /// Học sinh vắng mặt (is_present == false) ở buổi học đã kết thúc
   absence,
-
-  /// Nhắc nhở từ giáo viên (note của buổi học)
   reminder,
 }
 
-/// Trạng thái của một tiết học so với thời điểm hiện tại
 enum SessionState { upcoming, ongoing, ended }
 
-/// Một tiết học của học sinh (lấy từ sessions, kèm dữ liệu của đúng ghế học sinh đó)
 class StudentSession {
   final String id;
   final String classId;
   final String className;
-
-  /// Ngày học (chỉ phần ngày, giờ = 00:00)
   final DateTime date;
   final DateTime? startTime;
   final DateTime? endTime;
@@ -215,11 +200,7 @@ class StudentSession {
   final String room;
   final String teacherName;
   final bool isPresent;
-
-  /// Chỉ số tập trung 0-100 của học sinh ở tiết này (null nếu chưa có)
   final double? attentionScore;
-
-  /// Trường status của buổi học đã ở trạng thái kết thúc
   final bool statusEnded;
 
   const StudentSession({
@@ -251,28 +232,21 @@ class StudentSession {
     return date.isBefore(today) ? SessionState.ended : SessionState.upcoming;
   }
 
-  /// Vắng mặt: tiết đã kết thúc mà học sinh không có mặt
   bool isAbsentAt(DateTime now) =>
       !isPresent && stateAt(now) == SessionState.ended;
 }
 
-/// Model thông báo phụ huynh (trích xuất từ sessions)
 class ParentNotification {
   final String id;
   final String sessionId;
   final NotificationType type;
-
-  /// Thời điểm phát sinh thông báo (giờ kết thúc buổi học) dùng để tính "x phút trước"
   final DateTime timestamp;
-
   final DateTime? startTime;
   final DateTime? endTime;
   final int? period;
   final String subject;
   final String teacherName;
   final String room;
-
-  /// Nội dung nhắc nhở của giáo viên (chỉ có với type == reminder)
   final String note;
 
   const ParentNotification({
@@ -290,16 +264,15 @@ class ParentNotification {
   });
 }
 
-/// Model thống kê hiển thị trang chủ phụ huynh (tính toán từ sessions)
 class HomeStats {
-  final String nextSessionTime; // Ví dụ: "15:30" hoặc "Mai 07:30"
-  final double avgAttention;    // Trung bình % tập trung
-  final int totalEnded;         // Tổng số buổi đã học
-  final int attended;           // Số buổi có mặt
-  final int excusedAbsence;     // Vắng có phép
-  final int unexcusedAbsence;   // Vắng không phép
-  final int lateCount;          // Đi muộn
-  final int notificationCount;  // Số lượng thông báo chưa đọc / thông báo mới
+  final String nextSessionTime;
+  final double avgAttention;
+  final int totalEnded;
+  final int attended;
+  final int excusedAbsence;
+  final int unexcusedAbsence;
+  final int lateCount;
+  final int notificationCount;
 
   const HomeStats({
     this.nextSessionTime = '--:--',
@@ -320,10 +293,10 @@ class HomeStats {
 
 /// Chi tiết mức độ tập trung của 1 tiết/ngày cụ thể trong một môn
 class SubjectDailyFocus {
-  final String date;      // VD: "09/11/2026"
-  final int period;       // VD: 1 (Tiết 1)
-  final int percent;      // Mức độ tập trung (0 - 100%)
-  final bool isPresent;   // Có mặt hay vắng
+  final String date;
+  final int period;
+  final int percent;
+  final bool isPresent;
 
   const SubjectDailyFocus({
     required this.date,
@@ -333,20 +306,27 @@ class SubjectDailyFocus {
   });
 }
 
-/// Thống kê mức độ tập trung theo từng môn (kèm danh sách chi tiết từng ngày)
+/// Thống kê đầy đủ của một môn học (dùng cho cả Trang chủ và màn hình Chi tiết môn)
 class SubjectFocus {
   final String subject;
   final int percent;
+  final String teacherName;
+  final int totalSessions;
+  final int attendedSessions;
+  final int absentSessions;
   final List<SubjectDailyFocus> dailyRecords;
 
   const SubjectFocus({
     required this.subject,
     required this.percent,
+    this.teacherName = 'Chưa cập nhật',
+    this.totalSessions = 0,
+    this.attendedSessions = 0,
+    this.absentSessions = 0,
     this.dailyRecords = const [],
   });
 }
 
-/// Thống kê tổng hợp cho màn hình Tổng quan (DailyOverviewScreen)
 class OverviewStats {
   final List<SubjectFocus> subjects;
   final int totalSessions;
