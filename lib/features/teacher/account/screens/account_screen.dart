@@ -1,7 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_privateclass_vision/core/data/import_session.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 
 import '../../../../core/constants/app_colors.dart';
@@ -76,34 +75,6 @@ class AccountScreen extends StatelessWidget {
 
                       const SizedBox(height: 32),
                       _buildLogoutButton(context),
-                        //Them ham du lieu
-                      const SizedBox(height: 16),
-                      ElevatedButton.icon(
-                        onPressed: () async {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(content: Text('Dang them dl damn it')),
-                          );
-                          await addSessionsForClass12A1();
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(content: Text('Da them du lieu!')),
-                          );
-                        },
-                        icon: const Icon(Icons.playlist_add, size: 19),
-                        label: const Text(
-                          'Them du lieu',
-                          style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
-                        ),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: AppColors.navy, // Hoặc màu sắc bạn muốn
-                          foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(vertical: 14),
-                          minimumSize: const Size(double.infinity, 50),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                          elevation: 0,
-                        ),
-                      ),
-                      // ---------------------------------------
-                      //  
                       const SizedBox(height: 16),
                       const Center(
                         child: Text(
