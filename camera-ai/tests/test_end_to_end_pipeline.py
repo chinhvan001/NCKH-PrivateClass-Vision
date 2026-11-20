@@ -146,7 +146,7 @@ def test_head_down_with_still_hands_is_head_drop_but_writing_is_normal(tmp_path)
 
 
 class DeskReplayProvider:
-    """Tu frame 3 ca 2 cui xuong ban, tay yen: A1 doc sach; A2 quay dau sang ben (dau quay lam ty so cui giam)."""
+    """Tu frame 3 ca 2 cui xuong ban, tay yen: A1 doc sach; A2 vua cui vua hoi quay dau."""
 
     def __init__(self):
         self.calls = 0
@@ -162,7 +162,8 @@ class DeskReplayProvider:
 
 def test_head_down_at_the_desk_is_never_drowsy(tmp_path):
     """Danh gia 120 clip that (17/11/2026): 37/40 lan bao buon ngu theo nguong cui 0.4 la sai. Cui xuong ban la
-    doc/viet (tin chi mot phan khi tay yen), dau quay sang ben khong tinh la cui; chi gục moi la buon ngu."""
+    doc/viet (tin chi mot phan khi tay yen), ke ca khi dau hoi quay (19/11: cui duoc xet truoc quay dau); chi gục
+    moi la buon ngu."""
     video = tmp_path / "desk.mp4"
     _video(video)
     alerts = []
@@ -179,8 +180,58 @@ def test_head_down_at_the_desk_is_never_drowsy(tmp_path):
     )
     last = {record.seat_id: record for record in records}
     assert (last["A1"].posture_state, last["A1"].head_drop_events) == ("slumping", 0)
-    assert (last["A2"].posture_state, last["A2"].head_drop_events, last["A2"].slumping_events) == ("normal", 0, 0)
+    assert (last["A2"].posture_state, last["A2"].head_drop_events) == ("slumping", 0)
     assert alerts == []
+
+
+def _face_person(center_x: float, looking_down: bool) -> PersonPose:
+    """Co mat va tai. Nhin thang: mui cao hon vai 20px (ty so 0.5), 2 mat cach 12px, tai ngang mat. Cui xuong ban
+    (luc doc): mui chi ha 2px (ty so 0.45, van tren nguong tuyet doi 0.4) nhung mat ha xuong con tai giu nguyen."""
+    points = [(0.0, 0.0, 0.0)] * 17
+    eye_y, eye_dx = (78.0, 5.0) if looking_down else (74.0, 6.0)
+    values = {
+        "nose": (center_x, 82.0 if looking_down else 80.0, 0.95),
+        "left_eye": (center_x - eye_dx, eye_y, 0.95),
+        "right_eye": (center_x + eye_dx, eye_y, 0.95),
+        "left_ear": (center_x - 12.0, 72.0, 0.9),
+        "right_ear": (center_x + 12.0, 72.0, 0.9),
+        "left_shoulder": (center_x - 20.0, 100.0, 0.95),
+        "right_shoulder": (center_x + 20.0, 100.0, 0.95),
+        "left_hip": (center_x - 20.0, 160.0, 0.95),
+        "right_hip": (center_x + 20.0, 160.0, 0.95),
+    }
+    for name, point in values.items():
+        points[COCO_KEYPOINT_NAMES.index(name)] = point
+    return PersonPose(points, (center_x - 35.0, 40.0, center_x + 35.0, 180.0), 0.9)
+
+
+class ReadingAfterLookingUpProvider:
+    """A1 nhin thang 30 frame (du lap moc nhin thang), roi cui doc 10 frame."""
+
+    def __init__(self):
+        self.calls = 0
+
+    def detect(self, image_bgr):
+        self.calls += 1
+        return [_face_person(90.0, looking_down=self.calls > 30)]
+
+
+def test_reading_is_measured_against_the_seat_frontal_pose(tmp_path):
+    """Ty so cui dau 0.45 van tren nguong tuyet doi 0.4 (cach cu: binh thuong), nhung so voi tu the nhin thang
+    cua ghe thi tai da cao hon mat: cui xuong ban, tinh mot phan, khong phai buon ngu."""
+    video = tmp_path / "reading.mp4"
+    _video(video, frame_count=40)
+    _, records = _collect(
+        CaptureConfig(source=str(video), target_fps=2.0),
+        ReadingAfterLookingUpProvider(),
+        SeatGrid([Seat("A1", 90.0, 100.0)]),
+        max_frames=40,
+        calibration_duration_sec=0.0,
+        posture_thresholds=PostureThresholds(sustained_duration_sec=1.0),
+        smoothing_window_sec=1.0,
+    )
+    assert records[29].posture_state == "normal"  # nhin thang
+    assert (records[-1].posture_state, records[-1].head_drop_events) == ("slumping", 0)
 
 
 class GlitchReplayProvider:

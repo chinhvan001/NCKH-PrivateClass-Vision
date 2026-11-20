@@ -61,10 +61,10 @@ Like the tools above, it keeps frames in RAM only. The JSON holds aggregate numb
 
 `cut_action_clips.py` builds a set for people to review the recognition clip by clip:
 
-1. A first pass at 5 Hz finds the seat positions and each seat's usual head turn and torso angle. It labels each frame with the same rules as `EngagementEngine`, which live in `src/engagement/posture_monitor.py`:
-   - slumped over (`is_slumped_over`) counts as drowsy;
-   - head turn is measured against the seat's usual turn;
-   - head down at the desk counts as reading or writing.
+1. A first pass at 5 Hz finds the seat positions, each seat's torso angle and its frontal pose (`FrontalBaseline`: the frames where the eyes are furthest apart). It labels each frame with the same rules as `EngagementEngine`, which live in `src/engagement/posture_monitor.py`, checked in this order:
+   1. slumped over (`is_slumped_over`) counts as drowsy;
+   2. head down against the frontal pose (`is_head_down`) counts as reading or writing;
+   3. head turned against the frontal pose counts as a head turn.
 2. It keeps every 2-second window in which one student is seen in at least 80% of frames and one action covers at least 70% of them. It searches in steps of `--step` (0.2 s), and windows of the same seat never overlap. `--clips 0`, the default, keeps them all; a positive number spreads that many across actions.
 3. For each window it runs detection again on every frame, at `image_size` 1280 on the full frame as the edge node does, and records the result.
 4. `index.html` in the output folder plays every clip next to the system's answer. Reviewers mark it right or wrong, pick the real action, and export a CSV. Each run stores its marks under its own key, so a new run never shows the marks of an old one.

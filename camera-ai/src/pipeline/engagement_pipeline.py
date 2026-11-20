@@ -13,17 +13,19 @@ from src.engagement.engagement_score import SeatEngagementTracker, classify_post
 from src.engagement.hand_activity import HandActivityMonitor
 from src.engagement.posture import (
     CameraAngleType,
+    compute_ear_eye_offset,
+    compute_eye_distance_ratio,
     compute_head_drop_ratio,
     compute_head_turn_ratio,
     compute_torso_vector_angle,
 )
 from src.engagement.posture_monitor import (
     BaselineEstablisher,
+    FrontalBaseline,
     PostureMonitor,
     PostureThresholds,
     RollingSmoother,
-    RunningMedian,
-    head_signal_for,
+    is_head_down,
     is_slumped_over,
 )
 from src.engagement.rolling_engagement import DEFAULT_MAX_GAP_SEC, RollingSeatEngagementTracker
@@ -54,7 +56,8 @@ class _SeatPipelineState:
     hands: HandActivityMonitor
     head_smoother: RollingSmoother
     deviation_smoother: RollingSmoother
-    turn_baseline: RunningMedian = field(default_factory=RunningMedian)  # huong dau thuong ngay cua ghe
+    down_smoother: RollingSmoother  # ty le khung cui xuong ban trong cua so lam muot
+    frontal: FrontalBaseline = field(default_factory=FrontalBaseline)  # tu the nhin thang cua ghe
     last_seen: float = 0.0
     seen: bool = False  # last_seen chi co nghia khi da thay nguoi it nhat 1 lan
     posture_state: str = "normal"
@@ -155,12 +158,16 @@ class EngagementEngine:
         candidates = []
         for assignment in self._seat_tracker.fresh_assignments.values():
             state = self._state_for(assignment.seat_id)
-            # Huong dau so voi huong thuong ngay cua ghe (goc camera lam ghe o ria trong nhu quay dau du nhin thang);
-            # dau quay sang ben lam ty so cui dau giam ma khong cui, nen frame do khong tinh la cui xuong ban.
-            turn = compute_head_turn_ratio(assignment.person)
-            baseline_turn = state.turn_baseline.add(turn)
-            turned = turn is not None and abs(turn - baseline_turn) >= self._thresholds.head_turn_ratio_threshold
-            head_ratio = head_signal_for(compute_head_drop_ratio(assignment.person), turned, self._thresholds)
+            person = assignment.person
+            head_ratio = compute_head_drop_ratio(person)
+            ear_eye = compute_ear_eye_offset(person)
+            # Moc "nhin thang" cua ghe (goc camera lam ghe o ria trong nhu dang quay/cui du nhin thang). Cui xuong ban
+            # so voi moc do, xet truoc quay dau: so voi moc, quay dau gan nhu khong lam ty so cui dau giam.
+            frontal = state.frontal.add(
+                compute_eye_distance_ratio(person), compute_head_turn_ratio(person), head_ratio, ear_eye
+            )
+            down = is_head_down(head_ratio, ear_eye, frontal, self._thresholds)
+            down_share = state.down_smoother.add(timestamp, None if down is None else float(down))
             head_signal = state.head_smoother.add(timestamp, head_ratio)
             torso_angle = compute_torso_vector_angle(assignment.person)
             state.baseline.add_sample(timestamp, torso_angle)
@@ -172,7 +179,9 @@ class EngagementEngine:
                     else None
                 ),
             )
-            head_event, slump_event = state.monitor.update(timestamp, head_signal, deviation)
+            head_event, slump_event = state.monitor.update(
+                timestamp, head_signal, deviation, head_down=None if down_share is None else down_share >= 0.5
+            )
             # Cui dau chi la buon ngu khi gục han (mui ngang/duoi vai, hoac cui kem than lech); cui nhe la doc/viet.
             slumped = is_slumped_over(head_signal, deviation, self._thresholds)
             # Cap nhat moi frame (khong chi khi cui dau) de cua so bien thien co tay
@@ -196,7 +205,9 @@ class EngagementEngine:
         back_turn_events = (
             self._back_turn_detector.update(timestamp, people_by_seat) if self._back_turn_detector else []
         )
-        baselines = {seat_id: state.turn_baseline.value for seat_id, state in self._states.items()}
+        baselines = {
+            seat_id: state.frontal.value.turn for seat_id, state in self._states.items() if state.frontal.value
+        }
         conversation_events = (
             self._side_conversation_detector.update(timestamp, people_by_seat, baselines)
             if self._side_conversation_detector
@@ -262,6 +273,7 @@ class EngagementEngine:
                 hands=HandActivityMonitor(),
                 head_smoother=RollingSmoother(self._smoothing_window_sec),
                 deviation_smoother=RollingSmoother(self._smoothing_window_sec),
+                down_smoother=RollingSmoother(self._smoothing_window_sec),
             )
         return self._states[seat_id]
 

@@ -69,7 +69,7 @@ class SideConversationDetector:
 
         Chi ghep moi nguoi voi mot nguoi gan nhat trong frame, tranh mot hoc
         sinh tao nhieu canh bao dong thoi khi ngoi giua hai ban khac.
-        turn_baselines: huong dau thuong ngay cua tung ghe (posture_monitor.RunningMedian); ghe ngoi lech goc
+        turn_baselines: huong dau luc nhin thang cua tung ghe (posture_monitor.FrontalBaseline); ghe ngoi lech goc
         camera trong nhu dang quay dau du nhin thang. None hoac thieu ghe: 0 nhu truoc.
         """
         baselines = turn_baselines or {}

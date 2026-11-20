@@ -38,11 +38,19 @@ from src.detection.pose_detector import PersonPose  # noqa: E402
 from src.engagement.back_turn import BackTurnDetector  # noqa: E402
 from src.engagement.hand_activity import HandActivityMonitor  # noqa: E402
 from src.engagement.posture import (  # noqa: E402
+    compute_ear_eye_offset,
+    compute_eye_distance_ratio,
     compute_head_drop_ratio,
     compute_head_turn_ratio,
     compute_torso_vector_angle,
 )
-from src.engagement.posture_monitor import PostureThresholds, head_signal_for, is_slumped_over  # noqa: E402
+from src.engagement.posture_monitor import (  # noqa: E402
+    FrontalBaseline,
+    FrontalPose,
+    PostureThresholds,
+    is_head_down,
+    is_slumped_over,
+)
 from src.privacy import wipe_image  # noqa: E402
 from tools.calibrate_pose import (  # noqa: E402
     cluster_positions,
@@ -60,41 +68,43 @@ POSE_CONF = 0.2
 LABELS = {
     "binh_thuong": "Ngồi bình thường",
     "cui_dau": "Gục / cúi hẳn xuống (hệ thống: buồn ngủ)",
-    "cui_dau_viet": "Cúi xuống bàn: đọc / viết (hệ thống: không phải buồn ngủ)",
-    "quay_dau": "Quay đầu sang bên (so với tư thế thường của ghế)",
+    "cui_dau_viet": "Cúi xuống bàn: đọc / viết (so với lúc nhìn thẳng; vừa cúi vừa quay ngang vẫn tính là cúi; "
+    "hệ thống: không phải buồn ngủ)",
+    "quay_dau": "Quay đầu sang bên (so với lúc nhìn thẳng của ghế)",
     "quay_lung": "Không thấy mặt (quay lưng / quay đi)",
     "nghieng_nguoi": "Nghiêng / lệch người (thân lệch > 15°, đầu không cúi)",
 }
 OUT_WIDTH, OUT_HEIGHT = 360, 432
 
 
-def signals(person: PersonPose, torso_baseline: float | None, turn_baseline: float) -> dict:
-    """Tin hieu cua 1 frame. Huong dau tinh so voi huong thuong ngay cua ghe (edge node: RunningMedian; o day trung
-    vi ca video cua ghe, gia tri ma RunningMedian hoi tu toi)."""
+def signals(person: PersonPose, torso_baseline: float | None, frontal: FrontalPose | None) -> dict:
+    """Tin hieu cua 1 frame, so voi tu the nhin thang cua ghe (edge node: FrontalBaseline chay dan; o day tinh tren
+    ca video cua ghe, gia tri ma FrontalBaseline hoi tu toi)."""
     turn = compute_head_turn_ratio(person)
     angle = compute_torso_vector_angle(person)
+    head = compute_head_drop_ratio(person)
     return {
         "face_visibility": BackTurnDetector._face_visibility_if_shoulders_visible(person),
-        "head_drop_ratio": compute_head_drop_ratio(person),
-        "head_turn_ratio": None if turn is None else turn - turn_baseline,
+        "head_drop_ratio": head,
+        "head_turn_ratio": None if turn is None else turn - (frontal.turn if frontal else 0.0),
         "torso_deviation": None if torso_baseline is None or angle is None else angle - torso_baseline,
+        "head_down": is_head_down(head, compute_ear_eye_offset(person), frontal, THRESHOLDS),
     }
 
 
 def frame_label(values: dict) -> str:
-    """Hanh dong tuc thoi cua 1 frame theo dung luat cua EngagementEngine: quay lung > gục > quay dau > cui xuong ban
-    > nghieng nguoi > binh thuong."""
+    """Hanh dong tuc thoi cua 1 frame theo dung luat cua EngagementEngine: quay lung > gục > cui xuong ban > quay dau
+    > nghieng nguoi > binh thuong (cui xuong ban xet truoc quay dau: so voi moc nhin thang, quay dau khong lam ty so
+    cui dau giam)."""
     if values["face_visibility"] is not None and values["face_visibility"] <= BACK_TURN:
         return "quay_lung"
     turn, deviation = values["head_turn_ratio"], values["torso_deviation"]
-    turned = turn is not None and abs(turn) >= THRESHOLDS.head_turn_ratio_threshold
-    ratio = head_signal_for(values["head_drop_ratio"], turned, THRESHOLDS)
-    if is_slumped_over(ratio, deviation, THRESHOLDS):
+    if is_slumped_over(values["head_drop_ratio"], deviation, THRESHOLDS):
         return "cui_dau"
-    if turned:
-        return "quay_dau"
-    if ratio is not None and ratio < THRESHOLDS.head_drop_ratio_threshold:
+    if values["head_down"]:
         return "cui_dau_viet"
+    if turn is not None and abs(turn) >= THRESHOLDS.head_turn_ratio_threshold:
+        return "quay_dau"
     if deviation is not None and abs(deviation) > THRESHOLDS.torso_deviation_threshold_deg:
         return "nghieng_nguoi"
     return "binh_thuong"
@@ -124,7 +134,7 @@ def seat_person(people: list[PersonPose], seat) -> PersonPose | None:
 
 
 def seat_tracks(frames, grid) -> tuple[dict, dict]:
-    """{ghe: [(giay, nguoi | None)]} o 5 Hz va {ghe: (goc than thuong ngay, huong dau thuong ngay)}."""
+    """{ghe: [(giay, nguoi | None)]} o 5 Hz va {ghe: (goc than thuong ngay, tu the nhin thang)}."""
     tracks = defaultdict(list)
     for timestamp, people in frames:
         for seat in grid.seats:
@@ -132,8 +142,16 @@ def seat_tracks(frames, grid) -> tuple[dict, dict]:
     bases = {}
     for seat_id, track in tracks.items():
         angles = [a for _, p in track if p and (a := compute_torso_vector_angle(p)) is not None]
-        turns = [t for _, p in track if p and (t := compute_head_turn_ratio(p)) is not None]
-        bases[seat_id] = (statistics.median(angles) if angles else None, statistics.median(turns) if turns else 0.0)
+        frontal = FrontalBaseline(max_samples=max(25, len(track)))
+        for _, person in track:
+            if person is not None:
+                frontal.add(
+                    compute_eye_distance_ratio(person),
+                    compute_head_turn_ratio(person),
+                    compute_head_drop_ratio(person),
+                    compute_ear_eye_offset(person),
+                )
+        bases[seat_id] = (statistics.median(angles) if angles else None, frontal.value)
     return tracks, bases
 
 
@@ -486,14 +504,16 @@ def main() -> int:
         "image_size": args.image_size,
         "pose_confidence": POSE_CONF,
         "thresholds": {
-            "head_down_ratio": THRESHOLDS.head_drop_ratio_threshold,
+            "head_down_ratio_without_frontal": THRESHOLDS.head_drop_ratio_threshold,
+            "desk_head_drop_vs_frontal": THRESHOLDS.desk_head_drop,
+            "desk_ear_rise_vs_frontal": THRESHOLDS.desk_ear_rise,
             "slumped_head_ratio": THRESHOLDS.slumped_head_ratio_threshold,
-            "head_turn_ratio_vs_seat": THRESHOLDS.head_turn_ratio_threshold,
+            "head_turn_ratio_vs_frontal": THRESHOLDS.head_turn_ratio_threshold,
             "torso_deviation_deg": THRESHOLDS.torso_deviation_threshold_deg,
             "face_visibility_back_turn": BACK_TURN,
         },
         "seats": len(grid.seats),
-        "seat_head_turn_baseline": {seat: round(turn, 3) for seat, (_, turn) in sorted(bases.items())},
+        "seat_frontal_head_turn": {seat: round(f.turn, 3) for seat, (_, f) in sorted(bases.items()) if f},
         "excluded_reviewed_windows": 0 if args.merge_reviewed else len(reviewed),
         "reviewed_windows_in_set": len(reviewed) if args.merge_reviewed else 0,
         "face_blur": not args.no_face_blur,

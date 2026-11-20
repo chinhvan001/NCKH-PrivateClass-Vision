@@ -157,6 +157,73 @@ Three causes:
 
 Beyond threshold tuning, the next step is a classifier trained on the reviewed clips' keypoint sequences (package D in `plan_to_2026-12-13.md`).
 
+## Second review: 280 clips and the frontal pose (19 November)
+
+**The review.** The lead re-marked the first 120 clips without face blur and marked 160 new ones, 278 in all; 2 were left blank. With the rules of 17 November, 180 of 278 were right (64.7%): 52.5% of the first 120, and 74.1% of the 160 new ones. The new clips were picked with those rules, which favours them.
+
+**What went wrong.** The seat's "usual" head turn was the median of all its frames, which follows the pose a student holds most. One student turned their head 60% of the time and another wrote 50% of the time, so turns and normal sitting were read against the wrong reference. Head turns were also checked before head-down, while a turned head barely lowers `head_drop_ratio` once it is measured against a frontal pose.
+
+**The fix** (`src/engagement/posture.py`, `posture_monitor.py`, `EngagementEngine`):
+
+- `FrontalBaseline` replaces the running median. For each seat it takes the frames whose eye distance, relative to shoulder width (`compute_eye_distance_ratio`), is in the top quarter: the moments the student faces the camera. It keeps the head turn, `head_drop_ratio` and ear height (`compute_ear_eye_offset`) of those frames.
+- `is_head_down`: the head is down at the desk when `head_drop_ratio` is at least 0.12 below the frontal pose (`desk_head_drop`), or the ears are at least 0.06 shoulder widths higher above the eyes than in the frontal pose (`desk_ear_rise`). Until a seat has 25 frames with both eyes, the absolute threshold of 0.4 applies, as before.
+- Head-down is checked before head turn. A head turn is 0.18 or more from the frontal turn (`head_turn_ratio_threshold`). Side conversation compares turns with the same frontal pose, and keeps its own 0.12.
+- Drowsy is unchanged: slumped over only.
+
+**Signals tried.** Separation, as AUC, of each signal against the frontal pose, over the 278 clips:
+
+| Signal | Head turn vs sitting | Head down vs sitting | Head turn vs head down |
+|---|---|---|---|
+| Nose offset from shoulder midpoint | 0.85 (0.76 against the median) | 0.66 | 0.73 |
+| `head_drop_ratio` | 0.60 | 0.85 | 0.88 |
+| Ear height over eyes | 0.54 | 0.86 | 0.86 |
+
+**Result.**
+
+| Rules | Same 278 clips (thresholds chosen on them) | New seat, chosen on the other four | Same seats, unseen quarter of the lesson |
+|---|---|---|---|
+| 17 November | 64.7% | – | – |
+| Frontal pose (now) | **71.2%** | **67.3%** | **69.4%** |
+
+The 71.2% is optimistic: its thresholds were chosen on these clips. The last two columns choose them on the other folds and score the held-out one. Split into "on task" (sitting, reading or writing) against "off task" (head turned, slumped over), the frontal rules are right 75.9% and 77.0% of the time on the held-out folds.
+
+**What did not help:**
+
+- **Learned models:** a softmax classifier and a random forest on 65 clip features scored 47–54% on a new seat and 63–66% on an unseen quarter.
+- **Larger pose models:** `yolo11s-pose` scored 64.4% and 68.3%, and `yolo11m-pose` 64.4% and 64.0%. `yolov8n-pose` stays the default.
+- **Per-seat thresholds:** 62.6%.
+
+**Where the remaining errors come from.** For each of the 80 errors we looked for twins: clips of the same seat whose measurements differ by less than half a rule threshold in total. The measurements are head turn, head drop, ear height, torso angle, how much turn and drop vary within the clip, and hand activity.
+
+- **Same skeleton, different label: 26 errors**, in 16 groups of 66 clips. Each error has a twin that the lead labelled the way the rules predict, so no skeleton-only rule gets both right. For example, one student turned their head left by 0.25–0.29 from frontal, holding still. That was marked "head turn" at 1:45 and 1:53, and "sitting normally" at 2:05–2:11.
+- **Action not in the skeleton: 13 errors.** The rules see another action in at least 90% of the clip's frames, and the seat has no twin with the lead's label. The action may be in the eyes, the hands, an object or speech, or the label slipped.
+- **Mixed or near a threshold: 41 errors.** The pose changes within the clip or sits near a threshold. Better rules or more data could fix some of these.
+
+If each twin group got its majority label, twins would still cost about 20 clips (7 points). So twins alone do not hold 4-way accuracy under 75%.
+
+**Re-check (20 November).** The lead re-watched the 29 flagged items (79 clips) on a local page, `xem_lai_ngu_canh.html`, kept beside the clips outside the repo.
+
+- **No item depended on context.** 23 were labelling slips, 4 had a skeleton drawn on the wrong person or head, and 2 had other reasons.
+- **One note set a labelling convention:** a head that is both down and turned counts as down, which is the order the rules already use.
+- **28 labels changed.** 23 of the changes agree with the rules, and 5 go against them.
+
+Merged labels: `danh_gia_clip_sau_xem_lai.csv`. The rules are unchanged, and the thresholds chosen in-sample are still 0.18, −0.12 and −0.06.
+
+| Labels | Same 278 clips | New seat | Unseen quarter of the lesson | On/off task, new seat / unseen quarter |
+|---|---|---|---|---|
+| Before the re-check | 71.2% | 67.3% | 69.4% | 75.9% / 77.0% |
+| After the re-check | **77.7%** | **74.8%** | **76.3%** | 79.1% / 80.6% |
+
+These numbers are not ready to quote yet. Only the clips where the rules and the label disagreed, plus their twins, were re-checked. Any slips among the other 199 clips would lower the scores, so a blind re-check of a random sample of those clips should come first.
+
+**S02 holds half of the 62 remaining errors** (32 of its 64 clips are right). Without S02 the rules get 86% (184 of 214).
+
+- **Right turns:** the lead marks 16 of 17 as head turns.
+- **Left turns:** 10 of 21 are marked as sitting normally.
+- **Small turns:** 11 clips with less than 0.18 of turn are marked as head turns.
+
+This student's attentive direction may not be toward the camera, which would make the frontal pose the wrong reference for this seat.
+
 ## Reproduce
 
 ```powershell

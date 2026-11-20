@@ -21,8 +21,6 @@ from collections import deque
 from dataclasses import dataclass
 from typing import Deque, List, Optional, Tuple
 
-from src.engagement.posture import DEFAULT_HEAD_TURN_RATIO
-
 logger = logging.getLogger("camera_ai.engagement")
 
 
@@ -51,10 +49,17 @@ class PostureThresholds:
         THAP HON gia tri nay (mui ngang hoac thap hon duong vai), hoac khi dau
         cui (duoi head_drop_ratio_threshold) kem than lech qua
         torso_deviation_threshold_deg. Tren 120 clip: 5/5 lan bao la dung.
-    head_turn_ratio_threshold: |huong dau - huong dau thuong ngay cua ghe|
-        (posture.compute_head_turn_ratio, RunningMedian) tu gia tri nay tro
-        len la "quay dau": quay dau lam ty so cui dau giam ma dau khong cui,
-        nen frame quay dau khong tinh la cui xuong ban.
+    desk_head_drop / desk_ear_rise: "cui xuong ban" so voi tu the NHIN THANG
+        cua chinh ghe do (FrontalBaseline): ty so cui dau thap hon moc it nhat
+        desk_head_drop, HOAC tai cao hon mat nhieu hon moc it nhat
+        desk_ear_rise (posture.compute_ear_eye_offset). Chua co moc thi dung
+        head_drop_ratio_threshold tuyet doi nhu truoc. Danh gia 280 clip ngay
+        19/11/2026 (docs/calibration.md): so voi moc nhin thang, quay dau gan
+        nhu khong lam ty so cui dau giam, nen cui xuong ban duoc xet TRUOC
+        quay dau.
+    head_turn_ratio_threshold: |huong dau - huong dau cua tu the nhin thang|
+        tu gia tri nay tro len la "quay dau" (nhan khi cham clip; nhan dien
+        noi chuyen rieng dung nguong rieng vi can ca cap quay vao nhau).
     torso_deviation_threshold_deg: do lech goc than tren (so voi baseline)
         VUOT QUA gia tri nay (tri tuyet doi) duoc coi la "slumping". Gia tri
         khoi diem 15.0 do -- muc lech duoc chon vi lon hon dang ke so voi
@@ -73,17 +78,36 @@ class PostureThresholds:
     torso_deviation_threshold_deg: float = 15.0
     sustained_duration_sec: float = 5.0
     slumped_head_ratio_threshold: float = 0.0
-    head_turn_ratio_threshold: float = DEFAULT_HEAD_TURN_RATIO
+    desk_head_drop: float = 0.12
+    desk_ear_rise: float = 0.06
+    head_turn_ratio_threshold: float = 0.18
 
 
-def head_signal_for(
-    head_drop_ratio: Optional[float], head_turned: bool, thresholds: PostureThresholds
-) -> Optional[float]:
-    """Ty so cui dau dua vao PostureMonitor. Dau quay sang ben (so voi tu the thuong ngay cua ghe) lam mui gan
-    duong vai ma khong cui: frame do tinh la KHONG cui xuong ban (nang len bang nguong), tru khi da gục han."""
-    if head_drop_ratio is None or not head_turned or head_drop_ratio < thresholds.slumped_head_ratio_threshold:
-        return head_drop_ratio
-    return max(head_drop_ratio, thresholds.head_drop_ratio_threshold)
+@dataclass(frozen=True)
+class FrontalPose:
+    """Tu the "nhin thang" cua 1 ghe: huong dau, ty so cui dau, do cao tai-mat (None: chua do duoc)."""
+
+    turn: float
+    head_ratio: Optional[float]
+    ear_eye: Optional[float]
+
+
+def is_head_down(
+    head_drop_ratio: Optional[float],
+    ear_eye_offset: Optional[float],
+    frontal: Optional[FrontalPose],
+    thresholds: PostureThresholds,
+) -> Optional[bool]:
+    """Cui xuong ban (doc/viet, hoac gục) o frame nay? So voi tu the nhin thang cua ghe neu da co, khong thi so ty so
+    voi nguong tuyet doi nhu truoc. None: thieu keypoint, khong ket luan."""
+    if frontal is None or frontal.head_ratio is None:
+        return None if head_drop_ratio is None else head_drop_ratio < thresholds.head_drop_ratio_threshold
+    checks = []
+    if head_drop_ratio is not None:
+        checks.append(head_drop_ratio - frontal.head_ratio < -thresholds.desk_head_drop)
+    if ear_eye_offset is not None and frontal.ear_eye is not None:
+        checks.append(ear_eye_offset - frontal.ear_eye < -thresholds.desk_ear_rise)
+    return any(checks) if checks else None
 
 
 def is_slumped_over(
@@ -101,35 +125,56 @@ def is_slumped_over(
     )
 
 
-class RunningMedian:
-    """Trung vi cac mau gan day cua 1 ghe, vd huong dau thuong ngay: goc camera lam hoc sinh ngoi lech tam trong nhu
-    dang quay dau du nhin thang, nen tin hieu tinh so voi trung vi nay. Chua du ``min_samples`` thi bang 0.
+class FrontalBaseline:
+    """Tu the "nhin thang" cua 1 ghe, tinh tu cac khung gan day co khoang cach 2 mat (so voi vai) thuoc 25% lon
+    nhat: dau huong thang camera thi 2 mat cach xa nhat. Goc camera lam hoc sinh o ghe ria trong nhu dang quay/cui
+    du nhin thang, nen tin hieu tinh so voi moc nay. Danh gia 280 clip ngay 19/11/2026: trung vi moi khung (cach
+    cu) bi keo ve tu the hoc sinh hay ngoi nhat (1 ghe quay dau 60% thoi gian, 1 ghe cui viet 50%), moc nhin
+    thang thi khong. Chua du ``min_samples`` khung co 2 mat thi None.
 
-    ponytail: tinh lai trung vi moi ``refresh_every`` mau (sort toi da ``max_samples``); nang cap len 2 heap neu
+    ponytail: tinh lai moi ``refresh_every`` mau (sort toi da ``max_samples``); nang cap len cau truc gia tang neu
     so ghe x FPS lon hon nhieu so voi 40 ghe x 5 Hz."""
 
-    def __init__(self, max_samples: int = 1500, min_samples: int = 10, refresh_every: int = 25):
-        if max_samples < min_samples or min_samples < 1 or refresh_every < 1:
-            raise ValueError("RunningMedian: can 1 <= min_samples <= max_samples va refresh_every >= 1.")
-        self._samples: Deque[float] = deque(maxlen=max_samples)
+    def __init__(self, max_samples: int = 1500, min_samples: int = 25, refresh_every: int = 25):
+        if max_samples < min_samples or min_samples < 4 or refresh_every < 1:
+            raise ValueError("FrontalBaseline: can 4 <= min_samples <= max_samples va refresh_every >= 1.")
+        self._samples: Deque[Tuple[float, Optional[float], Optional[float], Optional[float]]] = deque(
+            maxlen=max_samples
+        )
         self._min_samples = min_samples
         self._refresh_every = refresh_every
         self._since_refresh = 0
-        self._value = 0.0
+        self._value: Optional[FrontalPose] = None
 
-    def add(self, value: Optional[float]) -> float:
-        if value is not None:
-            self._samples.append(value)
+    def add(
+        self,
+        eye_distance: Optional[float],
+        head_turn: Optional[float],
+        head_drop_ratio: Optional[float],
+        ear_eye_offset: Optional[float],
+    ) -> Optional[FrontalPose]:
+        if eye_distance is not None:
+            self._samples.append((eye_distance, head_turn, head_drop_ratio, ear_eye_offset))
             self._since_refresh += 1
-            ready = len(self._samples) >= self._min_samples
-            if ready and (self._since_refresh >= self._refresh_every or len(self._samples) == self._min_samples):
-                self._value = statistics.median(self._samples)
-                self._since_refresh = 0
+            full = len(self._samples) >= self._min_samples
+            if full and (self._since_refresh >= self._refresh_every or len(self._samples) == self._min_samples):
+                self._refresh()
         return self.value
 
+    def _refresh(self) -> None:
+        cut = statistics.quantiles([sample[0] for sample in self._samples], n=4)[2]
+        top = [sample for sample in self._samples if sample[0] >= cut]
+
+        def median(index: int) -> Optional[float]:
+            values = [sample[index] for sample in top if sample[index] is not None]
+            return statistics.median(values) if values else None
+
+        self._value = FrontalPose(turn=median(1) or 0.0, head_ratio=median(2), ear_eye=median(3))
+        self._since_refresh = 0
+
     @property
-    def value(self) -> float:
-        return self._value if len(self._samples) >= self._min_samples else 0.0
+    def value(self) -> Optional[FrontalPose]:
+        return self._value if len(self._samples) >= self._min_samples else None
 
 
 class RollingSmoother:
@@ -231,6 +276,9 @@ class BaselineEstablisher:
         self._baseline = None
 
 
+_FROM_RATIO = object()  # PostureMonitor.update: tu suy cui dau tu ty so (engine truyen head_down da quyet dinh)
+
+
 class PostureMonitor:
     """Theo doi MOT seat qua thoi gian, xac dinh xem dieu kien head_drop
     hoac slumping co dang duoc duy tri LIEN TUC qua nguong
@@ -255,17 +303,25 @@ class PostureMonitor:
         timestamp: float,
         head_drop_ratio: Optional[float],
         torso_deviation_deg: Optional[float],
+        head_down: object = _FROM_RATIO,
     ) -> Tuple[bool, bool]:
         """Goi 1 lan moi khi co mau moi (da qua RollingSmoother) cho 1 seat.
+
+        head_down: cui dau o mau nay da quyet dinh san (EngagementEngine: so voi tu the nhin thang cua ghe,
+        is_head_down); None = thieu du lieu. Khong truyen: so head_drop_ratio voi head_drop_ratio_threshold nhu truoc.
 
         Tra ve (is_head_drop_event, is_slumping_event) -- True neu dieu kien
         tuong ung DA duoc xac nhan duy tri lien tuc >= sustained_duration_sec
         TINH DEN thoi diem nay.
         """
+        if head_down is _FROM_RATIO:
+            head_down = (
+                None if head_drop_ratio is None else head_drop_ratio < self._thresholds.head_drop_ratio_threshold
+            )
         is_head_drop_event = self._update_condition(
             timestamp,
-            head_drop_ratio,
-            is_active=lambda v: v < self._thresholds.head_drop_ratio_threshold,
+            head_down,
+            is_active=bool,
             state_attr="_head_drop_start",
         )
         is_slumping_event = self._update_condition(

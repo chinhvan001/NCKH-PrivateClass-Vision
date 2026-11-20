@@ -13,9 +13,10 @@ from src.engagement.posture_monitor import (
     BaselineEstablisher,
     PostureMonitor,
     PostureThresholds,
+    FrontalBaseline,
+    FrontalPose,
     RollingSmoother,
-    RunningMedian,
-    head_signal_for,
+    is_head_down,
     is_slumped_over,
 )
 
@@ -261,22 +262,38 @@ def test_only_a_slumped_over_head_counts_as_drowsy(ratio, deviation, slumped):
     assert is_slumped_over(ratio, deviation, PostureThresholds()) is slumped
 
 
-def test_a_turned_head_is_not_a_lowered_head_unless_slumped_over():
+def test_head_down_is_measured_against_the_seat_frontal_pose():
+    """Danh gia 280 clip (19/11/2026): so voi tu the nhin thang cua ghe, cui xuong ban lam ty so cui dau giam
+    hoac tai cao hon mat; quay dau thi khong."""
     thresholds = PostureThresholds()
-    assert head_signal_for(0.1, head_turned=True, thresholds=thresholds) == 0.4  # nang len nguong: khong cui
-    assert head_signal_for(0.1, head_turned=False, thresholds=thresholds) == 0.1
-    assert head_signal_for(-0.4, head_turned=True, thresholds=thresholds) == -0.4  # gục van la gục
-    assert head_signal_for(None, head_turned=True, thresholds=thresholds) is None
+    frontal = FrontalPose(turn=-0.3, head_ratio=0.5, ear_eye=0.05)
+    assert is_head_down(0.34, 0.04, frontal, thresholds) is True  # dau thap hon moc 0.16
+    assert is_head_down(0.45, -0.04, frontal, thresholds) is True  # tai cao hon mat hon moc 0.09
+    assert is_head_down(0.45, 0.03, frontal, thresholds) is False  # quay dau/ngoi thang: gan moc
+    assert is_head_down(0.3, None, None, thresholds) is True  # chua co moc: nguong tuyet doi 0.4 nhu truoc
+    assert is_head_down(0.5, None, None, thresholds) is False
+    assert is_head_down(None, None, frontal, thresholds) is None
 
 
-def test_running_median_follows_the_seat_usual_head_turn():
-    baseline = RunningMedian(max_samples=5, min_samples=3, refresh_every=1)
-    assert baseline.add(-0.3) == 0.0  # chua du mau: 0
-    baseline.add(None)  # thieu keypoint: bo qua
-    baseline.add(-0.35)
-    assert baseline.add(-0.28) == pytest.approx(-0.3)  # ghe ngoi lech goc camera
-    for value in (-0.31, -0.29, 0.4):  # 1 lan quay that khong keo trung vi
-        baseline.add(value)
-    assert baseline.value == pytest.approx(-0.29)
+def test_frontal_baseline_ignores_the_pose_the_student_holds_most():
+    """Hoc sinh quay dau 3/4 thoi gian: moc lay o khung 2 mat cach xa nhat (nhin thang), khong phai trung vi."""
+    baseline = FrontalBaseline(max_samples=100, min_samples=8, refresh_every=4)
+    assert baseline.add(0.21, -0.1, 0.5, 0.05) is None  # chua du mau
+    for _ in range(3):
+        baseline.add(0.14, -0.45, 0.34, -0.06)  # quay dau: 2 mat gan nhau
+        baseline.add(0.14, -0.45, 0.34, -0.06)
+        baseline.add(0.14, -0.45, 0.34, -0.06)
+        baseline.add(0.21, -0.1, 0.5, 0.05)  # nhin thang
+    baseline.add(None, 0.9, 0.0, None)  # thieu mat: khong tinh
+    frontal = baseline.value
+    assert (frontal.turn, frontal.head_ratio, frontal.ear_eye) == pytest.approx((-0.1, 0.5, 0.05))
     with pytest.raises(ValueError):
-        RunningMedian(max_samples=2, min_samples=3)
+        FrontalBaseline(max_samples=2, min_samples=8)
+
+
+def test_monitor_can_take_a_head_down_decision_instead_of_a_ratio():
+    monitor = PostureMonitor(PostureThresholds(sustained_duration_sec=2.0))
+    assert monitor.update(0.0, 0.9, 0.0, head_down=True) == (False, False)  # ty so cao nhung engine bao cui
+    assert monitor.update(1.0, None, 0.0, head_down=None) == (False, False)  # thieu du lieu: giu moc
+    assert monitor.update(2.5, 0.9, 0.0, head_down=True)[0] is True
+    assert monitor.update(3.0, 0.1, 0.0, head_down=False)[0] is False  # engine bao khong cui: reset
