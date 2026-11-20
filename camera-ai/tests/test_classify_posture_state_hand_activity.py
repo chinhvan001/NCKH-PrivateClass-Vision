@@ -73,3 +73,17 @@ def test_integration_with_seat_engagement_tracker():
     assert result.time_slumping == 0.0
     # score = 100 * (1 - 10/30 - 0) = 100 * (1 - 0.3333) = 66.67
     assert abs(result.score - 66.67) < 0.01
+
+
+def test_known_slumped_over_decides_drowsy_regardless_of_hands():
+    """17/11/2026: tay khong doi duoc ket luan gục (keypoint rung o nguoi gục bi doc thanh tay cu dong)."""
+    for hands in (True, False, None):
+        assert classify_posture_state(True, False, hands, is_slumped_over=True) == "head_drop"
+
+
+def test_head_down_at_the_desk_is_reading_or_writing_never_drowsy():
+    assert classify_posture_state(True, False, hand_activity=True, is_slumped_over=False) == "normal"
+    assert classify_posture_state(True, False, hand_activity=False, is_slumped_over=False) == "slumping"
+    assert classify_posture_state(True, False, hand_activity=None, is_slumped_over=False) == "slumping"
+    assert classify_posture_state(False, True, hand_activity=None, is_slumped_over=False) == "slumping"
+    assert classify_posture_state(False, False, hand_activity=None, is_slumped_over=False) == "normal"

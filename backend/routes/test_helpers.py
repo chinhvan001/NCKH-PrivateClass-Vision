@@ -1,7 +1,7 @@
 from datetime import date, datetime
 
 from flask import jsonify, request
-from firebase_admin import firestore
+from firebase_admin import auth, firestore
 
 from firebase_config import db
 from utils.auth import (
@@ -10,6 +10,23 @@ from utils.auth import (
     is_admin_user,
     verify_request_token,
 )
+
+
+def account_uid(email, display_name=""):
+    """uid Firebase Auth của email (tạo tài khoản nếu chưa có): app giáo viên/phụ huynh tìm tài khoản theo
+    teachers/{uid}, parents/{uid}, nên document phải mang đúng uid. Đăng nhập Google cùng email sau đó dùng lại
+    uid này (Firebase: một tài khoản cho mỗi email). None khi không gọi được Auth."""
+    email = str(email or "").strip().lower()
+    if not email:
+        return None
+    try:
+        try:
+            return auth.get_user_by_email(email).uid
+        except auth.UserNotFoundError:
+            return auth.create_user(email=email, display_name=display_name or None, email_verified=True).uid
+    except Exception as error:  # Auth lỗi: vẫn lưu được, tài khoản chờ liên kết sau (jobs/link_accounts.py)
+        print("Firebase Auth error:", type(error).__name__)
+        return None
 
 
 def require_admin():

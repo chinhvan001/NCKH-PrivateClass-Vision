@@ -1,7 +1,7 @@
 from datetime import datetime
 
 from repositories.dashboard_repository import DashboardRepository
-from services import monitoring_service
+from services import edge_store, monitoring_service
 from services.evaluation_service import level, usable
 
 ALERT_TITLES = {
@@ -19,9 +19,8 @@ class DashboardService:
         teachers = DashboardRepository.get_all("teachers")
         classes = {item["id"]: item for item in DashboardRepository.get_all("classes2")}
         sessions = DashboardRepository.get_all("sessions")
-        # ponytail: đọc toàn bộ session_evaluations mỗi lần tải; khi dữ liệu lớn thì lọc theo captured_at
-        evaluations = [item for item in DashboardRepository.get_all("session_evaluations") if usable(item)]
-        edge_nodes = DashboardRepository.get_all("edge_nodes")
+        evaluations = [item for item in edge_store.all_evaluations() if usable(item)]
+        edge_nodes = list(edge_store.heartbeats().values())
 
         total_teachers = len(teachers)
         active_teachers = sum(1 for t in teachers if t.get("is_active") is not False)
@@ -43,7 +42,7 @@ class DashboardService:
 
         teacher_names = {t["id"]: t.get("name") or t.get("full_name") or "Giáo viên" for t in teachers}
 
-        # Tiết đang giám sát và cảnh báo mới nhất của chúng (edge node ghi sessions/{s}/alerts)
+        # Tiết đang giám sát và cảnh báo mới nhất của chúng (edge node ghi edge-data/sessions/{s}/alerts.jsonl)
         active_sessions = []
         alerts = []
         for session in sessions:

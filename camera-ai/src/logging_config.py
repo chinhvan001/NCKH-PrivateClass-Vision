@@ -32,7 +32,7 @@ except ImportError:
 DEFAULT_LOG_DIR = Path(__file__).resolve().parent.parent / "logs"
 DEFAULT_LOG_FILE = DEFAULT_LOG_DIR / "camera-ai.log"
 
-LOG_FORMAT = "%(asctime)s [%(levelname)-8s] %(name)s: %(message)s"
+LOG_FORMAT = "%(asctime)s [%(levelname)-8s] %(threadName)s %(name)s: %(message)s"  # thread = ten camera
 DATE_FORMAT = "%Y-%m-%d %H:%M:%S"
 
 _configured = False

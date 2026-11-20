@@ -1,6 +1,6 @@
 """Allowlist schema cho canh bao hanh vi (UC09) roi khoi pipeline.
 
-Moi alert gui ra (Firestore, FCM, log) phai tao qua ``make_alert_event()``;
+Moi alert gui ra (web admin, FCM, log) phai tao qua ``make_alert_event()``;
 khong tu tao dict. Schema chi co 5 truong, khong co anh, keypoint, bbox,
 confidence, ten hay ma hoc sinh.
 """
@@ -16,7 +16,7 @@ from dataclasses import dataclass
 # side_conversation: 2 ghe quay ve nhau -- producer phat 1 alert cho MOI ghe.
 ALERT_TYPES = frozenset({"head_drop", "back_turn", "side_conversation"})
 
-# session_id phai la ma ngau nhien (vd uuid4), an toan lam Firestore doc id;
+# session_id phai la ma ngau nhien (vd ID tu sinh cua Firestore), an toan lam ten thu muc;
 # khong duoc ghep ten lop/giao vien/ngay vao.
 _SESSION_ID_PATTERN = re.compile(r"[A-Za-z0-9_-]{1,64}")
 

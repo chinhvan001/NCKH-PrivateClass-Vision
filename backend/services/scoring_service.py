@@ -1,10 +1,14 @@
-"""Service tính điểm tập trung và trạng thái ghế từ session_windows (backend/services/scoring_service.py)."""
+"""Service tính điểm tập trung và trạng thái ghế từ window 10 s của camera AI (edge-data/sessions/{s}/windows.jsonl)."""
 
 from __future__ import annotations
 
 from collections import Counter, defaultdict
 from datetime import datetime, timezone
 
+# Tới khi chuyển hẳn (tuần 4, camera-ai/docs/plan_to_2026-12-13.md), điểm backend tính ghi vào hai file bóng trong
+# thư mục của tiết để so với result.json/evaluations.json của camera AI; khi chuyển thì đổi sang hai file đó.
+RESULTS = "shadow_result.json"
+EVALUATIONS = "shadow_evaluations.json"
 SLUMP_CREDIT = 0.5
 AWAY_THRESHOLD_SEC = 30.0
 BEHAVIOUR_HOLD_SEC = 5.0
@@ -22,7 +26,9 @@ def compute_session_scores(windows: list[dict]) -> tuple[dict | None, dict[str, 
     if not windows:
         return None, {}
 
-    sorted_windows = sorted(windows, key=lambda w: (w.get("run", ""), w.get("seq", 0)))
+    # Theo thời điểm ghi: run là mã ngẫu nhiên mỗi lần camera AI chạy lại, sắp theo run có thể đặt run cũ sau run mới
+    earliest = datetime.min.replace(tzinfo=timezone.utc)
+    sorted_windows = sorted(windows, key=lambda w: (w.get("captured_at") or earliest, w.get("seq", 0)))
     last_w = sorted_windows[-1]
     session_id, camera_id = last_w.get("session_id"), last_w.get("camera_id")
     latest_captured_at = last_w.get("captured_at")

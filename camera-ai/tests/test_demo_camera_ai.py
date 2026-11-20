@@ -26,7 +26,7 @@ class FakePoseDetector:
         self.calls += 1
         head_drop = self.calls >= 3
         writing_dx = 20.0 if self.calls % 2 else -20.0
-        return [_person(90.0, head_drop, wrist_dx=0.0), _person(230.0, head_drop, wrist_dx=writing_dx)]
+        return [_person(90.0, head_drop, wrist_dx=0.0), _person(230.0, False, wrist_dx=writing_dx, desk=head_drop)]
 
 
 class FakeAlertPoseDetector(FakePoseDetector):

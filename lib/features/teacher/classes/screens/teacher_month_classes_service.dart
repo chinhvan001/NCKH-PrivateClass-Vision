@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter_privateclass_vision/core/utils/firestore_parsers.dart';
 
 /// Lấy các lớp mà giáo viên có buổi dạy (sessions) trong một tháng.
 ///
@@ -43,7 +44,7 @@ class TeacherMonthClassesService {
       for (final doc in snap.docs) {
         final data = doc.data();
 
-        final start = _toDateTime(data[startField]);
+        final start = FirestoreParsers.sessionTime(data, startField);
         if (start == null) continue;
         if (start.isBefore(monthStart) || !start.isBefore(nextMonthStart)) {
           continue; // ngoài tháng đang xét
@@ -90,16 +91,5 @@ class TeacherMonthClassesService {
       return nameA.compareTo(nameB);
     });
     return docs;
-  }
-
-  /// Chấp nhận Timestamp, DateTime, chuỗi ISO-8601 hoặc số mili-giây.
-  static DateTime? _toDateTime(dynamic value) {
-    if (value is Timestamp) return value.toDate();
-    if (value is DateTime) return value;
-    if (value is String) return DateTime.tryParse(value)?.toLocal();
-    if (value is num) {
-      return DateTime.fromMillisecondsSinceEpoch(value.toInt());
-    }
-    return null;
   }
 }

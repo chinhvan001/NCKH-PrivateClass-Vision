@@ -21,6 +21,7 @@ nguoi, nhieu anh chua hang chuc nguoi/anh) -- phu hop truc tiep voi lop hoc
 """
 
 import logging
+import threading
 from dataclasses import dataclass
 from typing import List, Optional, Tuple
 
@@ -129,6 +130,7 @@ class PoseDetector:
         self._tile_size = tile_size
         self._tile_overlap = tile_overlap
         self._model = None
+        self._lock = threading.Lock()  # moi camera 1 thread, dung chung model: predictor Ultralytics co trang thai
 
     # ------------------------------------------------------------------
     # Vong doi (lifecycle)
@@ -161,9 +163,14 @@ class PoseDetector:
         except Exception as e:  # Ultralytics/torch co the nem nhieu loai loi khac nhau
             raise PoseDetectorError(f"Khong nap duoc model YOLOv8-pose tu '{self._model_path}': {e}") from e
 
+        import torch  # co san cung ultralytics
+
+        # torch ban CUDA + GPU NVIDIA: Ultralytics tu chay tren cuda:0 (FP32: FP16 khong nhanh hon voi model
+        # nano ma bo sot nguoi o nguong tin cay). CUDA_VISIBLE_DEVICES=-1 -> ep chay CPU.
         logger.info(
-            "Da nap YOLOv8-pose tu '%s' (conf=%.2f, imgsz=%d, tile=%s).",
+            "Da nap YOLOv8-pose tu '%s' tren %s (conf=%.2f, imgsz=%d, tile=%s).",
             self._model_path,
+            f"GPU {torch.cuda.get_device_name(0)}" if torch.cuda.is_available() else "CPU",
             self._min_confidence,
             self._image_size,
             self._tile_size if self._tile_size is not None else "tat",
@@ -209,16 +216,17 @@ class PoseDetector:
         return self._deduplicate(people)
 
     def _predict(self, image_bgr: "np.ndarray") -> List[PersonPose]:
-        results = self._model.predict(
-            source=image_bgr,
-            conf=self._min_confidence,
-            iou=self._iou_threshold,
-            imgsz=self._image_size,
-            max_det=self._max_detections,
-            classes=[0],  # COCO class 0 = person; tranh box cua cac vat the.
-            verbose=False,
-        )
-        return self._parse_results(results)
+        with self._lock:
+            results = self._model.predict(
+                source=image_bgr,
+                conf=self._min_confidence,
+                iou=self._iou_threshold,
+                imgsz=self._image_size,
+                max_det=self._max_detections,
+                classes=[0],  # COCO class 0 = person; tranh box cua cac vat the.
+                verbose=False,
+            )
+            return self._parse_results(results)
 
     def _iter_tiles(self, image_bgr: "np.ndarray"):
         """Tra ve (x, y, tile) phu kin anh, khong bo sot mep phai/duoi."""

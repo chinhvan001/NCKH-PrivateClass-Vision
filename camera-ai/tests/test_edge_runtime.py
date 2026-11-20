@@ -1,32 +1,32 @@
-"""EdgeRuntime voi FakeFirestore, CaptureWorker gia va pose replay: vong doi phien
-(UC04), camera tam khong kha dung (UC02), heartbeat, session_results va
-session_evaluations theo dong ho phien, so do lop chua san sang."""
+"""EdgeRuntime voi LocalSink tren thu muc tam, CaptureWorker gia va pose replay: vong doi phien
+(UC04), camera tam khong kha dung (UC02), heartbeat, ket qua va tong hop tung ghe theo dong ho
+phien, so do lop chua san sang, doc lai tiet cua camera."""
 
+import json
+import tempfile
 from datetime import datetime
+from pathlib import Path
 from zoneinfo import ZoneInfo
 
 import numpy as np
 
-from fake_firestore import FakeFirestore
 from src.capture import CameraOpenError, Frame
 from src.config import ClassLayoutError, LocalPipelineConfig
 from src.pipeline import EdgeRuntime
 from src.pipeline.edge_runtime import (
     CAMERA_RETRY_SEC,
     CAMERA_TIMEOUT_SEC,
-    CLASS_CHECK_SEC,
     LAYOUT_RETRY_SEC,
     MAX_FRAME_GAP_SEC,
-    UNCONFIGURED_CHECK_SEC,
+    SESSION_POLL_SEC,
 )
 from src.seating.seat_grid import Seat, SeatGrid
-from src.sync import FirestoreSink
+from src.sync import LocalSink, session_states
 from test_end_to_end_pipeline import _person
 from test_local_config import valid_config
 
-SESSION = "sessions/s1"
-RESULT = "session_results/s1"
-HEARTBEAT = "edge_nodes/CAM-1"
+RESULT = "sessions/s1/result.json"
+HEARTBEAT = "edge_nodes/CAM-1.json"
 MONDAY_9AM = datetime(2026, 10, 5, 9, 0, tzinfo=ZoneInfo("Asia/Ho_Chi_Minh"))  # trong lich mon-tue 07:00-17:00
 GRID = SeatGrid([Seat("A1", 90.0, 100.0), Seat("A2", 230.0, 100.0)])
 
@@ -76,37 +76,31 @@ class Harness:
         now=MONDAY_9AM,
         camera_fails=False,
         layout=None,
-        web_class=None,
         provider=None,
     ):
         data = valid_config()
         data["sampling"]["inference_every_n_frames"] = inference_every_n_frames
-        if web_class is not None:
-            data["camera"]["class_id"] = None  # lop admin gan tren web; test chay run() de nghe phien
+        self._tmp = tempfile.TemporaryDirectory()  # thu muc chung voi web admin (edge-data/)
+        self.root = Path(self._tmp.name)
         self.frames = [Frame(np.full((240, 320, 3), 128, np.uint8), 1000.0 + t, i) for i, t in enumerate(timestamps)]
         self.all_frames = list(self.frames)
         self.workers = []
         self.clock = 0.0
-        self.client = FakeFirestore()
-        self.sink = FirestoreSink(self.client, "CAM-1", retention_days=30, now=lambda: now)
+        self.sink = LocalSink(self.root, "CAM-1")
         self.provider = provider or TwoSeatProvider()
         self.layout = layout or (lambda: GRID)
         self.runtime = EdgeRuntime(
             LocalPipelineConfig.from_dict(data),
             self.provider,
-            lambda class_id: self.layout(),
+            lambda session_id: self.layout(),
             self.sink,
             self._new_worker,
-            web_class=web_class,
             now=lambda: now,
             monotonic=lambda: self.clock,
             poll_sec=0.0,
         )
         self.camera_fails = camera_fails
         self.source_missing = False  # nhu main.py khi camera chua duoc them tren web
-        if web_class is None:
-            self.sink.watch_sessions("CLASS-1", self.runtime.on_sessions)
-        self.session = self.client.document(SESSION)
 
     def _new_worker(self):
         if self.source_missing:
@@ -115,27 +109,29 @@ class Harness:
         return self.workers[-1]
 
     def set_status(self, status):
-        """Web admin doi ``status`` cua phien (schema cua nhom: ``sessions/{s}`` co ``class_id``)."""
-        self.session.set({"class_id": "CLASS-1", "status": status})
+        """Web admin doi ``status`` cua tiet s1 trong file tiet cua camera; run() doc lai file nhu vay."""
+        self.runtime.on_sessions(session_states({"session_id": "s1", "status": status}))
 
     def steps(self, count):
         for _ in range(count):
             self.runtime.step()
 
     def doc(self, path):
-        assert self.sink.flush()
-        return self.client.docs[path]
+        return json.loads((self.root / path).read_text(encoding="utf-8"))
+
+    def lines(self, name):
+        path = self.root / "sessions" / "s1" / name
+        return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()] if path.exists() else []
 
     def evaluations(self):
-        assert self.sink.flush()
-        return {path.split("_", 2)[-1]: doc for path, doc in self.client.docs.items() if "session_evaluations/" in path}
+        path = self.root / "sessions" / "s1" / "evaluations.json"
+        return self.doc(path) if path.exists() else {}
 
 
 def test_session_start_pause_resume_end_controls_camera_and_writes_results():
     h = Harness(timestamps=[0.0, 0.5, 1.0, 1.5, 600.0, 600.5])
     h.steps(1)
     assert h.workers == [] and h.doc(HEARTBEAT)["status"] == "idle"
-    assert h.doc(HEARTBEAT)["class_id"] == "CLASS-1"
 
     h.set_status("running")
     h.steps(4)
@@ -180,7 +176,7 @@ def test_live_results_every_10s_and_alerts_counted_per_seat():
     assert live["monitoring_status"] == "running"
     assert (live["result_map"]["A1"]["status"], live["result_map"]["A2"]["status"]) == ("drowsy", "focused")
     assert h.evaluations() == {}  # tong hop dau tien sau 5 phut giam sat
-    assert [doc["type"] for path, doc in h.client.docs.items() if "/alerts/" in path] == ["head_drop"]
+    assert [alert["type"] for alert in h.lines("alerts.jsonl")] == ["head_drop"]
 
     h.set_status("completed")
     h.steps(1)
@@ -190,8 +186,7 @@ def test_live_results_every_10s_and_alerts_counted_per_seat():
 
 
 def windows(h):
-    assert h.sink.flush()
-    return [doc for path, doc in sorted(h.client.docs.items()) if path.startswith("session_windows/s1_")]
+    return h.lines("windows.jsonl")
 
 
 def test_windows_carry_posture_seconds_per_seat_every_10s_and_close_with_the_session():
@@ -208,7 +203,6 @@ def test_windows_carry_posture_seconds_per_seat_every_10s_and_close_with_the_ses
     assert (last["start_sec"], last["end_sec"], last["monitoring_status"]) == (10.0, 12.0, "completed")
     assert set(first) == {
         "session_id", "camera_id", "run", "seq", "start_sec", "end_sec", "captured_at", "monitoring_status", "seats",
-        "expire_at",
     }  # fmt: skip
     a1, a2 = first["seats"]["A1"], first["seats"]["A2"]
     # Lan thay dau tien chua tinh thoi gian; sau do moi frame 0.5 s thuoc trang thai vua xac nhan.
@@ -216,7 +210,7 @@ def test_windows_carry_posture_seconds_per_seat_every_10s_and_close_with_the_ses
     assert a1["normal_sec"] + a1["slumping_sec"] + a1["head_drop_sec"] == 10.0
     assert a1["head_drop_sec"] > 0 and last["seats"]["A1"]["last_state"] == "head_drop"
     assert last["seats"]["A2"]["normal_sec"] == 2.0 and last["seats"]["A2"]["last_seen_sec"] == 12.0
-    alerts = [doc for path, doc in h.client.docs.items() if "/alerts/" in path]
+    alerts = h.lines("alerts.jsonl")
     assert sum(window["seats"]["A1"]["alerts"].get("head_drop", 0) for window in (first, last)) == len(alerts) == 1
 
 
@@ -260,14 +254,14 @@ def test_restart_mid_session_starts_a_new_run_so_window_ids_never_collide():
     again = EdgeRuntime(
         LocalPipelineConfig.from_dict(valid_config()),
         h.provider,
-        lambda class_id: GRID,
+        lambda session_id: GRID,
         h.sink,
         h._new_worker,
         now=lambda: MONDAY_9AM,
         monotonic=lambda: h.clock,
         poll_sec=0.0,
     )
-    h.sink.watch_sessions("CLASS-1", again.on_sessions)
+    again.on_sessions({"s1": "active"})
     again.step()
     again.step()
     again.close()
@@ -321,7 +315,7 @@ def test_missing_class_layout_reports_unavailable_and_retries_later():
     h.steps(2)
     assert (len(attempts), h.workers) == (1, [])
     assert h.doc(HEARTBEAT)["status"] == "unavailable"
-    assert RESULT not in h.client.docs
+    assert not (h.root / RESULT).exists()
 
     h.clock += LAYOUT_RETRY_SEC
     h.steps(1)
@@ -329,18 +323,19 @@ def test_missing_class_layout_reports_unavailable_and_retries_later():
     assert h.doc(RESULT)["monitoring_status"] == "running"
 
 
-def test_deleted_session_is_incomplete():
-    h = Harness(timestamps=[0.0, 0.5])
+def test_session_replaced_by_another_on_the_same_camera_is_incomplete():
+    h = Harness(timestamps=[0.0, 0.5, 1.0])
     h.set_status("running")
     h.steps(2)
-    h.session.delete()
+    h.runtime.on_sessions({"s2": "active"})  # web giao tiet khac cho camera (camera doi lop) khi s1 chua xong
     h.steps(1)
     assert h.workers[0].stopped and h.doc(RESULT)["monitoring_status"] == "incomplete"
+    assert h.doc("sessions/s2/result.json")["monitoring_status"] == "running"
 
 
-def test_other_class_is_ignored_and_cancelled_session_is_incomplete():
+def test_scheduled_session_is_ignored_and_cancelled_session_is_incomplete():
     h = Harness(timestamps=[0.0, 0.5])
-    h.client.document("sessions/other").set({"class_id": "CLASS-2", "status": "running"})
+    h.set_status("scheduled")
     h.steps(1)
     assert h.workers == []
 
@@ -367,7 +362,10 @@ def test_shutdown_mid_session_marks_incomplete_and_reports_offline():
 
 def test_restart_mid_session_keeps_session_incomplete_even_when_ended_normally():
     h = Harness(timestamps=[0.0, 0.5])
-    h.client.document(RESULT).set({"monitoring_status": "running"})  # tien trinh truoc chet giua phien
+    (h.root / RESULT).parent.mkdir(parents=True)
+    (h.root / RESULT).write_text(
+        '{"monitoring_status": "running"}', encoding="utf-8"
+    )  # tien trinh truoc chet giua phien
     h.set_status("running")
     h.steps(2)
     h.set_status("completed")
@@ -392,69 +390,25 @@ def test_only_every_nth_frame_is_inferred_and_every_frame_is_wiped():
     assert all(not np.any(frame.image) for frame in h.all_frames)
 
 
-def test_dead_session_listener_is_resubscribed_once_firestore_is_reachable():
-    h = Harness()
-    watches = []
+def test_run_reads_the_camera_session_file_again_and_keeps_the_last_state_on_errors():
+    h = Harness([float(t) for t in range(10)])
+    reads = []
 
-    def subscribe(class_id, callback):
-        watches.append(h.sink.watch_sessions(class_id, callback))
-        return watches[-1]
-
-    rounds = []
+    def sessions():
+        reads.append(h.clock)
+        if len(reads) == 2:
+            raise ValueError("file tiet sua tay hong")
+        return {"s1": "active"}
 
     def should_stop():
-        rounds.append(None)
-        if len(rounds) == 2:
-            watches[0].is_active = False  # listener chet khi mat mang
-            h.sink.failures = 1  # sink cung dang ghi loi: chua dang ky lai
-        if len(rounds) == 4:
-            assert len(watches) == 1
-            h.sink.failures = 0  # co mang lai
-        return len(rounds) > 5
+        h.clock += SESSION_POLL_SEC / 2
+        return h.clock > 3 * SESSION_POLL_SEC
 
-    h.runtime.run(subscribe, should_stop)
-    assert len(watches) == 2
-    assert not watches[1].is_active  # run() huy dang ky khi thoat
+    h.runtime.run(sessions, should_stop)
+    assert reads == [SESSION_POLL_SEC * k for k in (0.5, 1.5, 2.5)]
+    assert len(h.workers) == 1  # loi doc khong cat tiet dang chay
+    assert h.doc(RESULT)["monitoring_status"] == "incomplete"  # run() thoat giua tiet
     assert h.doc(HEARTBEAT)["online"] is False
-
-
-def test_class_set_on_the_web_admin_is_followed_and_only_changed_between_sessions():
-    web = {"class_id": None}
-    h = Harness([float(t) for t in range(30)], web_class=lambda: web["class_id"])
-    callbacks = []
-
-    def subscribe(class_id, callback):
-        callbacks.append(callback)
-        return h.sink.watch_sessions(class_id, callback)
-
-    def scenario():
-        yield
-        assert (h.doc(HEARTBEAT)["status"], h.doc(HEARTBEAT)["class_id"]) == ("unconfigured", None)
-        h.client.document("sessions/s2").set({"class_id": "CLASS-2", "status": "running"})
-        web["class_id"] = "CLASS-1"  # admin them camera tren web
-        h.clock += UNCONFIGURED_CHECK_SEC
-        yield
-        assert (h.doc(HEARTBEAT)["status"], h.doc(HEARTBEAT)["class_id"]) == ("idle", "CLASS-1")
-        h.set_status("running")
-        yield
-        yield
-        assert h.doc(HEARTBEAT)["status"] == "monitoring"
-        web["class_id"] = "CLASS-2"  # admin doi lop giua tiet: tiet dang giam sat khong bi cat
-        h.clock += CLASS_CHECK_SEC
-        yield
-        assert (h.doc(HEARTBEAT)["class_id"], h.doc(HEARTBEAT)["session_id"]) == ("CLASS-1", "s1")
-        h.set_status("completed")
-        yield
-        assert h.doc(RESULT)["monitoring_status"] == "completed"
-        yield  # het tiet roi moi doi lop, va nghe cac tiet cua CLASS-2
-        assert (h.doc(HEARTBEAT)["status"], h.doc(HEARTBEAT)["class_id"]) == ("idle", "CLASS-2")
-        callbacks[0]({"s1": "active"})  # snapshot den tre cua listener lop cu: bo qua
-        yield
-        assert (h.doc(HEARTBEAT)["class_id"], h.doc(HEARTBEAT)["session_id"]) == ("CLASS-2", "s2")
-
-    steps = scenario()
-    h.runtime.run(subscribe, lambda: next(steps, True) is True)
-    assert len(callbacks) == 2
 
 
 def test_camera_source_missing_on_the_web_is_unavailable_and_retried():

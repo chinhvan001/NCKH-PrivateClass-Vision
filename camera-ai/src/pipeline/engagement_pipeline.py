@@ -11,8 +11,23 @@ from src.detection.pose_detector import PersonPose
 from src.engagement.back_turn import BackTurnDetector, BackTurnEvent
 from src.engagement.engagement_score import SeatEngagementTracker, classify_posture_state
 from src.engagement.hand_activity import HandActivityMonitor
-from src.engagement.posture import CameraAngleType, compute_head_drop_ratio, compute_torso_vector_angle
-from src.engagement.posture_monitor import BaselineEstablisher, PostureMonitor, PostureThresholds, RollingSmoother
+from src.engagement.posture import (
+    CameraAngleType,
+    compute_ear_eye_offset,
+    compute_eye_distance_ratio,
+    compute_head_drop_ratio,
+    compute_head_turn_ratio,
+    compute_torso_vector_angle,
+)
+from src.engagement.posture_monitor import (
+    BaselineEstablisher,
+    FrontalBaseline,
+    PostureMonitor,
+    PostureThresholds,
+    RollingSmoother,
+    is_head_down,
+    is_slumped_over,
+)
 from src.engagement.rolling_engagement import DEFAULT_MAX_GAP_SEC, RollingSeatEngagementTracker
 from src.engagement.side_conversation import SideConversationDetector, SideConversationEvent
 from src.pipeline.alert_manager import AlertCandidate, AlertManager
@@ -41,6 +56,8 @@ class _SeatPipelineState:
     hands: HandActivityMonitor
     head_smoother: RollingSmoother
     deviation_smoother: RollingSmoother
+    down_smoother: RollingSmoother  # ty le khung cui xuong ban trong cua so lam muot
+    frontal: FrontalBaseline = field(default_factory=FrontalBaseline)  # tu the nhin thang cua ghe
     last_seen: float = 0.0
     seen: bool = False  # last_seen chi co nghia khi da thay nguoi it nhat 1 lan
     posture_state: str = "normal"
@@ -50,7 +67,7 @@ class _SeatPipelineState:
 
 @dataclass(frozen=True)
 class SeatWindowState:
-    """Thoi gian 1 ghe o tung trang thai tu the trong 1 window (``session_windows``)."""
+    """Thoi gian 1 ghe o tung trang thai tu the trong 1 window (``SessionWindow``)."""
 
     seat_id: str
     seconds: Dict[str, float]  # normal / slumping / head_drop
@@ -61,7 +78,7 @@ class SeatWindowState:
 
 @dataclass(frozen=True)
 class SeatState:
-    """Trang thai 1 ghe cho ``session_results``/``session_evaluations`` (so dem alert do runtime giu)."""
+    """Trang thai 1 ghe cho ``SessionResult``/``SeatEvaluation`` (so dem alert do runtime giu)."""
 
     seat_id: str
     concentration: Optional[int]  # diem CONCENTRATION_WINDOW_SEC gan nhat; None khi ghe "away"
@@ -141,7 +158,17 @@ class EngagementEngine:
         candidates = []
         for assignment in self._seat_tracker.fresh_assignments.values():
             state = self._state_for(assignment.seat_id)
-            head_signal = state.head_smoother.add(timestamp, compute_head_drop_ratio(assignment.person))
+            person = assignment.person
+            head_ratio = compute_head_drop_ratio(person)
+            ear_eye = compute_ear_eye_offset(person)
+            # Moc "nhin thang" cua ghe (goc camera lam ghe o ria trong nhu dang quay/cui du nhin thang). Cui xuong ban
+            # so voi moc do, xet truoc quay dau: so voi moc, quay dau gan nhu khong lam ty so cui dau giam.
+            frontal = state.frontal.add(
+                compute_eye_distance_ratio(person), compute_head_turn_ratio(person), head_ratio, ear_eye
+            )
+            down = is_head_down(head_ratio, ear_eye, frontal, self._thresholds)
+            down_share = state.down_smoother.add(timestamp, None if down is None else float(down))
+            head_signal = state.head_smoother.add(timestamp, head_ratio)
             torso_angle = compute_torso_vector_angle(assignment.person)
             state.baseline.add_sample(timestamp, torso_angle)
             deviation = state.deviation_smoother.add(
@@ -152,13 +179,17 @@ class EngagementEngine:
                     else None
                 ),
             )
-            head_event, slump_event = state.monitor.update(timestamp, head_signal, deviation)
+            head_event, slump_event = state.monitor.update(
+                timestamp, head_signal, deviation, head_down=None if down_share is None else down_share >= 0.5
+            )
+            # Cui dau chi la buon ngu khi gục han (mui ngang/duoi vai, hoac cui kem than lech); cui nhe la doc/viet.
+            slumped = is_slumped_over(head_signal, deviation, self._thresholds)
             # Cap nhat moi frame (khong chi khi cui dau) de cua so bien thien co tay
             # da du mau ngay khi head_event bat dau.
             hand_activity = state.hands.update(timestamp, assignment.person)
-            state.tracker.update(timestamp, head_event, slump_event, hand_activity)
-            state.rolling.update(timestamp, head_event, slump_event, hand_activity)
-            posture_state = classify_posture_state(head_event, slump_event, hand_activity)
+            state.tracker.update(timestamp, head_event, slump_event, hand_activity, slumped)
+            state.rolling.update(timestamp, head_event, slump_event, hand_activity, slumped)
+            posture_state = classify_posture_state(head_event, slump_event, hand_activity, slumped)
             # Nhu RollingSeatEngagementTracker: khoang tu lan thay truoc thuoc trang thai vua xac nhan,
             # khoang trong qua dai khong tinh; phan nam truoc window hien tai da gui o window truoc.
             if state.seen and timestamp - state.last_seen <= DEFAULT_MAX_GAP_SEC:
@@ -174,8 +205,11 @@ class EngagementEngine:
         back_turn_events = (
             self._back_turn_detector.update(timestamp, people_by_seat) if self._back_turn_detector else []
         )
+        baselines = {
+            seat_id: state.frontal.value.turn for seat_id, state in self._states.items() if state.frontal.value
+        }
         conversation_events = (
-            self._side_conversation_detector.update(timestamp, people_by_seat)
+            self._side_conversation_detector.update(timestamp, people_by_seat, baselines)
             if self._side_conversation_detector
             else []
         )
@@ -239,6 +273,7 @@ class EngagementEngine:
                 hands=HandActivityMonitor(),
                 head_smoother=RollingSmoother(self._smoothing_window_sec),
                 deviation_smoother=RollingSmoother(self._smoothing_window_sec),
+                down_smoother=RollingSmoother(self._smoothing_window_sec),
             )
         return self._states[seat_id]
 
@@ -289,7 +324,7 @@ def run_pipeline(
     on_alert: Callable[[AlertEvent], None] | None = None,
 ) -> PipelineRunResult:
     """Chay pipeline khong GUI; moi record engagement an danh duoc day ngay vao
-    ``on_record`` (sink: ghi JSONL, day len Firestore, ...) va KHONG giu lai
+    ``on_record`` (sink: ghi JSONL, ...) va KHONG giu lai
     trong RAM -- session dai khong lam bo nho tang theo so frame. Sink chay
     dong bo trong vong lap frame nen phai nhanh; sink nem exception se dung
     pipeline (frame hien tai van duoc dispose). Logic engagement: xem

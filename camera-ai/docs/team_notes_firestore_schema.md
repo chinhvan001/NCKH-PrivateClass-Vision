@@ -17,6 +17,8 @@ Updated 2026-10-30: the code now follows the agreed diagram (items 14 and 15; `d
 
 The edge node also writes `session_windows` for the backend scoring (package A). `backend/jobs/migrate_schema.py` moves the live data; it has not been run with `--apply`.
 
+Updated 2026-11-04: the edge node's writes went over the free plan's 20,000 Firestore writes a day. Camera AI and the web admin always run on one machine, so they now exchange JSON files in `edge-data/` instead (`docs/web_admin_integration.md`): camera AI no longer reads or writes Firestore. §1 below and items 2, 5 and 15 of §2 describe the Firestore paths camera AI used until then; the fields are unchanged, the heartbeat lost `class_id`, and the RTSP URL moved from `camera_configs` to the machine.
+
 ## 1. What camera-ai does now
 
 - **Sessions.** The edge node listens to `sessions` where `class_id` is its class and reacts to `status`: `running` opens the camera, `paused` closes it, `completed` finishes the session, `cancelled` or a deleted document stops it as incomplete. It still accepts the older `live` and `ended`.

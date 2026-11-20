@@ -93,6 +93,26 @@ class FirestoreParsers {
     return fallback ?? DateTime.now();
   }
 
+  /// Giờ của tiết: Timestamp, chuỗi ISO, hoặc "HH:mm" ghép với `session_date`
+  /// (web admin ghi start_time/end_time "HH:mm" và session_date "yyyy-MM-dd").
+  static DateTime? sessionTime(Map<String, dynamic> data, String key) {
+    final v = data[key];
+    if (v is Timestamp) return v.toDate();
+    if (v is int) return DateTime.fromMillisecondsSinceEpoch(v);
+    if (v is! String) return null;
+    final s = v.trim();
+    final hm = RegExp(r'^(\d{1,2}):(\d{2})(?::\d{2})?$').firstMatch(s);
+    if (hm == null) return DateTime.tryParse(s)?.toLocal();
+    final raw = data['session_date'];
+    final day = raw is Timestamp
+        ? raw.toDate()
+        : raw is String
+            ? DateTime.tryParse(raw.trim())
+            : null;
+    if (day == null) return null;
+    return DateTime(day.year, day.month, day.day, int.parse(hm.group(1)!), int.parse(hm.group(2)!));
+  }
+
   // ── ID cleaner ──────────────────────────────────────────────────────
 
   /// Strip literal `"null"` strings and whitespace – returns `null` when

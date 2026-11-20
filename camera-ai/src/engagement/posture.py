@@ -110,6 +110,59 @@ def compute_head_drop_ratio(person: PersonPose) -> Optional[float]:
     return vertical_distance / shoulder_width
 
 
+# Mui lech ngang so voi trung diem vai >= 12% do rong vai: dau quay sang ben (nguong cu cua nhan dien noi chuyen).
+DEFAULT_HEAD_TURN_RATIO = 0.12
+
+
+def compute_head_turn_ratio(person: PersonPose) -> Optional[float]:
+    """Do lech ngang cua mui so voi trung diem vai, chia do rong vai: am = sang trai anh, duong = sang phai.
+
+    Hoc sinh ngoi lech goc camera co gia tri khac 0 ngay ca khi nhin thang (danh gia clip ngay 17/11/2026: ghe o
+    ria khung lech -0.3 den -0.5), nen so sanh voi tu the nhin thang cua chinh ghe do (posture_monitor.FrontalBaseline),
+    khong so voi 0. Tra ve None neu thieu mui/vai tin cay hoac vai qua hep."""
+    nose = person.get_keypoint("nose")
+    left_shoulder = person.get_keypoint("left_shoulder")
+    right_shoulder = person.get_keypoint("right_shoulder")
+    if not _keypoints_confident(nose, left_shoulder, right_shoulder):
+        return None
+    shoulder_width = math.hypot(left_shoulder[0] - right_shoulder[0], left_shoulder[1] - right_shoulder[1])
+    if shoulder_width < MIN_SHOULDER_WIDTH_PIXELS:
+        return None
+    return (nose[0] - (left_shoulder[0] + right_shoulder[0]) / 2.0) / shoulder_width
+
+
+def _shoulder_width(person: PersonPose) -> Optional[float]:
+    left, right = person.get_keypoint("left_shoulder"), person.get_keypoint("right_shoulder")
+    if not _keypoints_confident(left, right):
+        return None
+    width = math.hypot(left[0] - right[0], left[1] - right[1])
+    return width if width >= MIN_SHOULDER_WIDTH_PIXELS else None
+
+
+def compute_eye_distance_ratio(person: PersonPose) -> Optional[float]:
+    """Khoang cach 2 mat chia do rong vai: lon nhat khi mat huong thang camera, nho lai khi quay hoac cui dau.
+    Dung de chon cac khung "nhin thang" cua 1 ghe (posture_monitor.FrontalBaseline)."""
+    left_eye, right_eye = person.get_keypoint("left_eye"), person.get_keypoint("right_eye")
+    width = _shoulder_width(person)
+    if width is None or not _keypoints_confident(left_eye, right_eye):
+        return None
+    return math.hypot(left_eye[0] - right_eye[0], left_eye[1] - right_eye[1]) / width
+
+
+def compute_ear_eye_offset(person: PersonPose) -> Optional[float]:
+    """(do cao tai - do cao mat) / do rong vai, truc y anh huong xuong: cui dau xuong ban thi mat ha thap con tai
+    gan nhu giu nguyen, nen gia tri giam (am hon). Danh gia 280 clip ngay 19/11/2026: tach "cui xuong ban" voi
+    "quay dau" tot nhat (AUC 0.86). Can 2 mat va it nhat 1 tai tin cay."""
+    left_eye, right_eye = person.get_keypoint("left_eye"), person.get_keypoint("right_eye")
+    ears = [
+        kp for kp in (person.get_keypoint("left_ear"), person.get_keypoint("right_ear")) if _keypoints_confident(kp)
+    ]
+    width = _shoulder_width(person)
+    if width is None or not ears or not _keypoints_confident(left_eye, right_eye):
+        return None
+    return (sum(kp[1] for kp in ears) / len(ears) - (left_eye[1] + right_eye[1]) / 2.0) / width
+
+
 # ----------------------------------------------------------------------
 # Head Drop -- camera TOP-DOWN (tin hieu moi, 13/09/2026)
 # ----------------------------------------------------------------------

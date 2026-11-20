@@ -1,4 +1,4 @@
-"""Allowlist ``session_windows/{session_id}_{run}_{seq}``: moi ~10 s giam sat, edge gui thoi gian
+"""Allowlist 1 dong ``sessions/{session_id}/windows.jsonl``: moi ~10 s giam sat, edge gui thoi gian
 moi ghe o tung trang thai tu the de backend web tinh diem (docs/backend_scoring_and_schema_proposal.md).
 
 Chi co seat_id, so giay theo dong ho phien, trang thai tu the va so alert. Khong anh, keypoint,
@@ -98,10 +98,6 @@ class SessionWindow:
             raise ValueError("seat_id trong window bi trung.")
         if any(seat.seen_sec > self.end_sec - self.start_sec + _ROUNDING_SLACK_SEC for seat in self.seats):
             raise ValueError("Thoi gian cua 1 ghe vuot do dai window.")
-
-    @property
-    def doc_id(self) -> str:
-        return f"{self.session_id}_{self.run}_{self.seq:05d}"
 
     def to_dict(self) -> dict:
         return {

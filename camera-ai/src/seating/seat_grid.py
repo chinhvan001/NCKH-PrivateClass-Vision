@@ -10,7 +10,7 @@ seat_id lam dinh danh (khong gan voi ca nhan cu the).
 
 Vi tri ghe co 3 nguon: file calibration JSON cuc bo (demo), 4 ghe goc trong
 config edge (seat_layout.py), hoac o chu nhat admin ve tren trang Quan ly
-camera cua web (Firestore seat_regions/{camera_id}, config/class_layout.py).
+camera cua web, giao kem tiet (config/class_layout.py).
 """
 
 import json
@@ -102,7 +102,7 @@ class SeatGrid:
 
     @classmethod
     def from_dict(cls, raw: object, *, source: str = "SeatGrid") -> "SeatGrid":
-        """Tao grid tu payload da duoc nap trong RAM (vi du Firestore)."""
+        """Tao grid tu payload da duoc nap trong RAM."""
         if not isinstance(raw, dict) or "seats" not in raw or not isinstance(raw["seats"], list):
             raise SeatGridError(f"{source} thieu truong 'seats' (danh sach).")
 
