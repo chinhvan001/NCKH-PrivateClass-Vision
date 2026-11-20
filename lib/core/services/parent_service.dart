@@ -1,7 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
 
-import '../constants/firestore_constants.dart';
 import '../models/parent_model.dart';
 
 class ParentService {
@@ -29,10 +28,24 @@ class ParentService {
         .where('parent_id', isEqualTo: uid)
         .snapshots()
         .asyncMap((snap) async {
+      final docs = {for (final doc in snap.docs) doc.id: doc};
+      // Con chỉ có parent_email (vd. phụ huynh đăng nhập Google ra uid khác tài khoản admin tạo)
+      if (email != null && email.isNotEmpty) {
+        try {
+          final byEmail = await _db
+              .collection('students2')
+              .where('parent_email', isEqualTo: email)
+              .get();
+          for (final doc in byEmail.docs) {
+            docs.putIfAbsent(doc.id, () => doc);
+          }
+        } catch (e) {
+          debugPrint('Không tìm được con theo email: $e'); // Rules chỉ cho đọc theo parent_id
+        }
+      }
       final List<LinkedChild> children = [];
-      for (final doc in snap.docs) {
-        final child = await _buildChild(doc);
-        children.add(child);
+      for (final doc in docs.values) {
+        children.add(await _buildChild(doc));
       }
       children.sort((a, b) => a.name.compareTo(b.name));
       return children;
@@ -189,9 +202,7 @@ class ParentService {
         final seat = _findSeat(data, studentId);
         if (seat == null) continue;
 
-        final start = _parseDateTime(data['start_time']) ??
-            _parseDateTime(data['session_date']);
-        final end = _parseDateTime(data['end_time']);
+        final (start, end) = _times(data);
 
         if (!_hasEnded(data, start, end, now)) continue;
 
@@ -252,8 +263,7 @@ class ParentService {
         final seat = _findSeat(data, studentId);
         if (seat == null) continue;
 
-        final startTime = _toDate(data['start_time']) ?? _toDate(data['session_date']);
-        final endTime = _toDate(data['end_time']);
+        final (startTime, endTime) = _times(data);
 
         final isPresent = seat['is_present'] == true;
         final note = (seat['note'] ?? '').toString().trim();
@@ -325,9 +335,7 @@ class ParentService {
         final seat = _findSeat(data, studentId);
         if (seat == null) continue;
 
-        final start = _parseDateTime(data['start_time']) ??
-            _parseDateTime(data['session_date']);
-        final end = _parseDateTime(data['end_time']);
+        final (start, end) = _times(data);
 
         if (_hasEnded(data, start, end, now)) {
           totalEnded++;
@@ -406,9 +414,7 @@ class ParentService {
         final seat = _findSeat(data, studentId);
         if (seat == null) continue;
 
-        final start = _parseDateTime(data['start_time']) ??
-            _parseDateTime(data['session_date']);
-        final end = _parseDateTime(data['end_time']);
+        final (start, end) = _times(data);
 
         if (!_hasEnded(data, start, end, now)) continue;
 
@@ -437,18 +443,18 @@ class ParentService {
         if (isPresent) {
           attended++;
           subjectAttendedCount[subject] = (subjectAttendedCount[subject] ?? 0) + 1;
+          // Tiết chưa chấm (job báo cáo chưa chạy) có điểm null: không tính thành 0%
           final score = seat['attention_score'];
-          final int scorePercent =
-              (score is num) ? score.round().clamp(0, 100) : 0;
-
-          subjectRecords[subject]!.add(
-            SubjectDailyFocus(
-              date: dateStr,
-              period: periodNum,
-              percent: scorePercent,
-              isPresent: true,
-            ),
-          );
+          if (score is num) {
+            subjectRecords[subject]!.add(
+              SubjectDailyFocus(
+                date: dateStr,
+                period: periodNum,
+                percent: score.round().clamp(0, 100),
+                isPresent: true,
+              ),
+            );
+          }
         } else {
           unexcused++;
           subjectAbsentCount[subject] = (subjectAbsentCount[subject] ?? 0) + 1;
@@ -644,7 +650,12 @@ class ParentService {
     return name;
   }
 
-  DateTime? _toDate(dynamic v) => _parseDateTime(v);
+  /// Giờ bắt đầu/kết thúc của tiết: web ghi "HH:mm" kèm session_date, app ghi Timestamp.
+  (DateTime?, DateTime?) _times(Map<String, dynamic> data) {
+    final date = _parseDateTime(data['session_date']);
+    final start = _parseDateTime(data['start_time'], base: date) ?? date;
+    return (start, _parseDateTime(data['end_time'], base: date ?? start));
+  }
 
   int? _toInt(dynamic v) {
     if (v is num) return v.toInt();
