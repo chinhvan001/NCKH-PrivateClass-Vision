@@ -1,7 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 
-import '../../../../core/constants/firestore_constants.dart';
-
 class ClassService {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
@@ -10,7 +8,7 @@ class ClassService {
     String teacherId,
   ) {
     return _firestore
-        .collection(FirestoreConstants.classes)
+        .collection('classes')
         .where('teacher_id', isEqualTo: teacherId)
         .snapshots()
         .map((snapshot) {
@@ -30,7 +28,7 @@ class ClassService {
 
   // Hoặc lấy một lớp cụ thể theo classId
   Future<Map<String, dynamic>?> getClassDetail(String classId) async {
-    final doc = await _firestore.collection(FirestoreConstants.classes).doc(classId).get();
+    final doc = await _firestore.collection('classes').doc(classId).get();
     if (doc.exists) {
       return {'class_id': doc.id, ...doc.data()!};
     }

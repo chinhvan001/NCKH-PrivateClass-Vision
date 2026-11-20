@@ -153,11 +153,8 @@ class ClassDetailController extends ChangeNotifier {
                 if (camDoc.exists && camDoc.data() != null) {
                   _classroomData = camDoc.data()!;
                   roomName = _classroomData?['room_name']?.toString() ??
-                      _classroomData?['classroom_name']?.toString();
+                      _classroomData?['camera_name']?.toString();
                 }
-              }
-              if (roomName == null || roomName.isEmpty) {
-                roomName = data['room']?.toString();
               }
 
               final String tId = data['teacher_id']?.toString() ?? '';
@@ -204,33 +201,18 @@ class ClassDetailController extends ChangeNotifier {
         }
       }
 
-      // Lấy thêm học sinh từ collection class_members (nếu có)
-      final membersSnap = await _firestore
-          .collection(FirestoreConstants.classMembers)
-          .where('class_id', isEqualTo: classId)
-          .get();
-
-      final Set<String> studentIds = {...studentSlots.keys};
-      for (final doc in membersSnap.docs) {
-        final mData = doc.data();
-        final sId = FirestoreParsers.cleanId(mData['student_id']);
-        if (sId != null && sId.isNotEmpty) {
-          studentIds.add(sId);
-        }
-      }
-
+      final List<String> studentIds = studentSlots.keys.toList();
       if (studentIds.isEmpty) {
         _students = [];
         return;
       }
 
-      final List<String> idList = studentIds.toList();
       final List<StudentModel> fetchedStudents = [];
 
-      for (var i = 0; i < idList.length; i += 30) {
-        final chunk = idList.sublist(
+      for (var i = 0; i < studentIds.length; i += 30) {
+        final chunk = studentIds.sublist(
           i,
-          i + 30 > idList.length ? idList.length : i + 30,
+          i + 30 > studentIds.length ? studentIds.length : i + 30,
         );
 
         final studentsSnap = await _firestore
@@ -253,14 +235,10 @@ class ClassDetailController extends ChangeNotifier {
 
       fetchedStudents.sort((a, b) => a.name.compareTo(b.name));
       _students = fetchedStudents;
-
-      if (_classDetail != null) {
-        _classDetail = _classDetail!.copyWith(students: _students.length);
-      }
-
       if (_sessions.isNotEmpty) {
         _sessions = _sessions
-            .map((s) => s.copyWith(size: _students.length))
+            .map((s) => s.copyWith(
+                size: _classDetail?.students ?? _students.length))
             .toList();
       }
       notifyListeners();
@@ -287,9 +265,7 @@ class ClassDetailController extends ChangeNotifier {
                 SessionModel.fromFirestore(
                   doc,
                   className: _classDetail?.name ?? 'Lớp học',
-                  classSize: _students.isNotEmpty
-                      ? _students.length
-                      : (_classDetail?.students ?? 0),
+                  classSize: _classDetail?.students ?? _students.length,
                 ),
               );
             }

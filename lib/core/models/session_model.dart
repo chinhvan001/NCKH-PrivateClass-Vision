@@ -22,8 +22,7 @@ class ScheduleItem {
     required this.id,
     required this.classId,
     required this.className,
-    String? cameraId,
-    String? classroomId,
+    required this.cameraId,
     required this.roomName,
     required this.startTime,
     required this.endTime,
@@ -31,7 +30,7 @@ class ScheduleItem {
     this.subject = '',
     this.period = 0,
     this.studentCount = 0,
-  }) : cameraId = cameraId ?? classroomId ?? '';
+  });
 
   /// Tương thích code cũ còn dùng `classroomId` (nay là camera của phòng).
   String get classroomId => cameraId;
@@ -43,35 +42,20 @@ class ScheduleItem {
   }) {
     final data = doc.data() as Map<String, dynamic>? ?? {};
 
-    DateTime parseToDateTime(dynamic timeVal, dynamic dateVal) {
-      if (timeVal is Timestamp) return timeVal.toDate();
-      if (timeVal is String && timeVal.contains(':')) {
-        final parts = timeVal.split(':');
-        final hour = int.tryParse(parts[0]) ?? 0;
-        final minute = parts.length > 1 ? (int.tryParse(parts[1]) ?? 0) : 0;
-        DateTime baseDate = DateTime.now();
-        if (dateVal is String && dateVal.contains('-')) {
-          baseDate = DateTime.tryParse(dateVal) ?? DateTime.now();
-        } else if (dateVal is Timestamp) {
-          baseDate = dateVal.toDate();
-        }
-        return DateTime(baseDate.year, baseDate.month, baseDate.day, hour, minute);
-      }
-      return DateTime.now();
-    }
-
-    final rawDate = data['session_date'];
-    final start = parseToDateTime(data['start_time'], rawDate);
-    final end = parseToDateTime(data['end_time'], rawDate);
+    final start = data['start_time'] is Timestamp
+        ? (data['start_time'] as Timestamp).toDate()
+        : DateTime.now();
+    final end = data['end_time'] is Timestamp
+        ? (data['end_time'] as Timestamp).toDate()
+        : DateTime.now();
 
     final room = (data['room'] ?? roomName ?? '').toString();
-    final camId = (data['camera_id'] ?? data['room'] ?? '').toString();
 
     return ScheduleItem(
       id: doc.id,
       classId: (data['class_id'] ?? '').toString(),
       className: className,
-      cameraId: camId,
+      cameraId: (data['camera_id'] ?? '').toString(),
       roomName: room.isEmpty ? 'Chưa cập nhật' : room,
       subject: (data['subject'] ?? '').toString(),
       period: data['period'] is num ? (data['period'] as num).toInt() : 0,
@@ -100,7 +84,6 @@ class ScheduleItem {
     return 'Đang diễn ra';
   }
 }
-
 class SessionModel {
   final String id;
   final String classId;
@@ -184,9 +167,7 @@ class SessionModel {
     );
   }
 
-  /// Parse from Firestore `sessions` collection.
-  /// Firestore schema: start_time/end_time = string "07:55",
-  /// session_date = string "2026-11-09", room = string "302".
+  /// Parse from collection `session` (or `monitoring_sessions` fallback).
   factory SessionModel.fromFirestore(
     DocumentSnapshot doc, {
     String className = 'Lớp học',
@@ -194,118 +175,126 @@ class SessionModel {
   }) {
     final data = doc.data() as Map<String, dynamic>? ?? {};
 
-    // ── session_date: "2026-11-09" → "09/11/2026" ──
-    String dateStr = '';
-    final rawDate = data['session_date'];
-    if (rawDate is Timestamp) {
-      final dt = rawDate.toDate();
-      dateStr =
-          '${dt.day.toString().padLeft(2, '0')}/${dt.month.toString().padLeft(2, '0')}/${dt.year}';
-    } else if (rawDate is String && rawDate.isNotEmpty) {
-      if (rawDate.contains('-')) {
-        final parts = rawDate.split('-');
-        if (parts.length == 3) {
-          dateStr = '${parts[2]}/${parts[1]}/${parts[0]}';
-        } else {
-          dateStr = rawDate;
-        }
-      } else {
-        dateStr = rawDate;
-      }
+    DateTime parseDateTime(dynamic val) {
+      if (val is Timestamp) return val.toDate();
+      if (val is String) return DateTime.tryParse(val) ?? DateTime.now();
+      if (val is int) return DateTime.fromMillisecondsSinceEpoch(val);
+      return DateTime.now();
     }
 
-    // ── start_time / end_time: string "07:55" hoặc Timestamp ──
-    String startStr = '';
-    String endStr = '';
-    final rawStart = data['start_time'];
-    final rawEnd = data['end_time'];
-    if (rawStart is String) {
-      startStr = rawStart;
-    } else if (rawStart is Timestamp) {
-      final dt = rawStart.toDate();
-      startStr =
-          '${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}';
-      if (dateStr.isEmpty) {
-        dateStr =
-            '${dt.day.toString().padLeft(2, '0')}/${dt.month.toString().padLeft(2, '0')}/${dt.year}';
-      }
-    }
-    if (rawEnd is String) {
-      endStr = rawEnd;
-    } else if (rawEnd is Timestamp) {
-      final dt = rawEnd.toDate();
-      endStr =
-          '${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}';
-    }
+    final DateTime now = DateTime.now();
+    final DateTime startDt = data['start_time'] != null
+        ? parseDateTime(data['start_time'])
+        : now;
+    final DateTime endDt = data['end_time'] != null
+        ? parseDateTime(data['end_time'])
+        : startDt.add(const Duration(hours: 1));
 
-    // ── status ──
-    String rawStatus = data['status']?.toString() ?? 'scheduled';
+    final String dateStr =
+        '${startDt.day.toString().padLeft(2, '0')}/${startDt.month.toString().padLeft(2, '0')}/${startDt.year}';
+    final String startStr =
+        '${startDt.hour.toString().padLeft(2, '0')}:${startDt.minute.toString().padLeft(2, '0')}';
+    final String endStr =
+        '${endDt.hour.toString().padLeft(2, '0')}:${endDt.minute.toString().padLeft(2, '0')}';
+
     String computedStatus;
-    switch (rawStatus) {
-      case 'running':
-      case 'Đang diễn ra':
-        computedStatus = 'Đang diễn ra';
-        break;
-      case 'completed':
-      case 'Đã kết thúc':
-        computedStatus = 'Đã kết thúc';
-        break;
-      case 'paused':
-      case 'Tạm dừng':
-        computedStatus = 'Tạm dừng';
-        break;
-      case 'scheduled':
-      case 'Sắp diễn ra':
-      default:
-        computedStatus = 'Sắp diễn ra';
-        break;
-    }
+    if (now.isBefore(startDt)) {
+      computedStatus = 'Sắp diễn ra';
+    } else if (now.isAfter(endDt)) {
 
-    final String room = data['room']?.toString() ?? 'N/A';
+    final dynamic rawStudents = data['monitored_students'] ??
+        data['mnoitored_student'] ??
+        data['monitored_student'] ??
+        data['students'];
 
     int studentCount = 0;
     int presentCountFromData = 0;
-    final rawMonitored =
-        data['monitored_students'] ?? data['mnoitored_student'] ?? data['monitored_student'];
-    if (rawMonitored is Map) {
-      final valid = rawMonitored.entries
-          .where((e) =>
-              e.value is Map &&
-              FirestoreParsers.cleanId((e.value as Map)['student_id']) != null)
-          .toList();
-      studentCount = valid.length;
-      presentCountFromData =
-          valid.where((e) => (e.value as Map)['is_present'] == true).length;
+
+    if (rawStudents is Map) {
+      final validEntries = rawStudents.values.where((s) {
+        if (s is! Map) return false;
+        final studentId = FirestoreParsers.cleanId(s['student_id']);
+        return studentId != null && studentId.isNotEmpty;
+      }).toList();
+
+      studentCount = validEntries.length;
+      presentCountFromData = validEntries
+          .where((s) => (s as Map)['is_present'] == true)
+          .length;
+    } else if (rawStudents is List) {
+      final validStudents = rawStudents.where((s) {
+        if (s is! Map) return false;
+        final studentId = FirestoreParsers.cleanId(s['student_id']);
+        return studentId != null && studentId.isNotEmpty;
+      }).toList();
+
+      studentCount = validStudents.length;
+      presentCountFromData = validStudents
+          .where((s) => (s as Map)['is_present'] == true)
+          .length;
+    }
+
+    // Use studentCount and presentCountFromData to avoid unused warnings
+    if (studentCount < 0) studentCount = 0;
+    if (presentCountFromData < 0) presentCountFromData = 0;
+      computedStatus = 'Đã kết thúc';
     } else {
-      final List dyn = data['students'] is List ? data['students'] : [];
-      final valid = dyn
-          .where((s) =>
-              s is Map &&
-              (s['student_id']?.toString().trim().isNotEmpty == true) &&
-              s['student_id']?.toString() != 'null')
+      computedStatus = 'Đang diễn ra';
+    }
+
+    // ── Parse student count from Map or List ─────────────────────
+    int studentCount = 0;
+    int presentCountFromData = 0;
+
+    final rawMonitored =
+        data['mnoitored_students'] ?? data['monitored_students'];
+    if (rawMonitored is Map) {
+      final validEntries = rawMonitored.entries.where((e) {
+        if (e.value is! Map) return false;
+        final sid = FirestoreParsers.cleanId((e.value as Map)['student_id']);
+        return sid != null;
+      }).toList();
+      studentCount = validEntries.length;
+      presentCountFromData = validEntries
+          .where((e) => (e.value as Map)['is_present'] == true)
+          .length;
+    } else {
+      final List dynamicStudents = data['students'] is List
+          ? data['students']
+          : [];
+      final validStudents = dynamicStudents
+          .where(
+            (s) =>
+                s is Map &&
+                (s['student_id']?.toString().trim().isNotEmpty == true) &&
+                s['student_id']?.toString() != 'null',
+          )
           .toList();
-      studentCount = valid.length;
-      presentCountFromData =
-          valid.where((s) => s is Map && s['is_present'] == true).length;
+      studentCount = validStudents.length;
+      presentCountFromData = validStudents
+          .where((s) => s is Map && s['is_present'] == true)
+          .length;
     }
 
     final int presentCount =
         (data['present_student'] as num?)?.toInt() ?? presentCountFromData;
     final double attentionScore =
         (data['avg_attention_score'] as num?)?.toDouble() ?? 0.0;
-    final int finalSize =
-        classSize > 0 ? classSize : (studentCount > 0 ? studentCount : presentCount);
-    final int safePresentCount =
-        presentCount > finalSize ? finalSize : presentCount;
+    final int finalSize = classSize > 0
+        ? classSize
+        : (studentCount > 0 ? studentCount : presentCount);
+    final int safePresentCount = presentCount > finalSize
+        ? finalSize
+        : presentCount;
 
     return SessionModel(
       id: doc.id,
       classId: data['class_id']?.toString() ?? '',
       teacherId: data['teacher_id']?.toString() ?? '',
-      classroomId: room,
+      classroomId: data['classroom_id']?.toString() ?? '',
       cameraId: FirestoreParsers.string(data, ['camera_id']),
       className: className,
-      room: room,
+      room: FirestoreParsers.string(data, ['classroom_id', 'camera_id'], 'N/A'),
       date: dateStr,
       start: startStr,
       end: endStr,
@@ -316,7 +305,10 @@ class SessionModel {
       status: computedStatus,
       subject: FirestoreParsers.string(data, ['subject']),
       period: FirestoreParsers.string(data, ['period']),
-      sessionType: FirestoreParsers.string(data, ['session_type', 'sesion_type']),
+      sessionType: FirestoreParsers.string(data, [
+        'sesion_type',
+        'session_type',
+      ]),
     );
   }
 }

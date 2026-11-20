@@ -70,7 +70,7 @@ class StudentProfileService {
         await _fetchStudentById(studentId, classId);
 
     final results = await Future.wait([
-      _fetchParentInfo(student.parentId, student.parentEmail, student),
+      _fetchParentInfo(student.parentId, student.parentEmail),
       _calculateAttendanceStats(studentId, classId),
     ]);
 
@@ -150,7 +150,6 @@ class StudentProfileService {
   Future<_ParentFetchResult> _fetchParentInfo(
     String parentId,
     String parentEmail,
-    StudentModel student,
   ) async {
     try {
       DocumentSnapshot<Map<String, dynamic>>? parentDoc;
@@ -162,32 +161,10 @@ class StudentProfileService {
         }
       }
 
-      final String cleanEmail = (parentEmail.isNotEmpty ? parentEmail : student.parentEmail).trim();
-      if (parentDoc == null && cleanEmail.isNotEmpty) {
+      if (parentDoc == null && parentEmail.isNotEmpty) {
         final querySnap = await _firestore
             .collection(FirestoreConstants.parents)
-            .where('email', isEqualTo: cleanEmail)
-            .limit(1)
-            .get();
-        if (querySnap.docs.isNotEmpty) {
-          parentDoc = querySnap.docs.first;
-        } else {
-          final querySnap2 = await _firestore
-              .collection(FirestoreConstants.parents)
-              .where('e-mail', isEqualTo: cleanEmail)
-              .limit(1)
-              .get();
-          if (querySnap2.docs.isNotEmpty) {
-            parentDoc = querySnap2.docs.first;
-          }
-        }
-      }
-
-      final String cleanPhone = student.parentPhone.trim();
-      if (parentDoc == null && cleanPhone.isNotEmpty) {
-        final querySnap = await _firestore
-            .collection(FirestoreConstants.parents)
-            .where('phone_number', isEqualTo: cleanPhone)
+            .where('email', isEqualTo: parentEmail.trim())
             .limit(1)
             .get();
         if (querySnap.docs.isNotEmpty) {
@@ -197,45 +174,19 @@ class StudentProfileService {
 
       if (parentDoc != null && parentDoc.exists) {
         final model = ParentModel.fromFirestore(parentDoc);
-        final phone = model.phoneNumber.trim().isNotEmpty && model.phoneNumber != 'Chưa cập nhật'
+        final phone = model.phoneNumber.trim().isNotEmpty
             ? model.phoneNumber
-            : (cleanPhone.isNotEmpty ? cleanPhone : 'Chưa cập nhật SĐT');
-        final email = model.email.trim().isNotEmpty && model.email != 'Chưa cập nhật'
-            ? model.email
-            : (cleanEmail.isNotEmpty ? cleanEmail : 'Chưa cập nhật Email');
-        final name = model.name.trim().isNotEmpty && model.name != 'Chưa cập nhật'
-            ? model.name
-            : (student.parentName.isNotEmpty ? student.parentName : 'Phụ huynh học sinh');
-
+            : 'Chưa cập nhật SĐT';
         return _ParentFetchResult(
           parent: model,
           isLinked: true,
-          displayName: name,
+          displayName: model.name.isNotEmpty ? model.name : 'Phụ huynh học sinh',
           phone: phone,
-          email: email,
+          email: model.email.isNotEmpty ? model.email : parentEmail,
         );
       }
 
-      final hasLocalParent = student.parentName.isNotEmpty ||
-          student.parentPhone.isNotEmpty ||
-          student.parentEmail.isNotEmpty ||
-          student.parentId.isNotEmpty;
-
-      if (hasLocalParent) {
-        return _ParentFetchResult(
-          parent: null,
-          isLinked: student.parentId.isNotEmpty,
-          displayName: student.parentName.isNotEmpty
-              ? student.parentName
-              : 'Phụ huynh ${student.name}',
-          phone: student.parentPhone.isNotEmpty
-              ? student.parentPhone
-              : 'Chưa cập nhật SĐT',
-          email: cleanEmail.isNotEmpty ? cleanEmail : 'Chưa cập nhật Email',
-        );
-      }
-
-      final emailDisplay = cleanEmail.isNotEmpty ? cleanEmail : 'Chưa có email';
+      final emailDisplay = parentEmail.isNotEmpty ? parentEmail : 'Chưa có email';
       return _ParentFetchResult(
         parent: null,
         isLinked: false,
@@ -248,9 +199,9 @@ class StudentProfileService {
       return _ParentFetchResult(
         parent: null,
         isLinked: false,
-        displayName: student.parentName.isNotEmpty ? student.parentName : 'Chưa liên kết',
-        phone: student.parentPhone.isNotEmpty ? student.parentPhone : 'Chưa có số điện thoại',
-        email: student.parentEmail.isNotEmpty ? student.parentEmail : 'Chưa có email',
+        displayName: 'Chưa liên kết',
+        phone: 'Chưa cập nhật',
+        email: parentEmail,
       );
     }
   }
