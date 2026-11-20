@@ -218,11 +218,19 @@ class SeatingManagerRepository {
       requiredStudentIds: requiredStudentIds,
     );
 
+    // Lớp chặn cuối: chỉ ghi các id thuộc roster, không bao giờ ghi lại học
+    // sinh đã bị xóa khỏi seat_map ở nơi khác.
+    final allowedIds = requiredStudentIds.toSet();
+
     final seatMap = <String, dynamic>{};
     for (var i = 0; i < draftSeats.length; i++) {
       final seatId = seatIdForIndex(i);
       final isLocked = lockedCells.contains(i);
-      final studentId = isLocked ? null : draftSeats[i];
+      final draftId = draftSeats[i];
+      final studentId =
+          (isLocked || draftId == null || !allowedIds.contains(draftId))
+              ? null
+              : draftId;
       seatMap[seatId] = {
         'seat_id': seatId,
         'row': (i ~/ cols) + 1,

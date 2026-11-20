@@ -105,6 +105,19 @@ class _SeatingManagerScreenState extends State<SeatingManagerScreen> {
     _draftSeats = List.of(layout.seats);
   }
 
+  // Loại khỏi bản nháp và bản đã lưu những id không còn thuộc roster (ví dụ ai
+  // đó đặt student_id = null / xóa học sinh trên Firestore trong lúc đang sửa).
+  // Nhờ vậy ô tự trống, chạm được, và không ghi ngược "học sinh ma" khi lưu.
+  void _pruneGhostSeats() {
+    bool hasGhost(List<String?> seats) =>
+        seats.any((s) => s != null && !_rosterIds.contains(s));
+    List<String?> clean(List<String?> seats) => [
+          for (final s in seats) (s != null && _rosterIds.contains(s)) ? s : null,
+        ];
+    if (hasGhost(_draftSeats)) _draftSeats = clean(_draftSeats);
+    if (hasGhost(_savedSeats)) _savedSeats = clean(_savedSeats);
+  }
+
   int get _assignedCount =>
       (_mode == ManagerMode.edit ? _draftSeats : _savedSeats)
           .where((s) => s != null && _rosterIds.contains(s))
@@ -278,6 +291,7 @@ class _SeatingManagerScreenState extends State<SeatingManagerScreen> {
           _lockedCells = data.lockedCells;
           _updateMatrixDimensions(classInfo.rows, classInfo.cols);
           _syncSeats(data);
+          _pruneGhostSeats();
 
           return Column(
             children: [
