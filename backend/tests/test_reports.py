@@ -142,6 +142,17 @@ def test_interrupted_sessions_are_marked_partial_and_unfinished_results_are_wait
     assert report_service.build_session_reports("live", force=True) is None
 
 
+def test_a_session_the_camera_ai_never_saw_marks_nobody_absent(school):
+    """Camera hỏng hoặc edge node tắt suốt tiết: không có dữ liệu thì không biết ai vắng. Trước đây cả lớp thành
+    is_present False và phụ huynh nào cũng nhận thông báo vắng."""
+    roster = {"S01": {"student_id": "an", "is_present": True, "attention_score": None}}
+    finished_session(school, "nodata", monitoring_status=None, monitored_students=roster)
+    assert report_service.build_pending_reports() == {"nodata": 0}
+    assert school.docs["sessions/nodata"]["monitored_students"] == roster
+    assert "session_results/nodata" not in school.docs
+    assert report_service.build_pending_reports() == {}  # đã xét: không quét lại mỗi lượt
+
+
 def test_a_session_without_a_frozen_roster_uses_the_class_seat_map(school):
     finished_session(school, "s1")
     for seat in ("S01", "S02"):

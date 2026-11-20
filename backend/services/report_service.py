@@ -79,6 +79,10 @@ def build_session_reports(session_id, force=False):
     status = monitoring_service.data_status(session, monitoring_service.result_status(session_id))
     if status == "pending" and not force:
         return None
+    if status == "no_data":
+        # Camera AI không ghi gì cho tiết (camera hỏng, edge node tắt): không biết ai có mặt nên không đánh vắng ai
+        db.collection("sessions").document(session_id).update({"reports_at": server_timestamp(), "report_count": 0})
+        return 0
 
     class_id = session.get("class_id")
     class_doc = db.collection("classes2").document(class_id).get() if class_id else None
