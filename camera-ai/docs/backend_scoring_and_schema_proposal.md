@@ -59,6 +59,8 @@ The move does not centralise the posture thresholds: how far a head must drop, a
 
 ### 1.3 Transport: Firestore, not HTTP
 
+**Superseded on 2026-11-04:** the edge node and the web backend always run on one machine, so they now exchange files in `edge-data/` (`docs/web_admin_integration.md`). The edge node's Firestore writes had gone over the free plan's 20,000 writes a day. The windows are the lines of `edge-data/sessions/{session_id}/windows.jsonl`, with the fields below. The reasoning that follows is kept for the record.
+
 The edge node writes one document per 10 s of monitoring, and a backend worker turns those documents into results. Firestore is the better transport for three reasons:
 
 - The edge node's `FirestoreSink` already batches, retries and queues while offline. HTTP would need all of that again. It would also need credentials for each edge node on the backend, and a backend that every edge node can reach.

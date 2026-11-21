@@ -2,6 +2,8 @@
 
 Prepared 2026-10-04 for the review with the Firebase owner, updated 2026-10-17 for the team's Firestore schema 2026-10-23 for the web admin's `classes2` seat plan 2026-10-25 for seats drawn on the web (`seat_regions`) and 2026-10-27 for cameras added on the web (`camera_configs`). It covers how the camera-ai edge node authenticates to Firestore, and the Security Rules draft for the paths camera-ai uses (`config/firestore.rules`). Decisions from the review update `cloud_data_compliance_checklist.md` §3.7.
 
+**Status on 2026-11-04: camera AI no longer uses Firestore.** It runs on the same machine as the web backend and exchanges files with it in `edge-data/` (`src/sync/README.md`), so it holds no service account key and needs no token. The main finding below, that a key copied from an edge box reads the whole database, no longer applies, and option B is not needed. The only Admin SDK key left is the web backend's, on the same machine. Sections 1 and 2 describe the setup before that date. In section 3, the edge node column and the rows for `session_results`, `session_evaluations`, `session_windows`, `sessions/{s}/alerts`, `edge_nodes` and `camera_configs` cover collections nobody uses any more; they can be dropped from `config/firestore.rules` and `rules-tests/`.
+
 ## 1. Current setup
 
 - The edge node uses the Firebase Admin SDK with a service account key. `sync.firestore_client_from_env()` reads the key path from `GOOGLE_APPLICATION_CREDENTIALS` and fails fast if it is unset or the file is missing. The class seat plan reader (`config/class_layout.py`) uses the same client.
@@ -69,9 +71,9 @@ Parents get no per-seat data; their view of their own child (UC03) comes from `s
 
 ## 4. Decisions needed
 
-1. Confirm option B, and who mints and revokes edge tokens.
+1. ~~Confirm option B, and who mints and revokes edge tokens.~~ Not needed since 2026-11-04: the edge node has no Firebase access.
 2. Who may read `classes2` and its `seat_map`. The draft lets any teacher read every class, so subject teachers can map the live seat view to students. Limiting it to a class's own teachers needs a list on the class (for example `teacher_ids`) that Rules can check.
 3. Parent reports: confirm the fields the job writes to `students2/{sid}/reports` (`docs/web_admin_integration.md`), and who links parents to students (`parent_id`).
-4. Retention (checklist §3.6): the period, and enabling Firestore TTL on `expire_at` for `session_results`, `session_evaluations` and the `alerts` collection group.
+4. Retention (checklist §3.6): the period. Camera AI deletes local session data after `privacy.retention_days`; Firestore data (sessions, rosters, reports) needs its own rule.
 5. Firestore location, and whether storing students' pseudonymous data outside Vietnam triggers cross-border transfer duties under Vietnamese personal-data rules. Confirm with the mentor.
-6. Who owns credential rotation and revocation.
+6. Who owns rotation and revocation of the web backend's service account key.

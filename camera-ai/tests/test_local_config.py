@@ -6,7 +6,7 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
-from src.config import LocalConfigError, LocalPipelineConfig
+from src.config import EdgeSettings, LocalConfigError, LocalPipelineConfig
 
 
 def valid_config():
@@ -78,11 +78,28 @@ def test_rejects_credentials_and_privacy_policy_violations(path, value):
         LocalPipelineConfig.from_dict(data)
 
 
-def test_can_load_example_schema_file():
-    path = __import__("pathlib").Path(__file__).parents[1] / "config" / "local_pipeline.example.json"
-    config = LocalPipelineConfig.from_dict(json.loads(path.read_text(encoding="utf-8")))
-    assert config.schedule.windows[0].start == "07:00"
-    assert config.seating.corner_seats.last_row_last_column == (950.0, 260.0)
+def test_example_settings_file_is_the_default_and_cameras_come_from_the_web():
+    path = __import__("pathlib").Path(__file__).parents[1] / "config" / "settings.example.json"
+    settings = EdgeSettings.from_json_file(path)
+    assert settings == EdgeSettings.default()
+    assert settings.schedule.allows(datetime(2026, 10, 31, 9, 0, tzinfo=ZoneInfo("Asia/Ho_Chi_Minh")))  # thu 7
+
+    config = settings.for_camera("Camera 201", "top_down")  # camera admin them tren web
+    assert (config.camera.camera_id, config.camera.angle_type) == ("Camera 201", "top_down")
+    assert (config.camera.class_id, config.camera.source_env, config.seating.corner_seats) == (None, None, None)
+    with pytest.raises(LocalConfigError):
+        settings.for_camera("Camera 201", "side")
+
+
+def test_old_per_camera_config_file_is_rejected_with_a_hint(tmp_path):
+    path = tmp_path / "local_pipeline.json"
+    path.write_text(json.dumps(valid_config()), encoding="utf-8")
+    with pytest.raises(LocalConfigError, match="web admin"):
+        EdgeSettings.from_json_file(path)
+    data = {key: valid_config()[key] for key in ("sampling", "thresholds", "schedule", "privacy", "camera")}
+    data["schema_version"] = 3  # camera chi them tren web
+    with pytest.raises(LocalConfigError, match="camera"):
+        EdgeSettings.from_dict(data)
 
 
 def test_rejects_corner_seat_that_is_not_a_pixel_pair():

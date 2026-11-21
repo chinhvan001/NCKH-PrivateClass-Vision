@@ -49,3 +49,15 @@ def test_short_missing_detection_does_not_reset_but_long_gap_does():
     assert detector.update(3.1, people)  # > 3 giay tinh tu luc 0.0
     detector.update(4.0, {})
     assert detector.update(5.0, people) == []  # gap 1 giay: phai tich luy lai
+
+
+def test_seats_off_to_the_side_of_the_camera_are_not_a_conversation():
+    """Ca 2 ghe trong nhu quay vao nhau chi vi goc camera: so voi huong dau thuong ngay cua ghe thi khong quay."""
+    detector = SideConversationDetector(max_pair_distance=200, min_duration_sec=1.0)
+    people = {"A1": make_person(100, 10), "A2": make_person(200, -10)}
+    usual = {"A1": 10 / 40, "A2": -10 / 40}
+    assert detector.update(0.0, people, usual) == []
+    assert detector.update(2.0, people, usual) == []
+    without_baseline = SideConversationDetector(max_pair_distance=200, min_duration_sec=1.0)
+    without_baseline.update(0.0, people)
+    assert without_baseline.update(2.0, people) != []  # khong co trung vi ghe: nhu truoc, la noi chuyen

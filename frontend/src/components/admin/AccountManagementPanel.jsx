@@ -3,6 +3,7 @@ import { useMemo, useState } from "react";
 import Icon from "../common/Icon";
 import EditTeacherForm from "./EditTeacherForm";
 import AddTeacherForm from "./AddTeacherForm";
+import ImportFileModal from "./ImportFileModal";
 import ConfirmModal from "../common/ConfirmModal";
 
 const AccountManagementPanel = ({
@@ -18,6 +19,10 @@ const AccountManagementPanel = ({
   const [selectedTeacher, setSelectedTeacher] = useState(null);
   const [detailTeacher, setDetailTeacher] = useState(null);
   const [showAddTeacher, setShowAddTeacher] = useState(false);
+  
+  const [showImportModal, setShowImportModal] = useState(false);
+  const [notification, setNotification] = useState(null);
+
   const [currentPage, setCurrentPage] = useState(1);
 
   const [confirmModal, setConfirmModal] = useState({
@@ -48,20 +53,60 @@ const AccountManagementPanel = ({
     "Thể dục",
   ];
 
-  const teachers = useMemo(() => {
-    return users.map((user) => ({
-      id: user.id,
-      uid: user.uid || null,
-      email: user.email || "Chưa có email",
-      name: user.name || "Chưa cập nhật",
-      phone_number: user.phone_number || "",
-      subject: user.subject || "",
-      create_date: user.create_date || null,
-      is_active: user.is_active !== false,
-      auth_provider: user.auth_provider || "google",
-      auth_status: user.auth_status || "pending",
-    }));
-  }, [users]);
+  // Map dữ liệu và sắp xếp A - Z chuẩn theo TÊN CHÍNH (từ cuối cùng của Họ và Tên)
+const teachers = useMemo(() => {
+  const mapped = users.map((user) => ({
+    id: user.id,
+    uid: user.uid || null,
+    email: user.email || "Chưa có email",
+    name: user.name || "Chưa cập nhật",
+    phone_number: user.phone_number || "",
+    subject: user.subject || "",
+    create_date: user.create_date || null,
+    is_active: user.is_active !== false,
+    auth_provider: user.auth_provider || "google",
+    auth_status: user.auth_status || "pending",
+  }));
+
+  // Hàm bổ trợ lấy tên chính (từ cuối cùng) và phần Họ + Tên lót
+  const parseFullName = (fullName) => {
+    const trimmed = (fullName || "").trim();
+    if (!trimmed || trimmed === "Chưa cập nhật") {
+      return { firstName: "zzz", fullName: trimmed };
+    }
+    const parts = trimmed.split(/\s+/);
+    const firstName = parts[parts.length - 1]; // Từ cuối cùng (Tên)
+    return { firstName, fullName: trimmed };
+  };
+
+  mapped.sort((a, b) => {
+    const personA = parseFullName(a.name);
+    const personB = parseFullName(b.name);
+
+    // 1. So sánh TÊN CHÍNH trước (Dung vs Hùng, An vs Bình...)
+    const compareFirstName = personA.firstName.localeCompare(
+      personB.firstName,
+      'vi',
+      { sensitivity: 'accent', numeric: true }
+    );
+
+    if (compareFirstName !== 0) {
+      return compareFirstName;
+    }
+
+    // 2. Nếu TÊN CHÍNH trùng nhau (ví dụ cùng tên Dung), so sánh toàn bộ Họ & Tên Lót
+    return personA.fullName.localeCompare(
+      personB.fullName,
+      'vi',
+      { sensitivity: 'accent', numeric: true }
+    );
+  });
+
+  return mapped.map((teacher, index) => ({
+    ...teacher,
+    originalIndex: index + 1
+  }));
+}, [users]);
 
   const subjects = SUBJECT_OPTIONS;
 
@@ -118,6 +163,11 @@ const AccountManagementPanel = ({
     filteredTeachers.length,
   );
 
+  const showNotify = (message, type = 'success') => {
+    setNotification({ message, type });
+    setTimeout(() => setNotification(null), 3000);
+  };
+
   const handleRefresh = () => {
     if (onRefresh) {
       onRefresh();
@@ -128,22 +178,23 @@ const AccountManagementPanel = ({
     setDetailTeacher(teacher);
   };
 
-  const handleSaveTeacher = async (updatedTeacher) => {
+  const handleSaveTeacher = async (teacherData) => {
     try {
       if (!onUpdateUser) {
-        throw new Error(
-          "Không tìm thấy chức năng cập nhật tài khoản.",
-        );
+        throw new Error("Không tìm thấy chức năng cập nhật tài khoản.");
       }
 
-      await onUpdateUser(updatedTeacher);
+      const updatedUser = await onUpdateUser(teacherData);
       setSelectedTeacher(null);
+      showNotify("Cập nhật thông tin giáo viên thành công!");
 
       if (onRefresh) {
         await onRefresh();
       }
+      return updatedUser;
     } catch (error) {
       console.error("Update teacher error:", error);
+      showNotify(error.message || "Cập nhật thất bại", "error");
       throw error;
     }
   };
@@ -158,40 +209,20 @@ const AccountManagementPanel = ({
       onConfirm: async () => {
         try {
           if (!onDeleteTeacher) {
-            throw new Error(
-              "Không tìm thấy chức năng xóa giáo viên.",
-            );
+            throw new Error("Không tìm thấy chức năng xóa giáo viên.");
           }
 
           await onDeleteTeacher(teacher);
-
-          setConfirmModal({
-            open: false,
-            title: "",
-            message: "",
-            confirmText: "Xác nhận",
-            cancelText: "Hủy",
-            onConfirm: null,
-          });
+          resetConfirmModal();
+          showNotify("Xóa giáo viên thành công!");
 
           if (onRefresh) {
             await onRefresh();
           }
         } catch (error) {
           console.error("Delete teacher error:", error);
-
-          setConfirmModal({
-            open: false,
-            title: "",
-            message: "",
-            confirmText: "Xác nhận",
-            cancelText: "Hủy",
-            onConfirm: null,
-          });
-
-          window.alert(
-            error.message || "Không thể xóa giáo viên.",
-          );
+          resetConfirmModal();
+          showNotify(error.message || "Không thể xóa giáo viên.", "error");
         }
       },
     });
@@ -220,21 +251,28 @@ const AccountManagementPanel = ({
       const data = await response.json();
 
       if (!response.ok || !data.success) {
-        throw new Error(
-          data.message || "Không thể thêm giáo viên.",
-        );
+        throw new Error(data.message || "Không thể thêm giáo viên.");
       }
 
-      console.log("Add teacher success:", data);
-
       setShowAddTeacher(false);
+      showNotify("Thêm giáo viên mới thành công!");
 
       if (onRefresh) {
         await onRefresh();
       }
     } catch (error) {
       console.error("Add teacher error:", error);
+      showNotify(error.message || "Thêm giáo viên thất bại", "error");
       throw error;
+    }
+  };
+
+  const handleImported = async (message) => {
+    setShowImportModal(false);
+    showNotify(message);
+
+    if (onRefresh) {
+      await onRefresh();
     }
   };
 
@@ -271,25 +309,20 @@ const AccountManagementPanel = ({
         return "Chưa có thông tin";
       }
 
-      return date.toLocaleString("vi-VN");
+      return date.toLocaleDateString("vi-VN");
     } catch {
       return "Chưa có thông tin";
     }
   };
 
-  const getAuthStatusText = (status) => {
-    switch (status) {
-      case "linked":
-        return "Đã liên kết Firebase";
-      case "pending":
-        return "Chưa liên kết Firebase";
-      default:
-        return status || "Chưa xác định";
-    }
-  };
-
   return (
     <>
+      {notification && (
+        <div className={`fixed top-5 right-5 z-50 px-4 py-3 rounded-lg shadow-lg flex items-center gap-2 text-white ${notification.type === 'error' ? 'bg-red-600' : 'bg-green-600'}`} style={{ zIndex: 9999 }}>
+          <span>{notification.message}</span>
+        </div>
+      )}
+
       <section className="account-stats-section">
         <h2>Tài khoản giáo viên</h2>
 
@@ -341,17 +374,6 @@ const AccountManagementPanel = ({
               <small>Môn học</small>
             </div>
           </article>
-
-          <article className="account-stat-card add-stat-card">
-            <div className="account-stat-icon">
-              <Icon name="plus" size={22} />
-            </div>
-
-            <div>
-              <strong>Sắp có thêm</strong>
-              <small>Tính năng sắp cập nhật</small>
-            </div>
-          </article>
         </div>
       </section>
 
@@ -362,16 +384,28 @@ const AccountManagementPanel = ({
             <p>Danh sách tài khoản giáo viên trong hệ thống.</p>
           </div>
 
-          <button
-            type="button"
-            className="add-account-button"
-            onClick={() => setShowAddTeacher(true)}
-          >
-            <Icon name="plus" size={17} />
-            <span>Thêm giáo viên</span>
-          </button>
+          <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
+            <button
+              type="button"
+              className="import-account-button"
+              onClick={() => setShowImportModal(true)}
+            >
+              <Icon name="plus" size={17} />
+              <span>Nhập từ File</span>
+            </button>
+
+            <button
+              type="button"
+              className="add-account-button"
+              onClick={() => setShowAddTeacher(true)}
+            >
+              <Icon name="plus" size={17} />
+              <span>Thêm giáo viên</span>
+            </button>
+          </div>
         </div>
 
+        {/* Thanh lọc dữ liệu */}
         <div className="account-filters">
           <div className="account-search">
             <input
@@ -381,17 +415,14 @@ const AccountManagementPanel = ({
                 setSearch(e.target.value);
                 setCurrentPage(1);
               }}
-              placeholder="Tìm kiếm theo tên..."
+              placeholder="Tìm kiếm theo tên, gmail, sđt..."
             />
-
             <span className="account-search-icon">
-              <Icon name="search" size={19} />
+              <Icon name="search" size={16} />
             </span>
           </div>
 
-          <label className="account-select">
-            <span>Bộ môn</span>
-
+          <div className="account-select">
             <select
               value={subjectFilter}
               onChange={(e) => {
@@ -400,18 +431,15 @@ const AccountManagementPanel = ({
               }}
             >
               <option value="all">Tất cả các môn</option>
-
               {subjects.map((subject) => (
                 <option key={subject} value={subject}>
                   {subject}
                 </option>
               ))}
             </select>
-          </label>
+          </div>
 
-          <label className="account-select">
-            <span>Trạng thái</span>
-
+          <div className="account-select">
             <select
               value={statusFilter}
               onChange={(e) => {
@@ -423,14 +451,15 @@ const AccountManagementPanel = ({
               <option value="active">Đang hoạt động</option>
               <option value="inactive">Đã vô hiệu hóa</option>
             </select>
-          </label>
+          </div>
 
           <button
             type="button"
             className="refresh-button"
             onClick={handleRefresh}
+            title="Làm mới"
           >
-            <Icon name="refresh" size={17} />
+            <Icon name="refresh" size={15} />
             <span>Làm mới</span>
           </button>
         </div>
@@ -439,115 +468,158 @@ const AccountManagementPanel = ({
           <table className="account-table">
             <thead>
               <tr>
+                <th style={{ width: "60px", textAlign: "center" }}>STT</th>
                 <th>Tên giáo viên</th>
                 <th>Gmail</th>
                 <th>Số điện thoại</th>
                 <th>Bộ môn</th>
                 <th>Trạng thái</th>
-                <th>Thao tác</th>
+                <th style={{ width: "130px", textAlign: "center" }}>THAO TÁC</th>
               </tr>
             </thead>
 
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan="6" className="table-empty">
+                  <td colSpan="7" className="table-empty">
                     Đang tải danh sách giáo viên...
                   </td>
                 </tr>
               ) : filteredTeachers.length === 0 ? (
                 <tr>
-                  <td colSpan="6" className="table-empty">
+                  <td colSpan="7" className="table-empty">
                     Không tìm thấy tài khoản giáo viên.
                   </td>
                 </tr>
               ) : (
-                currentTeachers.map((teacher) => (
-                  <tr key={teacher.id}>
-                    <td>
-                      <div className="account-cell">
-                        <div className="table-avatar">
-                          <Icon name="user" size={19} />
-                        </div>
-
-                        <div>
-                          <strong>{teacher.name}</strong>
-                          <span>Giáo viên</span>
-                        </div>
-                      </div>
-                    </td>
-
-                    <td>
-                      <span className="account-email">
-                        {teacher.email}
-                      </span>
-                    </td>
-
-                    <td>
-                      <span className="account-phone">
-                        {teacher.phone_number || "--"}
-                      </span>
-                    </td>
-
-                    <td>
-                      <div className="account-subject-list">
-                        {teacher.subject ? (
-                          <span className="account-subject-tag">
-                            {teacher.subject}
-                          </span>
-                        ) : (
-                          <span className="account-subject-empty">
-                            Chưa cập nhật
-                          </span>
-                        )}
-                      </div>
-                    </td>
-
-                    <td>
-                      <span
-                        className={`status-badge ${
-                          teacher.is_active ? "active" : "inactive"
-                        }`}
-                      >
-                        <i />
-                        {teacher.is_active
-                          ? "Đang hoạt động"
-                          : "Đã vô hiệu hóa"}
-                      </span>
-                    </td>
-
-                    <td>
-                      <div className="row-actions">
-                        <button
-                          type="button"
-                          className="edit-button"
-                          onClick={() => setSelectedTeacher(teacher)}
-                          title="Chỉnh sửa"
-                        >
-                          <Icon name="edit" size={18} />
-                        </button>
-
-                        <button
-                          type="button"
-                          className="detail-button"
+                currentTeachers.map((teacher) => {
+                  return (
+                    <tr key={teacher.id}>
+                      <td style={{ textAlign: "center", fontWeight: "500", color: "#64748b" }}>
+                        {teacher.originalIndex}
+                      </td>
+                      <td>
+                        <div
+                          className="account-cell"
+                          style={{ cursor: "pointer" }}
                           onClick={() => handleViewDetails(teacher)}
-                          title="Xem chi tiết"
+                          title="Nhấp để xem chi tiết giáo viên"
                         >
-                          <Icon name="eye" size={18} />
-                        </button>
+                          <div className="table-avatar">
+                            <Icon name="user" size={19} />
+                          </div>
 
-                        <button
-                          type="button"
-                          className="delete-button"
-                          onClick={() => handleDeleteTeacher(teacher)}
-                          title="Xóa giáo viên"
+                          <div>
+                            <strong style={{ color: "#2563eb", textDecoration: "none" }}>
+                              {teacher.name}
+                            </strong>
+                            <span>Giáo viên</span>
+                          </div>
+                        </div>
+                      </td>
+
+                      <td>
+                        <span className="account-email">
+                          {teacher.email}
+                        </span>
+                      </td>
+
+                      <td>
+                        <span className="account-phone">
+                          {teacher.phone_number || "--"}
+                        </span>
+                      </td>
+
+                      <td>
+                        <div className="account-subject-list">
+                          {teacher.subject ? (
+                            <span className="account-subject-tag">
+                              {teacher.subject}
+                            </span>
+                          ) : (
+                            <span className="account-subject-empty">
+                              Chưa cập nhật
+                            </span>
+                          )}
+                        </div>
+                      </td>
+
+                      <td>
+                        <span
+                          className={`status-badge ${
+                            teacher.is_active ? "active" : "inactive"
+                          }`}
                         >
-                          <Icon name="trash" size={18} />
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))
+                          <i />
+                          {teacher.is_active
+                            ? "Đang hoạt động"
+                            : "Đã vô hiệu hóa"}
+                        </span>
+                      </td>
+
+                      <td>
+                        <div className="row-actions" style={{ justifyContent: "center", display: "flex", gap: "6px" }}>
+                          <button
+                            type="button"
+                            title="Xem chi tiết"
+                            onClick={() => handleViewDetails(teacher)}
+                            style={{
+                              padding: "6px",
+                              borderRadius: "6px",
+                              border: "1px solid #cbd5e1",
+                              backgroundColor: "#fff",
+                              color: "#2563eb",
+                              cursor: "pointer",
+                              display: "flex",
+                              alignItems: "center",
+                              justifyContent: "center",
+                            }}
+                          >
+                            <Icon name="eye" size={15} />
+                          </button>
+
+                          <button
+                            type="button"
+                            title="Chỉnh sửa"
+                            onClick={() => setSelectedTeacher(teacher)}
+                            style={{
+                              padding: "6px",
+                              borderRadius: "6px",
+                              border: "1px solid #cbd5e1",
+                              backgroundColor: "#fff",
+                              color: "#475569",
+                              cursor: "pointer",
+                              display: "flex",
+                              alignItems: "center",
+                              justifyContent: "center",
+                            }}
+                          >
+                            <Icon name="edit" size={15} />
+                          </button>
+
+                          <button
+                            type="button"
+                            title="Xóa giáo viên"
+                            onClick={() => handleDeleteTeacher(teacher)}
+                            style={{
+                              padding: "6px",
+                              borderRadius: "6px",
+                              border: "1px solid #fecaca",
+                              backgroundColor: "#fff",
+                              color: "#dc2626",
+                              cursor: "pointer",
+                              display: "flex",
+                              alignItems: "center",
+                              justifyContent: "center",
+                            }}
+                          >
+                            <Icon name="trash" size={15} />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })
               )}
             </tbody>
           </table>
@@ -623,6 +695,17 @@ const AccountManagementPanel = ({
         </div>
       </section>
 
+      {showImportModal && (
+        <ImportFileModal
+          title="Nhập danh sách giáo viên từ File"
+          columns="Họ và tên*, Email*, Số điện thoại, Bộ môn* (đúng tên bộ môn như khi thêm giáo viên)"
+          url="/api/import/teachers"
+          label="giáo viên"
+          onClose={() => setShowImportModal(false)}
+          onImported={handleImported}
+        />
+      )}
+
       {selectedTeacher && (
         <EditTeacherForm
           teacher={selectedTeacher}
@@ -645,12 +728,17 @@ const AccountManagementPanel = ({
         >
           <div
             className="teacher-detail-modal"
+            style={{ maxWidth: "680px", width: "90vw", borderRadius: "16px", padding: "24px" }}
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="teacher-detail-header">
+            <div className="teacher-detail-header" style={{ marginBottom: "20px" }}>
               <div>
-                <h2>Thông tin giáo viên</h2>
-                <p>Chi tiết tài khoản giáo viên.</p>
+                <h2 style={{ fontSize: "20px", color: "#0f172a", margin: 0, fontWeight: "700" }}>
+                  Thông tin chi tiết giáo viên
+                </h2>
+                <p style={{ fontSize: "14px", color: "#64748b", margin: "4px 0 0 0" }}>
+                  Xem thông tin hồ sơ và bộ môn của giáo viên.
+                </p>
               </div>
 
               <button
@@ -658,90 +746,70 @@ const AccountManagementPanel = ({
                 className="edit-teacher-close"
                 onClick={() => setDetailTeacher(null)}
                 aria-label="Đóng"
+                style={{
+                  width: "36px",
+                  height: "36px",
+                  borderRadius: "50%",
+                  border: "1px solid #e2e8f0",
+                  backgroundColor: "#f8fafc",
+                  fontSize: "18px",
+                  cursor: "pointer",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  color: "#64748b"
+                }}
               >
                 ×
               </button>
             </div>
 
-            <div className="teacher-detail-content">
-              <div className="teacher-detail-avatar">
-                <Icon name="user" size={28} />
+            <div className="teacher-detail-content" style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", backgroundColor: "#f8fafc", padding: "14px 18px", borderRadius: "10px", border: "1px solid #f1f5f9" }}>
+                <span style={{ color: "#64748b", fontSize: "14px", fontWeight: "500" }}>Họ và tên:</span>
+                <strong style={{ color: "#0f172a", fontSize: "15px", fontWeight: "600" }}>{detailTeacher.name}</strong>
               </div>
 
-              <div className="teacher-detail-info">
-                <div className="teacher-detail-item">
-                  <span>Họ và tên</span>
-                  <strong>{detailTeacher.name}</strong>
-                </div>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", backgroundColor: "#f8fafc", padding: "14px 18px", borderRadius: "10px", border: "1px solid #f1f5f9" }}>
+                <span style={{ color: "#64748b", fontSize: "14px", fontWeight: "500" }}>Gmail:</span>
+                <strong style={{ color: "#0f172a", fontSize: "15px", fontWeight: "600" }}>{detailTeacher.email}</strong>
+              </div>
 
-                <div className="teacher-detail-item">
-                  <span>Gmail</span>
-                  <strong>{detailTeacher.email}</strong>
-                </div>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", backgroundColor: "#f8fafc", padding: "14px 18px", borderRadius: "10px", border: "1px solid #f1f5f9" }}>
+                <span style={{ color: "#64748b", fontSize: "14px", fontWeight: "500" }}>Số điện thoại:</span>
+                <strong style={{ color: "#0f172a", fontSize: "15px", fontWeight: "600" }}>{detailTeacher.phone_number || "Chưa cập nhật"}</strong>
+              </div>
 
-                <div className="teacher-detail-item">
-                  <span>Số điện thoại</span>
-                  <strong>
-                    {detailTeacher.phone_number || "Chưa cập nhật"}
-                  </strong>
-                </div>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", backgroundColor: "#f8fafc", padding: "14px 18px", borderRadius: "10px", border: "1px solid #f1f5f9" }}>
+                <span style={{ color: "#64748b", fontSize: "14px", fontWeight: "500" }}>Bộ môn:</span>
+                <strong style={{ color: "#0f172a", fontSize: "15px", fontWeight: "600" }}>{detailTeacher.subject || "Chưa cập nhật"}</strong>
+              </div>
 
-                <div className="teacher-detail-item">
-                  <span>Bộ môn</span>
-                  <strong>
-                    {detailTeacher.subject || "Chưa cập nhật"}
-                  </strong>
-                </div>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", backgroundColor: "#f8fafc", padding: "14px 18px", borderRadius: "10px", border: "1px solid #f1f5f9" }}>
+                <span style={{ color: "#64748b", fontSize: "14px", fontWeight: "500" }}>Trạng thái:</span>
+                <strong style={{ color: detailTeacher.is_active ? "#16a34a" : "#dc2626", fontSize: "15px", fontWeight: "600" }}>{detailTeacher.is_active ? "Đang hoạt động" : "Đã vô hiệu hóa"}</strong>
+              </div>
 
-                <div className="teacher-detail-item">
-                  <span>Trạng thái</span>
-                  <strong>
-                    {detailTeacher.is_active
-                      ? "Đang hoạt động"
-                      : "Đã vô hiệu hóa"}
-                  </strong>
-                </div>
-
-                <div className="teacher-detail-item">
-                  <span>Trạng thái liên kết</span>
-                  <strong>
-                    {getAuthStatusText(detailTeacher.auth_status)}
-                  </strong>
-                </div>
-
-                <div className="teacher-detail-item">
-                  <span>Nhà cung cấp đăng nhập</span>
-                  <strong>
-                    {detailTeacher.auth_provider || "Chưa có thông tin"}
-                  </strong>
-                </div>
-
-                <div className="teacher-detail-item">
-                  <span>Firebase UID</span>
-                  <strong>
-                    {detailTeacher.uid || "Chưa liên kết"}
-                  </strong>
-                </div>
-
-                <div className="teacher-detail-item">
-                  <span>Firestore Document ID</span>
-                  <strong>{detailTeacher.id || "Chưa có thông tin"}</strong>
-                </div>
-
-                <div className="teacher-detail-item">
-                  <span>Ngày tạo tài khoản</span>
-                  <strong>
-                    {formatCreateDate(detailTeacher.create_date)}
-                  </strong>
-                </div>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", backgroundColor: "#f8fafc", padding: "14px 18px", borderRadius: "10px", border: "1px solid #f1f5f9" }}>
+                <span style={{ color: "#64748b", fontSize: "14px", fontWeight: "500" }}>Ngày tạo tài khoản:</span>
+                <strong style={{ color: "#0f172a", fontSize: "15px", fontWeight: "600" }}>{formatCreateDate(detailTeacher.create_date)}</strong>
               </div>
             </div>
 
-            <div className="teacher-detail-actions">
+            <div className="teacher-detail-actions" style={{ marginTop: "20px", display: "flex", justifyContent: "flex-end" }}>
               <button
                 type="button"
                 className="edit-teacher-cancel"
                 onClick={() => setDetailTeacher(null)}
+                style={{
+                  padding: "8px 20px",
+                  borderRadius: "8px",
+                  border: "1px solid #cbd5e1",
+                  backgroundColor: "#fff",
+                  color: "#334155",
+                  fontWeight: "500",
+                  cursor: "pointer"
+                }}
               >
                 Đóng
               </button>

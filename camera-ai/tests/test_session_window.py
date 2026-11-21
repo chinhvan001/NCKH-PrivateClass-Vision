@@ -22,7 +22,6 @@ def window(*seats, start=10.0, end=20.0, **changes):
 
 def test_window_serializes_posture_seconds_per_seat_and_nothing_else():
     data = window(seat(), seat("S02", 10.0, 0.0, 0.0, last_state="normal", last_behaviour_sec=15.25, alerts={}))
-    assert data.doc_id == "s1_0a1b2c3d_00001"
     assert data.to_dict() == {
         "session_id": "s1",
         "camera_id": "Camera 201",

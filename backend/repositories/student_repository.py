@@ -1,5 +1,7 @@
 from firebase_admin import firestore
 
+from routes.test_helpers import account_uid, commit_writes
+
 db = firestore.client()
 
 class StudentRepository:
@@ -46,7 +48,11 @@ class StudentRepository:
         
         try:
             notes_ref = db.collection('students2').document(student_id).collection('student_note').stream()
-            notes = [n.to_dict() for n in notes_ref]
+            notes = []
+            for n in notes_ref:
+                n_data = n.to_dict() or {}
+                n_data['id'] = n.id
+                notes.append(n_data)
             data['notes'] = notes
         except Exception:
             data['notes'] = []
@@ -54,28 +60,56 @@ class StudentRepository:
         return data
 
     @staticmethod
-    def create_student(student_data):
+    def link_parent(student_data):
+        """parent_email -> tài khoản parents/{uid} và students2.parent_id (app phụ huynh tìm con theo parent_id)."""
+        email = str(student_data.pop('parent_email', '') or '').strip().lower()
+        if not email:
+            return
+        student_data['parent_email'] = email
+        uid = account_uid(email, student_data.get('parent_name', ''))
+        if not uid:
+            return
+        student_data['parent_id'] = uid
+        ref = db.collection('parents').document(uid)
+        current = ref.get().to_dict() or {}
+        ref.set({
+            **current,
+            'name': student_data.get('parent_name') or current.get('name', ''),
+            'email': email,
+            'phone_number': student_data.get('parent_phonenumber') or current.get('phone_number', ''),
+            'is_active': current.get('is_active', True),
+        })
+
+    @staticmethod
+    def new_student_writes(student_data):
+        """[(ref, data)] thêm 1 học sinh, kèm class_members nếu có class_id (form Thêm học sinh và nhập từ file)."""
         timestamp = firestore.SERVER_TIMESTAMP
         class_id = student_data.pop('class_id', None)
-        
+        StudentRepository.link_parent(student_data)
+
         student_data['created_at'] = timestamp
         student_data['updated_at'] = timestamp
         if 'is_active' not in student_data:
             student_data['is_active'] = True
-            
+
         ref = db.collection('students2').document()
-        ref.set(student_data)
-        student_id = ref.id
+        writes = [(ref, student_data)]
 
         if class_id:
-            db.collection('class_members').add({
-                'student_id': student_id,
+            writes.append((db.collection('class_members').document(), {
+                'student_id': ref.id,
                 'class_id': class_id,
                 'status': 'active',
                 'assigned_at': timestamp
-            })
+            }))
 
-        return student_id
+        return writes
+
+    @staticmethod
+    def create_student(student_data):
+        writes = StudentRepository.new_student_writes(student_data)
+        commit_writes(writes)
+        return writes[0][0].id
 
     @staticmethod
     def update_student(student_id, student_data):
@@ -91,6 +125,7 @@ class StudentRepository:
             elif status_val == "Đã thôi học":
                 student_data['is_active'] = False
 
+        StudentRepository.link_parent(student_data)
         student_data['updated_at'] = timestamp
         
         doc_ref = db.collection('students2').document(student_id)
@@ -135,6 +170,7 @@ class StudentRepository:
 
     @staticmethod
     def get_current_class_id_and_name(student_id):
+        """Hàm này đã được tối ưu hóa sẵn, bạn có thể truyền thêm map dữ liệu vào nếu muốn quét hàng loạt"""
         try:
             for col in ['classes2', 'classes', 'classrooms']:
                 docs = db.collection(col).stream()

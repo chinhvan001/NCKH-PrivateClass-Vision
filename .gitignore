@@ -8,9 +8,11 @@
 *service_account*.json
 # Local instructions for Claude Code: never committed
 /CLAUDE.md
-# Edge node configs are per installation (camera-ai/config/README.md)
+# Camera AI settings files are per machine (camera-ai/config/README.md)
 camera-ai/config/*.json
-!camera-ai/config/local_pipeline.example.json
+!camera-ai/config/settings.example.json
+# Files the web admin and camera AI exchange on their machine: camera URLs with passwords, classroom results
+/edge-data/
 
 # Python
 __pycache__/

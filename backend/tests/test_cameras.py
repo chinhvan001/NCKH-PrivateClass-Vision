@@ -1,6 +1,9 @@
-"""Trang camera: URL RTSP (có mật khẩu) admin nhập chỉ nằm trong camera_configs/{camera} (Rules chặn mọi
-client) và API không bao giờ trả về; tình trạng camera lấy từ heartbeat của camera AI (edge_nodes/{camera_id})."""
+"""Trang camera: URL RTSP (có mật khẩu) admin nhập không lên Firestore, chỉ nằm trong file
+edge-data/cameras/{camera}.json trên máy chạy cả web và camera AI, và API không bao giờ trả về; tình trạng camera
+lấy từ heartbeat camera AI ghi (edge-data/edge_nodes/{camera_id}.json)."""
 
+import os
+import stat
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -10,6 +13,7 @@ from services import monitoring_service
 
 NOW = datetime(2026, 10, 5, 2, 0, tzinfo=timezone.utc)
 SECRET_URL = "rtsp://admin:matkhau@192.168.1.103:554/stream"
+CONFIG = "cameras/Camera 201.json"
 
 
 @pytest.fixture(autouse=True)
@@ -17,9 +21,8 @@ def clock(monkeypatch):
     monkeypatch.setattr(monitoring_service, "utc_now", lambda: NOW)
 
 
-def heartbeat(db, camera_id, *, age_sec, class_id="c1"):
-    db.document(f"edge_nodes/{camera_id}").set({
-        "class_id": class_id,
+def heartbeat(edge_files, camera_id, *, age_sec):
+    edge_files.write(f"edge_nodes/{camera_id}.json", {
         "online": True,
         "status": "monitoring",
         "session_id": "s1",
@@ -45,8 +48,9 @@ CAMERA = {
 URL = "/api/admin/cameras/Camera%20201"
 
 
-def test_rtsp_url_of_an_added_camera_lives_only_in_camera_configs(client, db, admin):
+def test_rtsp_url_of_an_added_camera_lives_only_in_a_file_on_this_machine(client, db, admin, edge_files):
     db.document("classes2/c1").set({"class_name": "11B2"})
+    db.document("camera_configs/Camera 201").set({"source": SECRET_URL})  # camera từng thêm khi URL nằm trên Firestore
     db.document("cameras/p202").set({  # dữ liệu mẫu theo sơ đồ cũ, còn rtsp_url
         "camera_name": "Camera P202",
         "room_name": "P202",
@@ -59,9 +63,12 @@ def test_rtsp_url_of_an_added_camera_lives_only_in_camera_configs(client, db, ad
     assert "khau" not in created.get_data(as_text=True)
 
     # Mật khẩu mã hóa %: @ : / # không làm camera AI đọc sai host hay lọt vào log của nó
-    config = db.docs["camera_configs/Camera 201"]
-    assert config["source"] == "rtsp://admin:m%40t%3Akhau%2F%231@192.168.1.103:554/Streaming/Channels/101"
-    assert (set(config), config["updated_by"]) == ({"source", "updated_at", "updated_by"}, "admin-1")
+    source = "rtsp://admin:m%40t%3Akhau%2F%231@192.168.1.103:554/Streaming/Channels/101"
+    assert edge_files.read(CONFIG) == {"angle_type": "frontal", "source": source}
+    if os.name == "posix":  # chỉ chủ tài khoản đọc được; Windows bỏ qua mode, dùng ACL (camera-ai/src/sync/README.md)
+        assert stat.S_IMODE((edge_files.root / CONFIG).stat().st_mode) == 0o600
+    assert "t%3Akhau" not in str(db.docs) and "t:khau" not in str(db.docs)  # không lên Firestore
+    assert "camera_configs/Camera 201" not in db.docs  # mật khẩu cũ trên Firestore bị xóa
     camera = db.docs["cameras/Camera 201"]
     assert (camera["camera_name"], camera["room_name"], camera["ip_address"], camera["rtsp_port"]) == (
         "Camera 201",
@@ -77,11 +84,12 @@ def test_rtsp_url_of_an_added_camera_lives_only_in_camera_configs(client, db, ad
     assert all("rtsp_url" not in doc for path, doc in db.docs.items() if path.startswith("cameras/"))
     cameras = {camera["camera_id"]: camera for camera in listed.get_json()["cameras"]}
     assert (cameras["Camera 201"]["configured"], cameras["Camera 201"]["class_name"]) == (True, "11B2")
+    assert cameras["Camera 201"]["angle_type"] == "frontal"  # mặc định: camera phía trước lớp
     assert (cameras["p202"]["name"], cameras["p202"]["configured"]) == ("Camera P202", False)
 
     assert client.delete(URL, headers=admin).status_code == 200
-    assert "camera_configs/Camera 201" not in db.docs and "cameras/Camera 201" not in db.docs
-    assert "camera_id" not in db.docs["classes2/c1"]  # camera AI về "chờ thêm camera trên web"
+    assert edge_files.read(CONFIG) is None and "cameras/Camera 201" not in db.docs
+    assert "camera_id" not in db.docs["classes2/c1"]  # camera AI dừng edge node của camera trong 30 giây
     assert client.delete(URL, headers=admin).status_code == 404
 
     for url in ("/api/admin/cameras/test-connection", "/api/admin/cameras/p201/configure"):
@@ -89,7 +97,7 @@ def test_rtsp_url_of_an_added_camera_lives_only_in_camera_configs(client, db, ad
         assert client.put(url, json={}, headers=admin).status_code in (404, 405)
 
 
-def test_camera_form_rejects_injected_urls_and_a_second_camera_per_name_class_or_room(client, db, admin):
+def test_camera_form_rejects_injected_urls_and_a_second_camera_per_name_class_or_room(client, db, admin, edge_files):
     db.document("classes2/c1").set({"class_name": "11B2"})
     db.document("classes2/c2").set({"class_name": "11B3"})
     for bad, status in (
@@ -98,12 +106,15 @@ def test_camera_form_rejects_injected_urls_and_a_second_camera_per_name_class_or
         ({"rtsp_port": "70000"}, 400),
         ({"stream_path": "/a b"}, 400),
         ({"camera_name": "a/b"}, 400),
+        ({"camera_name": "..\\a"}, 400),  # tên camera là tên file trên máy: không thoát khỏi edge-data/
+        ({"camera_name": "Cam:1"}, 400),
+        ({"camera_name": "CON"}, 400),
         ({"class_id": ""}, 400),
         ({"class_id": "missing"}, 404),
         ({"room_name": ""}, 400),
     ):
         assert client.post("/api/admin/cameras", json={**CAMERA, **bad}, headers=admin).status_code == status, bad
-    assert not any(path.startswith(("camera_configs/", "cameras/")) for path in db.docs)
+    assert not any(path.startswith("cameras/") for path in db.docs) and edge_files.files() == []
     assert "camera_id" not in db.docs["classes2/c1"]
 
     assert client.post("/api/admin/cameras", json=CAMERA, headers=admin).status_code == 201
@@ -115,7 +126,7 @@ def test_camera_form_rejects_injected_urls_and_a_second_camera_per_name_class_or
         assert client.post("/api/admin/cameras", json={**CAMERA, **duplicate}, headers=admin).status_code == 409
 
 
-def test_editing_a_camera_keeps_its_stream_path_and_account_unless_retyped_or_moved(client, db, admin):
+def test_editing_a_camera_keeps_its_stream_path_and_account_unless_retyped_or_moved(client, db, admin, edge_files):
     for class_id, name in (("c1", "11B2"), ("c2", "11B3"), ("c3", "12A1")):
         db.document(f"classes2/{class_id}").set({"class_name": name})
     assert client.post("/api/admin/cameras", json=CAMERA, headers=admin).status_code == 201
@@ -128,14 +139,14 @@ def test_editing_a_camera_keeps_its_stream_path_and_account_unless_retyped_or_mo
     assert edited.status_code == 200, edited.get_json()
     assert "khau" not in edited.get_data(as_text=True)
     kept = "rtsp://admin:m%40t%3Akhau%2F%231@192.168.1.103:554/Streaming/Channels/101"
-    assert db.docs["camera_configs/Camera 201"]["source"] == kept
+    assert edge_files.read(CONFIG)["source"] == kept
     # Lớp cũ bỏ camera, lớp mới nhận camera: mỗi camera theo dõi đúng một lớp
     assert ("camera_id" not in db.docs["classes2/c1"], db.docs["classes2/c2"]["camera_id"]) == (True, "Camera 201")
 
     # Đổi IP hoặc cổng mà để trống tài khoản: tài khoản đã lưu không được gửi tới máy khác
     for moved in ({"ip_address": "192.168.1.120"}, {"rtsp_port": "8554"}):
         assert client.put(url, json={**edit, **moved}, headers=admin).status_code == 400, moved
-    assert db.docs["camera_configs/Camera 201"]["source"] == kept
+    assert edge_files.read(CONFIG)["source"] == kept
 
     # Nhập tài khoản hoặc mật khẩu: thay cả hai; đường dẫn có ?query (Dahua) được giữ khi để trống lần sau
     edit = {**edit, "ip_address": "192.168.1.120", "rtsp_port": "8554"}
@@ -143,9 +154,18 @@ def test_editing_a_camera_keeps_its_stream_path_and_account_unless_retyped_or_mo
     assert client.put(url, json=retyped, headers=admin).status_code == 200
     assert client.put(url, json=edit, headers=admin).status_code == 200
     expected = "rtsp://xem:p%40ss@192.168.1.120:8554/cam/realmonitor?channel=1&subtype=0"
-    assert db.docs["camera_configs/Camera 201"]["source"] == expected
+    assert edge_files.read(CONFIG)["source"] == expected
     camera = db.docs["cameras/Camera 201"]
     assert (camera["room_name"], camera["ip_address"], camera["rtsp_port"]) == ("P201", "192.168.1.120", "8554")
+
+    # Góc đặt camera: để trống thì giữ góc đã lưu; lớp đang có tiết thì không đổi góc (camera AI sẽ chạy lại)
+    assert client.put(url, json={**edit, "angle_type": "top_down"}, headers=admin).status_code == 200
+    assert client.put(url, json=edit, headers=admin).status_code == 200
+    assert db.docs["cameras/Camera 201"]["angle_type"] == edge_files.read(CONFIG)["angle_type"] == "top_down"
+    db.document("sessions/s1").set({"class_id": "c2", "status": "running"})
+    assert client.put(url, json={**edit, "angle_type": "frontal"}, headers=admin).status_code == 409
+    assert client.put(url, json=edit, headers=admin).status_code == 200  # không đổi góc: vẫn sửa được
+    assert db.docs["cameras/Camera 201"]["angle_type"] == "top_down"
 
     for bad, status in (
         ({"class_id": "c3"}, 409),  # lớp của Camera 202
@@ -153,14 +173,28 @@ def test_editing_a_camera_keeps_its_stream_path_and_account_unless_retyped_or_mo
         ({"class_id": ""}, 400),
         ({"ip_address": "evil@192.168.1.103"}, 400),
         ({"rtsp_port": "0"}, 400),
+        ({"angle_type": "side"}, 400),
     ):
         assert client.put(url, json={**edit, **bad}, headers=admin).status_code == status, bad
-    assert db.docs["camera_configs/Camera 201"]["source"] == expected
+    assert edge_files.read(CONFIG)["source"] == expected
     assert client.put("/api/admin/cameras/missing", json=edit, headers=admin).status_code == 404
     assert client.put(url, json=edit).status_code == 401
 
 
-def test_camera_snapshot_is_off_by_default_admin_only_and_never_during_a_session(client, db, admin, monkeypatch):
+def test_a_camera_saved_while_urls_were_on_firestore_moves_its_url_to_this_machine(client, db, admin, edge_files):
+    db.document("classes2/c1").set({"class_name": "11B2", "camera_id": "Camera 201"})
+    db.document("cameras/Camera 201").set({"camera_name": "Camera 201", "room_name": "P201", "angle_type": "top_down"})
+    db.document("camera_configs/Camera 201").set({"source": SECRET_URL, "updated_by": "admin-1"})
+
+    edit = {"class_id": "c1", "ip_address": "192.168.1.103", "rtsp_port": "554", "stream_path": "", "username": ""}
+    assert client.put(URL, json=edit, headers=admin).status_code == 200  # không phải nhập lại mật khẩu
+    assert edge_files.read(CONFIG) == {"angle_type": "top_down", "source": SECRET_URL}
+    assert "camera_configs/Camera 201" not in db.docs  # mật khẩu không còn trên Firestore
+
+
+def test_camera_snapshot_is_off_by_default_admin_only_and_never_during_a_session(
+    client, db, admin, monkeypatch, edge_files
+):
     monkeypatch.delenv("CAMERA_SNAPSHOT", raising=False)
     db.document("classes2/c1").set({"class_name": "11B2"})
     assert client.post("/api/admin/cameras", json=CAMERA, headers=admin).status_code == 201
@@ -179,7 +213,7 @@ def test_camera_snapshot_is_off_by_default_admin_only_and_never_during_a_session
     shot = client.get(url, headers=admin)
     assert (shot.status_code, shot.mimetype, shot.data) == (200, "image/jpeg", b"\xff\xd8jpeg")
     assert shot.headers["Cache-Control"] == "no-store"
-    assert opened == [db.docs["camera_configs/Camera 201"]["source"]]
+    assert opened == [edge_files.read(CONFIG)["source"]]
     assert client.get("/api/admin/cameras/missing/snapshot", headers=admin).status_code == 404
 
     db.document("sessions/s1").set({"class_id": "c1", "status": "paused"})
@@ -191,13 +225,14 @@ def test_camera_snapshot_is_off_by_default_admin_only_and_never_during_a_session
     assert failed.status_code == 502 and "khau" not in failed.get_data(as_text=True)
 
 
-def test_camera_status_comes_from_the_edge_heartbeat(client, db, admin):
-    db.document("classes2/c1").set({"class_name": "11B2", "seat_map": {"S01": {"student_id": "an"}}})
+def test_camera_status_comes_from_the_edge_heartbeat(client, db, admin, edge_files):
+    seat_map = {"S01": {"student_id": "hs-an-01"}}
+    db.document("classes2/c1").set({"class_name": "11B2", "camera_id": "Camera 201", "seat_map": seat_map})
     for room in ("201", "202", "203"):
         db.document(f"cameras/Camera {room}").set({"room_name": f"P{room}", "camera_name": f"Camera {room}"})
-    heartbeat(db, "Camera 201", age_sec=5)
-    heartbeat(db, "Camera 202", age_sec=31)  # quá 30 s không gửi: offline
-    heartbeat(db, "Camera 9", age_sec=1, class_id="c9")  # camera AI chưa khai báo trong phòng nào
+    heartbeat(edge_files, "Camera 201", age_sec=5)
+    heartbeat(edge_files, "Camera 202", age_sec=31)  # quá 30 s không gửi: offline
+    heartbeat(edge_files, "Camera 9", age_sec=1)  # heartbeat cũ của camera đã xóa trên web
 
     response = client.get("/api/admin/cameras", headers=admin)
     cameras = {camera["name"]: camera for camera in response.get_json()["cameras"]}
@@ -206,8 +241,8 @@ def test_camera_status_comes_from_the_edge_heartbeat(client, db, admin):
     assert cameras["Camera 201"]["edge"]["status"] == "monitoring"
     assert (cameras["Camera 202"]["status"], cameras["Camera 202"]["edge"]["online"]) == ("offline", False)
     assert (cameras["Camera 203"]["status"], cameras["Camera 203"]["edge"]) == ("offline", None)
-    assert (cameras["Camera 9"]["declared"], cameras["Camera 9"]["status"]) == (False, "online")
-    assert "an" not in str(cameras)  # sơ đồ ghế không đi kèm
+    assert "Camera 9" not in cameras  # camera AI chỉ chạy camera thêm trên web: heartbeat lẻ không thành camera
+    assert "hs-an-01" not in str(cameras)  # sơ đồ ghế không đi kèm
 
 
 def test_classroom_routes_drop_rtsp_urls(client, db, admin):
