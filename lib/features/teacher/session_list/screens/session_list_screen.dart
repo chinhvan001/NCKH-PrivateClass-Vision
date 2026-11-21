@@ -67,6 +67,8 @@ class _SessionListScreenState extends State<SessionListScreen> {
   // Tên lớp theo class_id (classes2.class_name) - cache để không đọc lại
   // Firestore ở mỗi lần snapshot.
   final Map<String, String> _classNameCache = {};
+  // Sĩ số thật của lớp theo class_id (classes2.class_size hoặc đếm seatmap).
+  final Map<String, int> _classSizeCache = {};
   Stream<List<ScheduleItem>>? _schedulesStream;
 
   @override
@@ -122,11 +124,29 @@ class _SessionListScreenState extends State<SessionListScreen> {
           .get();
       for (final d in snap.docs) {
         _classNameCache[d.id] = (d.data()['class_name'] ?? 'Lớp ${d.id}').toString();
+        final size = _classSizeOf(d.data());
+        if (size > 0) _classSizeCache[d.id] = size;
       }
       for (final id in chunk) {
         _classNameCache.putIfAbsent(id, () => 'Lớp $id'); // lớp không tồn tại
       }
     }
+  }
+
+  /// Sĩ số của lớp: ưu tiên `class_size`, nếu không có thì đếm học sinh
+  /// (không trùng) trong seatmap. Cùng cách tính với màn Chi tiết lớp.
+  int _classSizeOf(Map<String, dynamic> data) {
+    final declared = FirestoreParsers.integer(data, ['class_size', 'students']);
+    if (declared > 0) return declared;
+    final raw = data['seatmap'] ?? data['seat_map'];
+    if (raw is! Map) return 0;
+    final ids = <String>{};
+    for (final v in raw.values) {
+      if (v is! Map) continue;
+      final id = FirestoreParsers.cleanId(v['student_id']);
+      if (id != null && id.isNotEmpty) ids.add(id);
+    }
+    return ids.length;
   }
 
   @override
@@ -275,7 +295,8 @@ class _SessionListScreenState extends State<SessionListScreen> {
                                     date: _formatDate(item.startTime),
                                     start: _formatTime(item.startTime),
                                     end: _formatTime(item.endTime),
-                                    size: item.studentCount,
+                                    // Sĩ số thật của lớp, không phải số entry trong session
+                                    size: _classSizeCache[item.classId] ?? item.studentCount,
                                     status: item.status,
                                   ),
                                   onTap: () {

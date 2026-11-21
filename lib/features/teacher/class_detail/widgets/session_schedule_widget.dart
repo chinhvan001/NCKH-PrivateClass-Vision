@@ -7,6 +7,7 @@ import '../controllers/class_detail_controller.dart';
 import '../../session_detail/screens/session_detail_screen.dart';
 import '../../shared/widgets/shared_session_card.dart';
 
+/// Toàn bộ lịch dạy của lớp này do giáo viên đang đăng nhập phụ trách.
 class SessionScheduleWidget extends StatelessWidget {
   final ClassDetailController controller;
   const SessionScheduleWidget({super.key, required this.controller});
@@ -79,4 +80,3 @@ class SessionScheduleWidget extends StatelessWidget {
     );
   }
 }
-

@@ -8,9 +8,7 @@ import 'package:flutter_privateclass_vision/features/parent/utils/app_colors.dar
 import 'package:flutter_privateclass_vision/features/parent/utils/app_text_styles.dart';
 
 // ─── Màu & hằng số dùng riêng cho lịch tuần ─────────────────────────────────
-const Color _kYellow = Color(0xFFFFE08A);
-const Color _kYellowBorder = Color(0xFFF2B705);
-const Color _kYellowText = Color(0xFF7A5600);
+// Có mặt = xanh lá, Vắng = đỏ (thống nhất với Trang chủ và Thông báo)
 
 const List<String> _kWeekdayShort = ['T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'CN'];
 const List<String> _kWeekdayLong = [
@@ -88,6 +86,33 @@ class _SessionHistoryScreenState extends State<SessionHistoryScreen> {
     if (_keyOf(_session.selectedChild) != _loadedKey) _fetch();
   }
 
+  /// Gom các phiên theo ô (ngày + tiết). Nếu có nhiều phiên trùng một ô
+  /// (ví dụ tạo trùng document) thì chọn một phiên theo quy tắc cố định,
+  /// không phụ thuộc thứ tự Firestore trả về.
+  Map<String, StudentSession> _buildIndex(List<StudentSession> list) {
+    final result = <String, StudentSession>{};
+    for (final s in list) {
+      final key = _slotKey(s.date, s.period);
+      final old = result[key];
+      if (old == null) {
+        result[key] = s;
+        continue;
+      }
+      debugPrint('[Lịch] Trùng ô $key: ${old.id} và ${s.id}');
+      result[key] = _preferred(old, s);
+    }
+    return result;
+  }
+
+  StudentSession _preferred(StudentSession a, StudentSession b) {
+    // Ưu tiên phiên có mặt, rồi phiên có điểm tập trung cao hơn
+    if (a.isPresent != b.isPresent) return a.isPresent ? a : b;
+    final sa = a.attentionScore ?? -1;
+    final sb = b.attentionScore ?? -1;
+    if (sa != sb) return sa > sb ? a : b;
+    return a.id.compareTo(b.id) <= 0 ? a : b;
+  }
+
   Future<void> _fetch({bool silent = false}) async {
     final child = _session.selectedChild;
     _loadedKey = _keyOf(child);
@@ -118,7 +143,7 @@ class _SessionHistoryScreenState extends State<SessionHistoryScreen> {
       );
       if (!mounted || token != _token) return;
       setState(() {
-        _index = {for (final s in list) _slotKey(s.date, s.period): s};
+        _index = _buildIndex(list);
         _loading = false;
         _error = null;
       });
@@ -266,12 +291,16 @@ class _SessionHistoryScreenState extends State<SessionHistoryScreen> {
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
               _LegendDot(
-                color: AppColors.accentLight,
-                border: AppColors.primary,
+                color: AppColors.greenLight,
+                border: AppColors.green,
                 label: 'Có mặt',
               ),
               const SizedBox(width: 14),
-              _LegendDot(color: _kYellow, border: _kYellowBorder, label: 'Vắng'),
+              _LegendDot(
+                color: AppColors.redLight,
+                border: AppColors.red,
+                label: 'Vắng',
+              ),
               const SizedBox(width: 14),
               _LegendDot(
                 color: Colors.white,
@@ -473,14 +502,15 @@ class _SessionHistoryScreenState extends State<SessionHistoryScreen> {
       border = AppColors.primary;
       fg = AppColors.primary;
     } else if (s.isAbsentAt(now)) {
-      // Vắng: màu vàng
-      bg = _kYellow;
-      border = _kYellowBorder;
-      fg = _kYellowText;
+      // Vắng: màu đỏ
+      bg = AppColors.redLight;
+      border = AppColors.red.withValues(alpha: 0.45);
+      fg = AppColors.red;
     } else {
-      bg = AppColors.accentLight;
-      border = AppColors.primary.withValues(alpha: 0.35);
-      fg = AppColors.primary;
+      // Có mặt: màu xanh lá
+      bg = AppColors.greenLight;
+      border = AppColors.green.withValues(alpha: 0.45);
+      fg = AppColors.green;
     }
 
     return Material(
@@ -621,8 +651,8 @@ class _SessionDetailDialog extends StatelessWidget {
       statusBg = AppColors.accentLight;
     } else if (absent) {
       statusLabel = 'Vắng mặt';
-      statusColor = _kYellowText;
-      statusBg = _kYellow;
+      statusColor = AppColors.red;
+      statusBg = AppColors.redLight;
     } else {
       statusLabel = 'Có mặt';
       statusColor = AppColors.green;

@@ -53,7 +53,7 @@ class ClassStatsCard extends StatelessWidget {
         Expanded(
           child: _statItem(
             label: 'Tập trung',
-            value: attention > 0 ? '$attention' : '--',
+            value: controller.hasAttentionData ? '$attention' : '--',
             subLabel: 'điểm TB',
             icon: Icons.insights_outlined,
             iconColor: const Color(0xFF7C3AED),

@@ -28,24 +28,10 @@ class ParentService {
         .where('parent_id', isEqualTo: uid)
         .snapshots()
         .asyncMap((snap) async {
-      final docs = {for (final doc in snap.docs) doc.id: doc};
-      // Con chỉ có parent_email (vd. phụ huynh đăng nhập Google ra uid khác tài khoản admin tạo)
-      if (email != null && email.isNotEmpty) {
-        try {
-          final byEmail = await _db
-              .collection('students2')
-              .where('parent_email', isEqualTo: email)
-              .get();
-          for (final doc in byEmail.docs) {
-            docs.putIfAbsent(doc.id, () => doc);
-          }
-        } catch (e) {
-          debugPrint('Không tìm được con theo email: $e'); // Rules chỉ cho đọc theo parent_id
-        }
-      }
       final List<LinkedChild> children = [];
-      for (final doc in docs.values) {
-        children.add(await _buildChild(doc));
+      for (final doc in snap.docs) {
+        final child = await _buildChild(doc);
+        children.add(child);
       }
       children.sort((a, b) => a.name.compareTo(b.name));
       return children;
@@ -202,7 +188,9 @@ class ParentService {
         final seat = _findSeat(data, studentId);
         if (seat == null) continue;
 
-        final (start, end) = _times(data);
+        final start = _parseDateTime(data['start_time']) ??
+            _parseDateTime(data['session_date']);
+        final end = _parseDateTime(data['end_time']);
 
         if (!_hasEnded(data, start, end, now)) continue;
 
@@ -263,7 +251,8 @@ class ParentService {
         final seat = _findSeat(data, studentId);
         if (seat == null) continue;
 
-        final (startTime, endTime) = _times(data);
+        final startTime = _toDate(data['start_time']) ?? _toDate(data['session_date']);
+        final endTime = _toDate(data['end_time']);
 
         final isPresent = seat['is_present'] == true;
         final note = (seat['note'] ?? '').toString().trim();
@@ -335,16 +324,18 @@ class ParentService {
         final seat = _findSeat(data, studentId);
         if (seat == null) continue;
 
-        final (start, end) = _times(data);
+        final start = _parseDateTime(data['start_time']) ??
+            _parseDateTime(data['session_date']);
+        final end = _parseDateTime(data['end_time']);
 
         if (_hasEnded(data, start, end, now)) {
           totalEnded++;
           final isPresent = seat['is_present'] == true;
           if (isPresent) {
             attended++;
-            final score = seat['attention_score'];
-            if (score is num && score > 0) {
-              totalScore += score.toDouble();
+            final score = _readAttention(seat);
+            if (score >= 0) {
+              totalScore += score;
               scoreCount++;
             }
           } else {
@@ -377,7 +368,35 @@ class ParentService {
     }
   }
 
-  /// Lấy thống kê từng môn: giảng viên phụ trách, tổng tiết, tiết có mặt, tiết vắng, điểm tập trung TB và lịch sử từng ngày
+  // false: chỉ đọc các document session có student_id của học sinh này.
+  // true: thêm cả buổi thuộc lớp của em nhưng không liệt kê em (tính là vắng).
+  static const bool _countMissingAsAbsent = false;
+
+  /// Quét toàn bộ sessions: lấy buổi có học sinh trong monitored_students,
+  /// hoặc buổi thuộc lớp của học sinh.
+  Future<List<_SessionHit>> _fetchStudentSessions({
+    required String studentId,
+    required List<String> classIds,
+  }) async {
+    final classSet = classIds.where((e) => e.isNotEmpty).toSet();
+    final snap = await _db.collection('sessions').get();
+    final hits = <_SessionHit>[];
+
+    for (final doc in snap.docs) {
+      final data = doc.data();
+      final seat = _findSeat(data, studentId);
+      if (seat != null) {
+        hits.add(_SessionHit(doc.id, data, seat));
+      } else if (_countMissingAsAbsent &&
+          classSet.contains((data['class_id'] ?? '').toString())) {
+        hits.add(_SessionHit(doc.id, data, const {'is_present': false}));
+      }
+    }
+    return hits;
+  }
+
+  /// Thống kê từng môn: giáo viên, tổng tiết, có mặt, vắng, điểm tập trung TB
+  /// và lịch sử từng ngày.
   Future<OverviewStats> getOverviewStats({
     required String studentId,
     required List<String> classIds,
@@ -387,109 +406,110 @@ class ParentService {
     if (ids.isEmpty) return const OverviewStats();
 
     try {
-      final docs = await _fetchSessionDocs(ids);
+      final hits = await _fetchStudentSessions(
+        studentId: studentId,
+        classIds: ids,
+      );
       final now = DateTime.now();
       final teacherCache = <String, String>{};
 
-      DateTime startDate;
-      if (period == 'Tuần này') {
-        startDate = DateTime(now.year, now.month, now.day - (now.weekday - 1));
-      } else {
-        // Tháng này
-        startDate = DateTime(now.year, now.month, 1);
-      }
+      // 'Tất cả': mọi buổi đã giám sát từ trước đến hiện tại
+      final DateTime? startDate = switch (period) {
+        'Tuần này' => DateTime(now.year, now.month, now.day - (now.weekday - 1)),
+        'Tháng này' => DateTime(now.year, now.month, 1),
+        _ => null,
+      };
 
-      int total = 0;
-      int attended = 0;
-      int unexcused = 0;
+      int total = 0, attended = 0, absent = 0;
+      final records =
+          <String, List<({DateTime time, SubjectDailyFocus rec})>>{};
+      final teachers = <String, String>{};
+      final attendedBy = <String, int>{};
+      final absentBy = <String, int>{};
 
-      final Map<String, List<SubjectDailyFocus>> subjectRecords = {};
-      final Map<String, String> subjectTeachers = {};
-      final Map<String, int> subjectTotalCount = {};
-      final Map<String, int> subjectAttendedCount = {};
-      final Map<String, int> subjectAbsentCount = {};
-
-      for (final doc in docs) {
-        final data = doc.data() as Map<String, dynamic>? ?? {};
-        final seat = _findSeat(data, studentId);
-        if (seat == null) continue;
-
-        final (start, end) = _times(data);
+      for (final h in hits) {
+        final data = h.data;
+        final start = _parseDateTime(data['start_time']) ??
+            _parseDateTime(data['session_date']);
+        final end = _parseDateTime(data['end_time']);
 
         if (!_hasEnded(data, start, end, now)) continue;
-
         final sessionTime = start ?? end ?? now;
-        if (sessionTime.isBefore(startDate)) continue;
+        if (startDate != null && sessionTime.isBefore(startDate)) continue;
 
+        final subject = _subjectOf(h.id, data);
+        final isPresent = h.seat['is_present'] == true;
         total++;
-        final isPresent = seat['is_present'] == true;
-        final subject = _subjectOf(doc.id, data);
-        final periodNum = _toInt(data['period']) ?? 1;
-        final dateStr =
-            '${_two(sessionTime.day)}/${_two(sessionTime.month)}/${sessionTime.year}';
 
-        // Lấy tên giảng viên đứng lớp môn này
         final teacherId = (data['teacher_id'] ?? '').toString();
-        if (teacherId.isNotEmpty && !subjectTeachers.containsKey(subject)) {
-          final tName = await _teacherName(teacherId, teacherCache);
-          if (tName.isNotEmpty) {
-            subjectTeachers[subject] = tName;
-          }
+        if (teacherId.isNotEmpty && !teachers.containsKey(subject)) {
+          final name = await _teacherName(teacherId, teacherCache);
+          if (name.isNotEmpty) teachers[subject] = name;
         }
 
-        subjectRecords.putIfAbsent(subject, () => []);
-        subjectTotalCount[subject] = (subjectTotalCount[subject] ?? 0) + 1;
+        records.putIfAbsent(subject, () => []);
 
         if (isPresent) {
           attended++;
-          subjectAttendedCount[subject] = (subjectAttendedCount[subject] ?? 0) + 1;
-          // Tiết chưa chấm (job báo cáo chưa chạy) có điểm null: không tính thành 0%
-          final score = seat['attention_score'];
-          if (score is num) {
-            subjectRecords[subject]!.add(
-              SubjectDailyFocus(
-                date: dateStr,
-                period: periodNum,
-                percent: score.round().clamp(0, 100),
-                isPresent: true,
-              ),
-            );
-          }
+          attendedBy[subject] = (attendedBy[subject] ?? 0) + 1;
+
+          // -1 = buổi có mặt nhưng chưa đọc được điểm tập trung
+          final int percent = _readAttention(h.seat);
+          debugPrint(
+              '--> [Overview] ${h.id} present, seat=${h.seat} => percent=$percent');
+
+          records[subject]!.add((
+            time: sessionTime,
+            rec: SubjectDailyFocus(
+              date:
+                  '${_two(sessionTime.day)}/${_two(sessionTime.month)}/${sessionTime.year}',
+              period: _toInt(data['period']) ?? 1,
+              percent: percent,
+              isPresent: true,
+            ),
+          ));
         } else {
-          unexcused++;
-          subjectAbsentCount[subject] = (subjectAbsentCount[subject] ?? 0) + 1;
+          absent++;
+          absentBy[subject] = (absentBy[subject] ?? 0) + 1;
         }
       }
 
-      final List<SubjectFocus> subjectsList = [];
-      subjectRecords.forEach((subj, records) {
-        records.sort((a, b) => b.date.compareTo(a.date));
+      // Môn chỉ có buổi vắng vẫn phải hiện
+      for (final s in absentBy.keys) {
+        records.putIfAbsent(s, () => []);
+      }
 
-        final avg = records.isNotEmpty
-            ? records.map((e) => e.percent).reduce((a, b) => a + b) / records.length
-            : 0.0;
+      final subjects = <SubjectFocus>[];
+      records.forEach((subj, items) {
+        items.sort((a, b) => b.time.compareTo(a.time)); // mới nhất trước
+        final list = items.map((e) => e.rec).toList();
 
-        subjectsList.add(
-          SubjectFocus(
-            subject: subj,
-            percent: avg.round().clamp(0, 100),
-            teacherName: subjectTeachers[subj] ?? 'Giảng viên bộ môn',
-            totalSessions: subjectTotalCount[subj] ?? 0,
-            attendedSessions: subjectAttendedCount[subj] ?? 0,
-            absentSessions: subjectAbsentCount[subj] ?? 0,
-            dailyRecords: records,
-          ),
-        );
+        final valid = list.where((r) => r.percent >= 0).toList();
+        final avg = valid.isEmpty
+            ? 0
+            : (valid.map((r) => r.percent).reduce((a, b) => a + b) /
+                    valid.length)
+                .round();
+
+        final a = attendedBy[subj] ?? 0;
+        final b = absentBy[subj] ?? 0;
+        subjects.add(SubjectFocus(
+          subject: subj,
+          percent: avg,
+          teacherName: teachers[subj] ?? 'Giảng viên bộ môn',
+          totalSessions: a + b,
+          attendedSessions: a,
+          absentSessions: b,
+          dailyRecords: list,
+        ));
       });
-
-      subjectsList.sort((a, b) => a.subject.compareTo(b.subject));
+      subjects.sort((a, b) => a.subject.compareTo(b.subject));
 
       return OverviewStats(
-        subjects: subjectsList,
+        subjects: subjects,
         totalSessions: total,
         attendedSessions: attended,
-        excusedAbsences: 0,
-        unexcusedAbsences: unexcused,
+        unexcusedAbsences: absent,
       );
     } catch (e) {
       debugPrint('--> [OverviewStats] Lỗi tính toán: $e');
@@ -601,6 +621,33 @@ class ParentService {
     return null;
   }
 
+  /// Đọc điểm tập trung (0–100) của 1 học sinh trong session.
+  /// Chấp nhận số hoặc chuỗi số, vài tên trường khác nhau, và thang 0–1.
+  /// Trả về -1 nếu chưa có hoặc không đọc được.
+  int _readAttention(Map seat) {
+    const keys = [
+      'attention_score',
+      'attentionScore',
+      'attention',
+      'focus_score',
+      'concentration',
+    ];
+    for (final k in keys) {
+      final v = seat[k];
+      double? n;
+      if (v is num) {
+        n = v.toDouble();
+      } else if (v is String) {
+        n = double.tryParse(v.trim().replaceAll(',', '.').replaceAll('%', ''));
+      }
+      if (n == null) continue;
+      // Điểm dạng phân số (0 < x <= 1, không nguyên) => đổi sang %
+      if (n > 0 && n <= 1 && n != n.roundToDouble()) n = n * 100;
+      return n.round().clamp(0, 100);
+    }
+    return -1;
+  }
+
   static const _endedStatuses = ['completed', 'ended', 'finished', 'done', 'closed'];
 
   bool _hasEnded(
@@ -650,12 +697,7 @@ class ParentService {
     return name;
   }
 
-  /// Giờ bắt đầu/kết thúc của tiết: web ghi "HH:mm" kèm session_date, app ghi Timestamp.
-  (DateTime?, DateTime?) _times(Map<String, dynamic> data) {
-    final date = _parseDateTime(data['session_date']);
-    final start = _parseDateTime(data['start_time'], base: date) ?? date;
-    return (start, _parseDateTime(data['end_time'], base: date ?? start));
-  }
+  DateTime? _toDate(dynamic v) => _parseDateTime(v);
 
   int? _toInt(dynamic v) {
     if (v is num) return v.toInt();
@@ -703,4 +745,11 @@ class ParentService {
     }
     return value?.toString() ?? '';
   }
+}
+
+class _SessionHit {
+  final String id;
+  final Map<String, dynamic> data;
+  final Map seat;
+  const _SessionHit(this.id, this.data, this.seat);
 }

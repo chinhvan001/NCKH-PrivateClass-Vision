@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_privateclass_vision/core/models/parent_model.dart';
 import 'package:flutter_privateclass_vision/core/services/parent_service.dart';
 import 'package:flutter_privateclass_vision/features/parent/controllers/parent_session.dart';
@@ -87,6 +88,56 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 }
 
+// ─── Hàm dùng chung ──────────────────────────────────────────────────────────
+String _two(int v) => v.toString().padLeft(2, '0');
+String _dm(DateTime d) => '${_two(d.day)}/${_two(d.month)}';
+
+Color _levelColor(int p) {
+  if (p >= 80) return AppColors.green;
+  if (p >= 60) return AppColors.orange;
+  return AppColors.red;
+}
+
+String _levelLabel(int p) {
+  if (p >= 80) return 'Tốt';
+  if (p >= 60) return 'Khá';
+  return 'Cần chú ý';
+}
+
+/// Trung bình các buổi có mặt và đã có điểm (percent >= 0).
+/// Trả về null nếu chưa có dữ liệu.
+int? _avgPercent(Iterable<SubjectDailyFocus> records) {
+  final values = records
+      .where((r) => r.isPresent && r.percent >= 0)
+      .map((r) => r.percent)
+      .toList();
+  if (values.isEmpty) return null;
+  return (values.reduce((a, b) => a + b) / values.length).round();
+}
+
+DateTime? _parseDmy(String s) {
+  final p = s.split('/');
+  if (p.length != 3) return null;
+  final d = int.tryParse(p[0]);
+  final m = int.tryParse(p[1]);
+  final y = int.tryParse(p[2]);
+  if (d == null || m == null || y == null) return null;
+  return DateTime(y, m, d);
+}
+
+class _TrendPoint {
+  final DateTime? date;
+  final String label;
+  final int value;
+
+  const _TrendPoint({
+    required this.date,
+    required this.label,
+    required this.value,
+  });
+}
+
+// ─── TRANG CHỦ: TỔNG QUAN ────────────────────────────────────────────────────
 class _HomeContent extends StatefulWidget {
   const _HomeContent();
 
@@ -98,12 +149,14 @@ class _HomeContentState extends State<_HomeContent> {
   final ParentService _parentService = ParentService();
   final ParentSession _session = ParentSession.instance;
 
-  Future<HomeStats>? _statsFuture;
   Future<OverviewStats>? _overviewFuture;
   String? _loadedKey;
 
-  String _selectedPeriod = 'Tuần này';
-  final List<String> _periods = ['Tuần này', 'Tháng này'];
+  String _selectedPeriod = 'Tất cả';
+  final List<String> _periods = const ['Tất cả', 'Tuần này', 'Tháng này'];
+
+  /// null = tất cả môn
+  String? _selectedSubject;
 
   static const List<Color> _palette = [
     AppColors.primary,
@@ -117,7 +170,7 @@ class _HomeContentState extends State<_HomeContent> {
   void initState() {
     super.initState();
     _session.addListener(_onSessionChanged);
-    _loadAllData();
+    _loadOverview();
   }
 
   @override
@@ -126,37 +179,40 @@ class _HomeContentState extends State<_HomeContent> {
     super.dispose();
   }
 
-  String? _keyOf(LinkedChild? child) =>
-      child == null ? null : '${child.id}|${child.classes.map((c) => c.id).join(',')}';
+  String? _keyOf(LinkedChild? child) => child == null
+      ? null
+      : '${child.id}|${child.classes.map((c) => c.id).join(',')}';
 
   void _onSessionChanged() {
     if (!mounted) return;
     if (_keyOf(_session.selectedChild) != _loadedKey) {
-      _loadAllData();
+      setState(() {
+        _selectedSubject = null;
+        _loadOverview();
+      });
     }
   }
 
-  void _loadAllData() {
+  void _loadOverview() {
     final child = _session.selectedChild;
     _loadedKey = _keyOf(child);
-    if (child != null) {
-      final classIds = child.classes.map((c) => c.id).toList();
-      setState(() {
-        _statsFuture = _parentService.getHomeStats(
-          studentId: child.id,
-          classIds: classIds,
-        );
-        _overviewFuture = _parentService.getOverviewStats(
-          studentId: child.id,
-          classIds: classIds,
-          period: _selectedPeriod,
-        );
-      });
-    } else {
-      setState(() {
-        _statsFuture = Future.value(const HomeStats());
-        _overviewFuture = Future.value(const OverviewStats());
-      });
+    _overviewFuture = child == null
+        ? Future.value(const OverviewStats())
+        : _parentService.getOverviewStats(
+            studentId: child.id,
+            classIds: child.classes.map((c) => c.id).toList(),
+            period: _selectedPeriod,
+          );
+  }
+
+  Future<void> _refresh() async {
+    setState(_loadOverview);
+    final f = _overviewFuture;
+    if (f == null) return;
+    try {
+      await f;
+    } catch (_) {
+      // Lỗi đã hiển thị bởi FutureBuilder
     }
   }
 
@@ -164,21 +220,653 @@ class _HomeContentState extends State<_HomeContent> {
     if (_selectedPeriod == period) return;
     setState(() {
       _selectedPeriod = period;
+      _loadOverview();
     });
-    final child = _session.selectedChild;
-    if (child != null) {
-      setState(() {
-        _overviewFuture = _parentService.getOverviewStats(
-          studentId: child.id,
-          classIds: child.classes.map((c) => c.id).toList(),
-          period: _selectedPeriod,
-        );
-      });
-    }
   }
 
-  /// Mở bảng chi tiết độ tập trung từng ngày của môn học được chọn
+  String _periodRange() {
+    final now = DateTime.now();
+    final start = _selectedPeriod == 'Tuần này'
+        ? DateTime(now.year, now.month, now.day - (now.weekday - 1))
+        : DateTime(now.year, now.month, 1);
+    return '${_dm(start)} – ${_dm(now)}';
+  }
+
+  // ── Giao diện ────────────────────────────────────────────────────────────
+  @override
+  Widget build(BuildContext context) {
+    return AnnotatedRegion<SystemUiOverlayStyle>(
+      value: SystemUiOverlayStyle.light,
+      child: RefreshIndicator(
+        onRefresh: _refresh,
+        child: SingleChildScrollView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _buildHeader(context),
+              _buildBody(),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  // ── Header: thông tin học sinh + bộ lọc kỳ ───────────────────────────────
+  Widget _buildHeader(BuildContext context) {
+    final top = MediaQuery.of(context).padding.top;
+    final dark = Color.lerp(AppColors.primary, Colors.black, 0.28)!;
+
+    return Container(
+      width: double.infinity,
+      padding: EdgeInsets.fromLTRB(16, top + 14, 16, 18),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [AppColors.primary, dark],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: const BorderRadius.vertical(bottom: Radius.circular(28)),
+      ),
+      child: ListenableBuilder(
+        listenable: _session,
+        builder: (context, _) {
+          final child = _session.selectedChild;
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  AvatarWidget(
+                    name: child?.name ?? '',
+                    size: 50,
+                    bgColor: Colors.white,
+                    textColor: AppColors.primary,
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          child?.name ?? '',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.w800,
+                            color: Colors.white,
+                          ),
+                        ),
+                        const SizedBox(height: 3),
+                        Row(
+                          children: [
+                            Icon(
+                              Icons.school_rounded,
+                              size: 14,
+                              color: Colors.white.withValues(alpha: 0.85),
+                            ),
+                            const SizedBox(width: 4),
+                            Expanded(
+                              child: Text(
+                                child?.classDisplay ?? '',
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  fontSize: 12.5,
+                                  color: Colors.white.withValues(alpha: 0.85),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                  if (_session.children.length > 1)
+                    _TapScaleWidget(
+                      onTap: () {
+                        showModalBottomSheet(
+                          context: context,
+                          isScrollControlled: true,
+                          backgroundColor: Colors.transparent,
+                          builder: (_) => const SwitchAccountScreen(),
+                        );
+                      },
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 7,
+                        ),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withValues(alpha: 0.18),
+                          borderRadius: BorderRadius.circular(20),
+                          border: Border.all(
+                            color: Colors.white.withValues(alpha: 0.3),
+                          ),
+                        ),
+                        child: const Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(
+                              'Đổi',
+                              style: TextStyle(
+                                fontSize: 12.5,
+                                fontWeight: FontWeight.w700,
+                                color: Colors.white,
+                              ),
+                            ),
+                            SizedBox(width: 3),
+                            Icon(
+                              Icons.swap_horiz_rounded,
+                              size: 16,
+                              color: Colors.white,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+              const SizedBox(height: 18),
+              _buildPeriodSelector(),
+              const SizedBox(height: 8),
+              Center(
+                child: Text(
+                  _selectedPeriod == 'Tất cả'
+                      ? 'Thống kê mọi buổi đã giám sát đến ${_dm(DateTime.now())}'
+                      : 'Thống kê từ ${_periodRange()}',
+                  style: TextStyle(
+                    fontSize: 11.5,
+                    color: Colors.white.withValues(alpha: 0.75),
+                  ),
+                ),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildPeriodSelector() {
+    return Container(
+      padding: const EdgeInsets.all(4),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.16),
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: Row(
+        children: _periods.map((p) {
+          final selected = p == _selectedPeriod;
+          return Expanded(
+            child: GestureDetector(
+              onTap: () => _onPeriodChanged(p),
+              behavior: HitTestBehavior.opaque,
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 200),
+                padding: const EdgeInsets.symmetric(vertical: 9),
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: selected ? Colors.white : Colors.transparent,
+                  borderRadius: BorderRadius.circular(11),
+                ),
+                child: Text(
+                  p,
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                    color: selected ? AppColors.primary : Colors.white,
+                  ),
+                ),
+              ),
+            ),
+          );
+        }).toList(),
+      ),
+    );
+  }
+
+  // ── Nội dung theo dữ liệu ────────────────────────────────────────────────
+  Widget _buildBody() {
+    return FutureBuilder<OverviewStats>(
+      future: _overviewFuture,
+      builder: (context, snap) {
+        if (snap.connectionState == ConnectionState.waiting) {
+          return const Padding(
+            padding: EdgeInsets.symmetric(vertical: 60),
+            child: Center(child: CircularProgressIndicator()),
+          );
+        }
+
+        if (snap.hasError) {
+          return Padding(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              children: [
+                const Icon(
+                  Icons.cloud_off_rounded,
+                  size: 44,
+                  color: AppColors.textSecondary,
+                ),
+                const SizedBox(height: 10),
+                const Text(
+                  'Không tải được dữ liệu',
+                  style: AppTextStyles.heading3,
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  '${snap.error}',
+                  style: AppTextStyles.caption,
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 12),
+                OutlinedButton(onPressed: _refresh, child: const Text('Thử lại')),
+              ],
+            ),
+          );
+        }
+
+        final subjects = (snap.data ?? const OverviewStats()).subjects;
+        final String? selected =
+            subjects.any((s) => s.subject == _selectedSubject)
+                ? _selectedSubject
+                : null;
+        final shown = selected == null
+            ? subjects
+            : subjects.where((s) => s.subject == selected).toList();
+
+        return Padding(
+          padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _buildKpiGrid(shown),
+              const SizedBox(height: 16),
+              if (subjects.isNotEmpty) ...[
+                _buildSubjectChips(subjects, selected),
+                const SizedBox(height: 14),
+              ],
+              _buildTrendCard(shown, selected),
+              const SizedBox(height: 18),
+              Row(
+                children: [
+                  const Expanded(
+                    child: Text('Môn học', style: AppTextStyles.heading3),
+                  ),
+                  Text('${shown.length} môn', style: AppTextStyles.caption),
+                ],
+              ),
+              const SizedBox(height: 10),
+              if (shown.isEmpty)
+                AppCard(
+                  child: Center(
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 16),
+                      child: Text(
+                        'Chưa có dữ liệu buổi học trong kỳ này',
+                        style: AppTextStyles.caption,
+                      ),
+                    ),
+                  ),
+                )
+              else
+                ...shown.map(
+                  (item) {
+                    final color =
+                        _palette[subjects.indexOf(item) % _palette.length];
+                    return Padding(
+                      padding: const EdgeInsets.only(bottom: 12),
+                      child: _buildSubjectCard(item, color),
+                    );
+                  },
+                ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  // ── 4 thẻ KPI ────────────────────────────────────────────────────────────
+  Widget _buildKpiGrid(List<SubjectFocus> shown) {
+    final records = shown.expand((s) => s.dailyRecords).toList();
+    final avg = _avgPercent(records);
+    final attended = shown.fold<int>(0, (a, s) => a + s.attendedSessions);
+    final absent = shown.fold<int>(0, (a, s) => a + s.absentSessions);
+    final total = attended + absent;
+    final rate = total > 0 ? (attended * 100 / total).round() : null;
+
+    SubjectFocus? best;
+    int bestAvg = -1;
+    for (final s in shown) {
+      final a = _avgPercent(s.dailyRecords);
+      if (a != null && a > bestAvg) {
+        best = s;
+        bestAvg = a;
+      }
+    }
+
+    return Column(
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: _KpiCard(
+                icon: Icons.track_changes_rounded,
+                color: avg != null ? _levelColor(avg) : AppColors.textSecondary,
+                label: 'Tập trung trung bình',
+                value: avg != null ? '$avg%' : '--',
+                sub: avg != null ? _levelLabel(avg) : 'Chưa có dữ liệu',
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: _KpiCard(
+                icon: Icons.emoji_events_rounded,
+                color: AppColors.primary,
+                label: 'Môn tập trung nhất',
+                value: best != null ? best.subject : '--',
+                sub: best != null ? '$bestAvg%' : 'Chưa có dữ liệu',
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        Row(
+          children: [
+            Expanded(
+              child: _KpiCard(
+                icon: Icons.check_circle_rounded,
+                color: AppColors.green,
+                label: 'Số buổi có mặt',
+                value: '$attended',
+                sub: 'trên $total buổi',
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: _KpiCard(
+                icon: Icons.cancel_rounded,
+                color: AppColors.red,
+                label: 'Số buổi vắng',
+                value: '$absent',
+                sub: rate != null ? 'Chuyên cần $rate%' : 'Chưa có dữ liệu',
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  // ── Chip lọc môn ─────────────────────────────────────────────────────────
+  Widget _buildSubjectChips(List<SubjectFocus> subjects, String? selected) {
+    final names = <String>['Tất cả môn', ...subjects.map((s) => s.subject)];
+    return SizedBox(
+      height: 36,
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        itemCount: names.length,
+        separatorBuilder: (context, index) => const SizedBox(width: 8),
+        itemBuilder: (context, i) {
+          final isAll = i == 0;
+          final name = names[i];
+          final active = isAll ? selected == null : selected == name;
+          return GestureDetector(
+            onTap: () => setState(() => _selectedSubject = isAll ? null : name),
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 180),
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                color: active ? AppColors.primary : Colors.white,
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(
+                  color: active ? AppColors.primary : AppColors.divider,
+                ),
+              ),
+              child: Text(
+                name,
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  color: active ? Colors.white : AppColors.textSecondary,
+                ),
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  // ── Biểu đồ xu hướng ─────────────────────────────────────────────────────
+  Widget _buildTrendCard(List<SubjectFocus> shown, String? selected) {
+    final Map<String, List<int>> byDate = {};
+    for (final s in shown) {
+      for (final r in s.dailyRecords) {
+        if (r.isPresent && r.percent >= 0) {
+          byDate.putIfAbsent(r.date, () => []).add(r.percent);
+        }
+      }
+    }
+
+    final points = byDate.entries.map((e) {
+      final d = _parseDmy(e.key);
+      final v = (e.value.reduce((a, b) => a + b) / e.value.length).round();
+      return _TrendPoint(
+        date: d,
+        label: d != null ? _dm(d) : e.key,
+        value: v,
+      );
+    }).toList();
+
+    points.sort((a, b) {
+      final x = a.date;
+      final y = b.date;
+      if (x == null || y == null) return 0;
+      return x.compareTo(y);
+    });
+    final visible =
+        points.length > 14 ? points.sublist(points.length - 14) : points;
+
+    return AppCard(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(7),
+                decoration: BoxDecoration(
+                  color: AppColors.accentLight,
+                  borderRadius: BorderRadius.circular(9),
+                ),
+                child: const Icon(
+                  Icons.show_chart_rounded,
+                  size: 18,
+                  color: AppColors.primary,
+                ),
+              ),
+              const SizedBox(width: 10),
+              const Expanded(
+                child: Text(
+                  'Xu hướng tập trung',
+                  style: AppTextStyles.heading3,
+                ),
+              ),
+              Text(selected ?? 'Tất cả môn', style: AppTextStyles.caption),
+            ],
+          ),
+          const SizedBox(height: 16),
+          if (visible.isEmpty)
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 28),
+              child: Center(
+                child: Text(
+                  'Chưa có dữ liệu tập trung trong kỳ này',
+                  style: AppTextStyles.caption,
+                ),
+              ),
+            )
+          else
+            _TrendChart(points: visible),
+        ],
+      ),
+    );
+  }
+
+  // ── Thẻ từng môn ─────────────────────────────────────────────────────────
+  Widget _buildSubjectCard(SubjectFocus item, Color color) {
+    final avg = _avgPercent(item.dailyRecords);
+    final rate = item.totalSessions > 0
+        ? (item.attendedSessions * 100 / item.totalSessions).round()
+        : 0;
+    final levelColor = avg != null ? _levelColor(avg) : AppColors.textSecondary;
+
+    return AppCard(
+      padding: const EdgeInsets.all(16),
+      onTap: () => _showSubjectDailyDetail(item, color),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 42,
+                height: 42,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: color.withValues(alpha: 0.14),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Text(
+                  item.subject.isNotEmpty ? item.subject[0].toUpperCase() : '?',
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.w800,
+                    color: color,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      item.subject,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: AppTextStyles.heading3,
+                    ),
+                    const SizedBox(height: 2),
+                    Row(
+                      children: [
+                        const Icon(
+                          Icons.person_outline_rounded,
+                          size: 14,
+                          color: AppColors.textSecondary,
+                        ),
+                        const SizedBox(width: 4),
+                        Expanded(
+                          child: Text(
+                            item.teacherName,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: AppTextStyles.caption,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                decoration: BoxDecoration(
+                  color: levelColor.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Text(
+                  avg != null ? '$avg% · ${_levelLabel(avg)}' : 'Chưa có điểm',
+                  style: TextStyle(
+                    fontSize: 11.5,
+                    fontWeight: FontWeight.w700,
+                    color: levelColor,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(6),
+            child: LinearProgressIndicator(
+              value: (avg ?? 0) / 100.0,
+              minHeight: 8,
+              backgroundColor: AppColors.backgroundGrey,
+              valueColor: AlwaysStoppedAnimation<Color>(levelColor),
+            ),
+          ),
+          const SizedBox(height: 14),
+          Container(
+            padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 8),
+            decoration: BoxDecoration(
+              color: AppColors.backgroundGrey,
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Row(
+              children: [
+                Expanded(
+                  child: _MiniStat(
+                    label: 'Có mặt',
+                    value: '${item.attendedSessions}',
+                    color: AppColors.green,
+                  ),
+                ),
+                Expanded(
+                  child: _MiniStat(
+                    label: 'Vắng',
+                    value: '${item.absentSessions}',
+                    color: AppColors.red,
+                  ),
+                ),
+                Expanded(
+                  child: _MiniStat(
+                    label: 'Chuyên cần',
+                    value: '$rate%',
+                    color: AppColors.primary,
+                  ),
+                ),
+                const Icon(
+                  Icons.chevron_right_rounded,
+                  color: AppColors.textSecondary,
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ── Chi tiết tập trung từng ngày của một môn ─────────────────────────────
   void _showSubjectDailyDetail(SubjectFocus item, Color color) {
+    final avg = _avgPercent(item.dailyRecords);
+    final records = [...item.dailyRecords];
+    records.sort((a, b) {
+      final x = _parseDmy(a.date);
+      final y = _parseDmy(b.date);
+      if (x == null || y == null) return 0;
+      final c = y.compareTo(x);
+      return c != 0 ? c : b.period.compareTo(a.period);
+    });
+
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -188,9 +876,9 @@ class _HomeContentState extends State<_HomeContent> {
       ),
       builder: (context) {
         return DraggableScrollableSheet(
-          initialChildSize: 0.55,
+          initialChildSize: 0.6,
           minChildSize: 0.35,
-          maxChildSize: 0.85,
+          maxChildSize: 0.9,
           expand: false,
           builder: (_, scrollController) {
             return Padding(
@@ -210,7 +898,6 @@ class _HomeContentState extends State<_HomeContent> {
                   ),
                   const SizedBox(height: 16),
                   Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
                       Expanded(
                         child: Column(
@@ -238,7 +925,7 @@ class _HomeContentState extends State<_HomeContent> {
                           borderRadius: BorderRadius.circular(20),
                         ),
                         child: Text(
-                          'TB: ${item.percent}%',
+                          avg != null ? 'TB: $avg%' : 'Chưa có điểm',
                           style: TextStyle(
                             fontSize: 13,
                             fontWeight: FontWeight.bold,
@@ -248,59 +935,59 @@ class _HomeContentState extends State<_HomeContent> {
                       ),
                     ],
                   ),
-                  const SizedBox(height: 16),
+                  const SizedBox(height: 14),
                   const Divider(height: 1),
                   const SizedBox(height: 12),
                   Expanded(
-                    child: item.dailyRecords.isEmpty
+                    child: records.isEmpty
                         ? const Center(
                             child: Text(
-                              'Chưa có dữ liệu tập trung từng ngày cho môn này',
+                              'Chưa có dữ liệu từng ngày cho môn này',
                               style: AppTextStyles.caption,
                             ),
                           )
                         : ListView.separated(
                             controller: scrollController,
-                            itemCount: item.dailyRecords.length,
-                            separatorBuilder: (_, __) =>
+                            itemCount: records.length,
+                            separatorBuilder: (context, index) =>
                                 const SizedBox(height: 10),
                             itemBuilder: (context, idx) {
-                              final record = item.dailyRecords[idx];
+                              final r = records[idx];
+                              final has = r.percent >= 0;
+                              final c = has
+                                  ? _levelColor(r.percent)
+                                  : AppColors.textSecondary;
                               return Container(
                                 padding: const EdgeInsets.all(12),
                                 decoration: BoxDecoration(
                                   color: AppColors.backgroundGrey,
-                                  borderRadius: BorderRadius.circular(10),
+                                  borderRadius: BorderRadius.circular(12),
                                 ),
                                 child: Column(
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
                                     Row(
-                                      mainAxisAlignment:
-                                          MainAxisAlignment.spaceBetween,
                                       children: [
-                                        Row(
-                                          children: [
-                                            Icon(
-                                              Icons.calendar_today_rounded,
-                                              size: 14,
-                                              color: color,
+                                        Icon(
+                                          Icons.calendar_today_rounded,
+                                          size: 14,
+                                          color: color,
+                                        ),
+                                        const SizedBox(width: 6),
+                                        Expanded(
+                                          child: Text(
+                                            '${r.date} · Tiết ${r.period}',
+                                            style: AppTextStyles.body2.copyWith(
+                                              fontWeight: FontWeight.w600,
                                             ),
-                                            const SizedBox(width: 6),
-                                            Text(
-                                              '${record.date} · Tiết ${record.period}',
-                                              style: AppTextStyles.body2.copyWith(
-                                                fontWeight: FontWeight.w600,
-                                              ),
-                                            ),
-                                          ],
+                                          ),
                                         ),
                                         Text(
-                                          '${record.percent}%',
+                                          has ? '${r.percent}%' : '--',
                                           style: TextStyle(
                                             fontSize: 14,
                                             fontWeight: FontWeight.bold,
-                                            color: color,
+                                            color: c,
                                           ),
                                         ),
                                       ],
@@ -309,11 +996,11 @@ class _HomeContentState extends State<_HomeContent> {
                                     ClipRRect(
                                       borderRadius: BorderRadius.circular(6),
                                       child: LinearProgressIndicator(
-                                        value: record.percent / 100.0,
+                                        value: (r.percent < 0 ? 0 : r.percent) / 100.0,
                                         minHeight: 7,
                                         backgroundColor: Colors.white,
                                         valueColor:
-                                            AlwaysStoppedAnimation<Color>(color),
+                                            AlwaysStoppedAnimation<Color>(c),
                                       ),
                                     ),
                                   ],
@@ -330,637 +1017,184 @@ class _HomeContentState extends State<_HomeContent> {
       },
     );
   }
-
-  @override
-  Widget build(BuildContext context) {
-    return FutureBuilder<HomeStats>(
-      future: _statsFuture,
-      builder: (context, snapshot) {
-        final stats = snapshot.data ?? const HomeStats();
-
-        return SafeArea(
-          child: RefreshIndicator(
-            onRefresh: () async => _loadAllData(),
-            child: SingleChildScrollView(
-              physics: const AlwaysScrollableScrollPhysics(),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const SizedBox(height: 12),
-                  // ── Thông tin học sinh (thay cho tiêu đề "Lớp học của con") ─
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 16),
-                    child: AppCard(
-                      padding: const EdgeInsets.all(16),
-                      child:
-                        ListenableBuilder(
-                          listenable: _session,
-                          builder: (context, _) {
-                            final child = _session.selectedChild;
-                            return Row(
-                              children: [
-                                AvatarWidget(name: child?.name ?? '', size: 46),
-                                const SizedBox(width: 12),
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    children: [
-                                      Text(
-                                        child?.name ?? '',
-                                        style: AppTextStyles.heading3,
-                                      ),
-                                      const SizedBox(height: 2),
-                                      Text(
-                                        child?.classDisplay ?? '',
-                                        style: AppTextStyles.caption,
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                                if (_session.children.length > 1)
-                                  _TapScaleWidget(
-                                    onTap: () {
-                                      showModalBottomSheet(
-                                        context: context,
-                                        isScrollControlled: true,
-                                        backgroundColor: Colors.transparent,
-                                        builder: (_) => const SwitchAccountScreen(),
-                                      );
-                                    },
-                                    child: Container(
-                                      padding: const EdgeInsets.symmetric(
-                                        horizontal: 10,
-                                        vertical: 6,
-                                      ),
-                                      decoration: BoxDecoration(
-                                        color: AppColors.accentLight,
-                                        borderRadius: BorderRadius.circular(20),
-                                      ),
-                                      child: const Row(
-                                        mainAxisSize: MainAxisSize.min,
-                                        children: [
-                                          Text(
-                                            'Đổi',
-                                            style: TextStyle(
-                                              fontSize: 12,
-                                              fontWeight: FontWeight.w600,
-                                              color: AppColors.primary,
-                                            ),
-                                          ),
-                                          SizedBox(width: 2),
-                                          Icon(
-                                            Icons.swap_horiz_rounded,
-                                            color: AppColors.primary,
-                                            size: 16,
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                  ),
-                              ],
-                            );
-                          },
-                        ),
-                    ),
-                  ),
-                  const SizedBox(height: 14),
-
-                  // ── Thẻ mức độ tập trung & chuyên cần ─
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 16),
-                    child: AppCard(
-                      padding: const EdgeInsets.all(16),
-                      child: Column(
-                        children: [
-
-                          // ── KHỐI MỨC ĐỘ TẬP TRUNG CĂN GIỮA ────────────────
-                          Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              SizedBox(
-                                width: 92,
-                                height: 92,
-                                child: Stack(
-                                  alignment: Alignment.center,
-                                  children: [
-                                    SizedBox(
-                                      width: 92,
-                                      height: 92,
-                                      child: CircularProgressIndicator(
-                                        value: stats.attentionPercent / 100,
-                                        strokeWidth: 8,
-                                        strokeCap: StrokeCap.round,
-                                        backgroundColor: AppColors.accentLight,
-                                        valueColor:
-                                            const AlwaysStoppedAnimation<Color>(
-                                          AppColors.primary,
-                                        ),
-                                      ),
-                                    ),
-                                    Column(
-                                      mainAxisSize: MainAxisSize.min,
-                                      children: [
-                                        Text(
-                                          '${stats.attentionPercent}%',
-                                          style: const TextStyle(
-                                            fontSize: 22,
-                                            fontWeight: FontWeight.bold,
-                                            color: AppColors.primary,
-                                          ),
-                                        ),
-                                        const Text(
-                                          'Tập trung',
-                                          style: TextStyle(
-                                            fontSize: 11,
-                                            color: AppColors.textSecondary,
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ],
-                                ),
-                              ),
-                              const SizedBox(height: 10),
-                              const Text(
-                                'Mức độ tập trung trung bình',
-                                style: TextStyle(
-                                  fontSize: 14,
-                                  fontWeight: FontWeight.w600,
-                                  color: AppColors.textPrimary,
-                                ),
-                              ),
-                            ],
-                          ),
-
-                          const SizedBox(height: 16),
-
-                          // ── Chỉ giữ 2 thẻ gọn: Đã tham gia & Vắng ─────────
-                          Row(
-                            children: [
-                              Expanded(
-                                child: Container(
-                                  padding: const EdgeInsets.symmetric(
-                                    vertical: 10,
-                                    horizontal: 12,
-                                  ),
-                                  decoration: BoxDecoration(
-                                    color: AppColors.greenLight,
-                                    borderRadius: BorderRadius.circular(10),
-                                  ),
-                                  child: Row(
-                                    mainAxisAlignment: MainAxisAlignment.center,
-                                    children: [
-                                      const Icon(
-                                        Icons.check_circle_rounded,
-                                        color: AppColors.green,
-                                        size: 18,
-                                      ),
-                                      const SizedBox(width: 6),
-                                      Text(
-                                        'Có mặt: ${stats.attended} buổi',
-                                        style: const TextStyle(
-                                          fontSize: 13,
-                                          fontWeight: FontWeight.w600,
-                                          color: AppColors.green,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              ),
-                              const SizedBox(width: 10),
-                              Expanded(
-                                child: Container(
-                                  padding: const EdgeInsets.symmetric(
-                                    vertical: 10,
-                                    horizontal: 12,
-                                  ),
-                                  decoration: BoxDecoration(
-                                    color: AppColors.redLight,
-                                    borderRadius: BorderRadius.circular(10),
-                                  ),
-                                  child: Row(
-                                    mainAxisAlignment: MainAxisAlignment.center,
-                                    children: [
-                                      const Icon(
-                                        Icons.cancel_rounded,
-                                        color: AppColors.red,
-                                        size: 18,
-                                      ),
-                                      const SizedBox(width: 6),
-                                      Text(
-                                        'Vắng: ${stats.unexcusedAbsence} buổi',
-                                        style: const TextStyle(
-                                          fontSize: 13,
-                                          fontWeight: FontWeight.w600,
-                                          color: AppColors.red,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-
-                  const SizedBox(height: 14),
-
-                  // ── KHỐI MỨC ĐỘ TẬP TRUNG THEO MÔN (TUẦN / THÁNG) ─────────
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 16),
-                    child: FutureBuilder<OverviewStats>(
-                      future: _overviewFuture,
-                      builder: (context, ovSnapshot) {
-                        final ovStats =
-                            ovSnapshot.data ?? const OverviewStats();
-
-                        return AppCard(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Row(
-                                mainAxisAlignment:
-                                    MainAxisAlignment.spaceBetween,
-                                children: [
-                                  const Expanded(
-                                    child: Text(
-                                      'Mức độ tập trung theo môn',
-                                      style: AppTextStyles.heading3,
-                                    ),
-                                  ),
-                                  GestureDetector(
-                                    onTap: () {
-                                      Navigator.push(
-                                        context,
-                                        _slideRoute(
-                                          _SubjectDetailListScreen(
-                                            subjects: ovStats.subjects,
-                                            periodLabel: _selectedPeriod,
-                                            onSelectSubject: (item, color) =>
-                                                _showSubjectDailyDetail(
-                                              item,
-                                              color,
-                                            ),
-                                          ),
-                                        ),
-                                      );
-                                    },
-                                    child: const Text(
-                                      'Chi tiết >',
-                                      style: AppTextStyles.linkText,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                              const SizedBox(height: 12),
-
-                              // Thanh chọn Tuần này / Tháng này
-                              Container(
-                                padding: const EdgeInsets.all(3),
-                                decoration: BoxDecoration(
-                                  color: AppColors.backgroundGrey,
-                                  borderRadius: BorderRadius.circular(9),
-                                ),
-                                child: Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: _periods.map((p) {
-                                    final selected = p == _selectedPeriod;
-                                    return GestureDetector(
-                                      onTap: () => _onPeriodChanged(p),
-                                      child: Container(
-                                        padding: const EdgeInsets.symmetric(
-                                          horizontal: 16,
-                                          vertical: 6,
-                                        ),
-                                        decoration: BoxDecoration(
-                                          color: selected
-                                              ? AppColors.primary
-                                              : Colors.transparent,
-                                          borderRadius:
-                                              BorderRadius.circular(7),
-                                        ),
-                                        child: Text(
-                                          p,
-                                          style: TextStyle(
-                                            fontSize: 12,
-                                            fontWeight: FontWeight.w600,
-                                            color: selected
-                                                ? Colors.white
-                                                : AppColors.textSecondary,
-                                          ),
-                                        ),
-                                      ),
-                                    );
-                                  }).toList(),
-                                ),
-                              ),
-                              const SizedBox(height: 14),
-
-                              if (ovSnapshot.connectionState ==
-                                  ConnectionState.waiting)
-                                const Padding(
-                                  padding: EdgeInsets.symmetric(vertical: 24),
-                                  child: Center(
-                                    child: CircularProgressIndicator(),
-                                  ),
-                                )
-                              else if (ovStats.subjects.isEmpty)
-                                const Padding(
-                                  padding: EdgeInsets.symmetric(vertical: 16),
-                                  child: Center(
-                                    child: Text(
-                                      'Chưa có dữ liệu môn học trong khoảng thời gian này',
-                                      style: AppTextStyles.caption,
-                                    ),
-                                  ),
-                                )
-                              else
-                                Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    const Text(
-                                      'Chạm vào môn học để xem độ tập trung từng ngày',
-                                      style: AppTextStyles.caption,
-                                    ),
-                                    const SizedBox(height: 10),
-                                    ...ovStats.subjects
-                                        .asMap()
-                                        .entries
-                                        .map((entry) {
-                                      final index = entry.key;
-                                      final item = entry.value;
-                                      final color =
-                                          _palette[index % _palette.length];
-                                      return InkWell(
-                                        onTap: () => _showSubjectDailyDetail(
-                                          item,
-                                          color,
-                                        ),
-                                        borderRadius: BorderRadius.circular(8),
-                                        child: Padding(
-                                          padding: const EdgeInsets.symmetric(
-                                            vertical: 5,
-                                          ),
-                                          child: Row(
-                                            children: [
-                                              Expanded(
-                                                child: SubjectProgressBar(
-                                                  subject: item.subject,
-                                                  percent: item.percent,
-                                                  color: color,
-                                                ),
-                                              ),
-                                              const SizedBox(width: 6),
-                                              const Icon(
-                                                Icons.chevron_right_rounded,
-                                                size: 20,
-                                                color: AppColors.textSecondary,
-                                              ),
-                                            ],
-                                          ),
-                                        ),
-                                      );
-                                    }),
-                                  ],
-                                ),
-                            ],
-                          ),
-                        );
-                      },
-                    ),
-                  ),
-
-                  const SizedBox(height: 24),
-                ],
-              ),
-            ),
-          ),
-        );
-      },
-    );
-  }
 }
 
-// ─── MÀN HÌNH CHI TIẾT TỪNG MÔN HỌC (BẤM "CHI TIẾT >") ──────────────────────
-class _SubjectDetailListScreen extends StatelessWidget {
-  final List<SubjectFocus> subjects;
-  final String periodLabel;
-  final void Function(SubjectFocus item, Color color) onSelectSubject;
-
-  const _SubjectDetailListScreen({
-    required this.subjects,
-    required this.periodLabel,
-    required this.onSelectSubject,
-  });
-
-  static const List<Color> _palette = [
-    AppColors.primary,
-    AppColors.green,
-    AppColors.orange,
-    AppColors.red,
-    AppColors.accent,
-  ];
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: AppColors.backgroundGrey,
-      appBar: AppBar(
-        backgroundColor: Colors.white,
-        elevation: 0,
-        leading: IconButton(
-          icon: const Icon(
-            Icons.arrow_back_ios,
-            color: AppColors.textPrimary,
-            size: 20,
-          ),
-          onPressed: () => Navigator.pop(context),
-        ),
-        title: Text(
-          'Chi tiết môn học ($periodLabel)',
-          style: AppTextStyles.heading2,
-        ),
-      ),
-      body: subjects.isEmpty
-          ? const Center(
-              child: Text(
-                'Chưa có dữ liệu môn học trong khoảng thời gian này',
-                style: AppTextStyles.caption,
-              ),
-            )
-          : ListView.separated(
-              padding: const EdgeInsets.all(16),
-              itemCount: subjects.length,
-              separatorBuilder: (_, __) => const SizedBox(height: 12),
-              itemBuilder: (context, index) {
-                final item = subjects[index];
-                final color = _palette[index % _palette.length];
-
-                return InkWell(
-                  onTap: () => onSelectSubject(item, color),
-                  borderRadius: BorderRadius.circular(14),
-                  child: AppCard(
-                    padding: const EdgeInsets.all(16),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        // Hàng 1: Tên môn + Badge % tập trung
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            Row(
-                              children: [
-                                Container(
-                                  width: 10,
-                                  height: 10,
-                                  decoration: BoxDecoration(
-                                    color: color,
-                                    shape: BoxShape.circle,
-                                  ),
-                                ),
-                                const SizedBox(width: 8),
-                                Text(
-                                  item.subject,
-                                  style: AppTextStyles.heading3,
-                                ),
-                              ],
-                            ),
-                            Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 10,
-                                vertical: 4,
-                              ),
-                              decoration: BoxDecoration(
-                                color: color.withValues(alpha: 0.12),
-                                borderRadius: BorderRadius.circular(20),
-                              ),
-                              child: Text(
-                                'Tập trung: ${item.percent}%',
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.bold,
-                                  color: color,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 6),
-
-                        // Hàng 2: Giảng viên phụ trách
-                        Row(
-                          children: [
-                            const Icon(
-                              Icons.person_outline_rounded,
-                              size: 16,
-                              color: AppColors.textSecondary,
-                            ),
-                            const SizedBox(width: 6),
-                            Text(
-                              'GV phụ trách: ${item.teacherName}',
-                              style: AppTextStyles.body2.copyWith(
-                                color: AppColors.textSecondary,
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 12),
-
-                        // Thanh tiến độ tập trung
-                        ClipRRect(
-                          borderRadius: BorderRadius.circular(6),
-                          child: LinearProgressIndicator(
-                            value: item.percent / 100.0,
-                            minHeight: 7,
-                            backgroundColor: AppColors.backgroundGrey,
-                            valueColor: AlwaysStoppedAnimation<Color>(color),
-                          ),
-                        ),
-                        const SizedBox(height: 12),
-                        const Divider(height: 1, color: AppColors.divider),
-                        const SizedBox(height: 10),
-
-                        // Hàng 3: Số tiết, có mặt, số tiết vắng
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            _MiniMetric(
-                              label: 'Tổng số tiết',
-                              value: '${item.totalSessions} tiết',
-                              valueColor: AppColors.textPrimary,
-                            ),
-                            _MiniMetric(
-                              label: 'Có mặt',
-                              value: '${item.attendedSessions} tiết',
-                              valueColor: AppColors.green,
-                            ),
-                            _MiniMetric(
-                              label: 'Số tiết vắng',
-                              value: '${item.absentSessions} tiết',
-                              valueColor: AppColors.red,
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
-                  ),
-                );
-              },
-            ),
-    );
-  }
-}
-
-class _MiniMetric extends StatelessWidget {
+// ─── Thẻ KPI ─────────────────────────────────────────────────────────────────
+class _KpiCard extends StatelessWidget {
+  final IconData icon;
+  final Color color;
   final String label;
   final String value;
-  final Color valueColor;
+  final String sub;
 
-  const _MiniMetric({
+  const _KpiCard({
+    required this.icon,
+    required this.color,
     required this.label,
     required this.value,
-    required this.valueColor,
+    required this.sub,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x0F000000),
+            blurRadius: 8,
+            offset: Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 36,
+            height: 36,
+            decoration: BoxDecoration(
+              color: color.withValues(alpha: 0.13),
+              borderRadius: BorderRadius.circular(11),
+            ),
+            child: Icon(icon, size: 20, color: color),
+          ),
+          const SizedBox(height: 12),
+          Text(
+            value,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              fontSize: 22,
+              fontWeight: FontWeight.w800,
+              color: AppColors.textPrimary,
+            ),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            label,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: AppTextStyles.caption,
+          ),
+          const SizedBox(height: 3),
+          Text(
+            sub,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              fontSize: 11.5,
+              fontWeight: FontWeight.w600,
+              color: color,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ─── Biểu đồ cột xu hướng tập trung ──────────────────────────────────────────
+class _TrendChart extends StatelessWidget {
+  final List<_TrendPoint> points;
+
+  const _TrendChart({required this.points});
+
+  static const double _barArea = 96;
+
+  Widget _bar(_TrendPoint p) {
+    final color = _levelColor(p.value);
+    final h = (_barArea * p.value / 100).clamp(6.0, _barArea).toDouble();
+    return Column(
+      mainAxisAlignment: MainAxisAlignment.end,
+      children: [
+        Text(
+          '${p.value}',
+          style: TextStyle(
+            fontSize: 10.5,
+            fontWeight: FontWeight.w700,
+            color: color,
+          ),
+        ),
+        const SizedBox(height: 4),
+        Container(
+          width: 18,
+          height: h,
+          decoration: BoxDecoration(
+            color: color,
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(6)),
+          ),
+        ),
+        const SizedBox(height: 6),
+        Text(
+          p.label,
+          style: const TextStyle(fontSize: 10, color: AppColors.textSecondary),
+        ),
+      ],
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final few = points.length <= 8;
+    final bars = points
+        .map<Widget>(
+          (p) => few
+              ? Expanded(child: _bar(p))
+              : SizedBox(width: 44, child: _bar(p)),
+        )
+        .toList();
+
+    return SizedBox(
+      height: _barArea + 54,
+      child: few
+          ? Row(crossAxisAlignment: CrossAxisAlignment.end, children: bars)
+          : SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: bars,
+              ),
+            ),
+    );
+  }
+}
+
+// ─── Chỉ số nhỏ trong thẻ môn ────────────────────────────────────────────────
+class _MiniStat extends StatelessWidget {
+  final String label;
+  final String value;
+  final Color color;
+
+  const _MiniStat({
+    required this.label,
+    required this.value,
+    required this.color,
   });
 
   @override
   Widget build(BuildContext context) {
     return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(label, style: AppTextStyles.caption),
-        const SizedBox(height: 2),
         Text(
           value,
           style: TextStyle(
-            fontSize: 13,
-            fontWeight: FontWeight.bold,
-            color: valueColor,
+            fontSize: 16,
+            fontWeight: FontWeight.w800,
+            color: color,
           ),
         ),
+        const SizedBox(height: 2),
+        Text(label, style: AppTextStyles.caption),
       ],
     );
   }
 }
 
-// ─── Helpers ───────────────────────────────────────────────────────────────────
-Route<void> _slideRoute(Widget page) {
-  return PageRouteBuilder(
-    pageBuilder: (_, __, ___) => page,
-    transitionsBuilder: (_, anim, __, child) => SlideTransition(
-      position: Tween(
-        begin: const Offset(1, 0),
-        end: Offset.zero,
-      ).animate(CurvedAnimation(parent: anim, curve: Curves.easeOutCubic)),
-      child: child,
-    ),
-    transitionDuration: const Duration(milliseconds: 280),
-  );
-}
-
+// ─── Hiệu ứng nhấn nút ───────────────────────────────────────────────────────
 class _TapScaleWidget extends StatefulWidget {
   final Widget child;
   final VoidCallback onTap;

@@ -74,13 +74,22 @@ class ClassDetailController extends ChangeNotifier {
         'online';
   }
 
+  /// Các buổi đã kết thúc của lớp (từ trước đến giờ).
+  List<SessionModel> get _endedSessions =>
+      _sessions.where((s) => s.isEnded).toList();
+
+  bool get hasAttentionData => _endedSessions.isNotEmpty;
+
+  /// Độ tập trung TB của lớp: trung bình `class_attention_score`
+  /// của TẤT CẢ các buổi đã kết thúc từ trước đến giờ.
   double get avgAttentionScore {
-    if (_sessions.isEmpty) return 0.0;
-    final total = _sessions.fold<double>(
+    final ended = _endedSessions;
+    if (ended.isEmpty) return 0.0;
+    final total = ended.fold<double>(
       0.0,
       (acc, item) => acc + item.avgAttentionScore,
     );
-    return double.parse((total / _sessions.length).toStringAsFixed(1));
+    return double.parse((total / ended.length).toStringAsFixed(1));
   }
 
   List<StudentModel> get filteredStudents {
@@ -270,7 +279,15 @@ class ClassDetailController extends ChangeNotifier {
               );
             }
 
-            list.sort((a, b) => b.date.compareTo(a.date));
+            // Mới nhất lên đầu, buổi không có ngày xuống cuối
+            list.sort((a, b) {
+              final x = a.startAt ?? a.dateAt;
+              final y = b.startAt ?? b.dateAt;
+              if (x == null && y == null) return 0;
+              if (x == null) return 1;
+              if (y == null) return -1;
+              return y.compareTo(x);
+            });
             _sessions = list;
             notifyListeners();
           },
